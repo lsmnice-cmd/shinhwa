@@ -70,6 +70,7 @@
   table.grid select{padding:4px 6px;border:1px solid var(--line);border-radius:4px;font-size:12px}
   .wwait{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:3px;background:var(--wait-soft);color:var(--wait);font-size:10px;font-weight:800;letter-spacing:1px}
   .wdone{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:3px;background:var(--ok-soft);color:var(--ok);font-size:10px;font-weight:800;letter-spacing:1px}
+  .wraw{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:3px;background:#e8e4da;color:#5b564a;font-size:10px;font-weight:700}
   .worktag{cursor:pointer;user-select:none;display:inline-block;width:100%;padding:6px 2px;border-radius:4px;font-size:11px;font-weight:800;font-family:var(--mono)}
   .worktag.wait{background:var(--wait-soft);color:var(--wait)}
   .worktag.done{background:var(--ok-soft);color:var(--ok)}
@@ -267,7 +268,7 @@
 <!-- ============ ③ 작업용 노트 ============ -->
 <section class="panel tabpage" data-page="work" style="display:none">
   <div class="datebar" id="workDates"></div>
-  <div class="mini no-print" style="margin-bottom:8px">각 품목 옆에 <span class="spec">작업스펙</span>(세절·절단 방법)과 작업여부가 표시됩니다. 값은 ④ 마스터 또는 스프레드시트에서 입력합니다.</div>
+  <div class="mini no-print" style="margin-bottom:8px">각 품목 옆에 <span class="spec">작업스펙</span>(세절·절단 방법)과 작업여부가 표시됩니다. <span class="wwait">작업</span>=손질 필요, <span class="wraw">원물/박스</span>=원물 그대로 출고.</div>
   <div id="workWrap"></div>
 </section>
 
@@ -786,7 +787,8 @@ function openGapDialog(GAPS){
 
     const td3=document.createElement('td');
     const sel=document.createElement('select');
-    ['','대기','완료'].forEach(v=>{
+    const opts = STATUSES.includes(g.status) ? STATUSES : STATUSES.concat([g.status]);
+    opts.forEach(v=>{
       const op=document.createElement('option'); op.value=v; op.textContent=v||'-';
       if(g.status===v) op.selected=true; sel.appendChild(op);
     });
@@ -865,6 +867,7 @@ async function saveGaps(){
 
 /* ---------- 렌더링 ---------- */
 const VORDER=['0966','6506','1982','4232','사무실','택배','마포','미지정'];
+const STATUSES=['','작업','원물/박스','원물/팩','원물','작업/네이버','원물/네이버'];
 function vsort(a,b){let x=VORDER.indexOf(a),y=VORDER.indexOf(b);if(x<0)x=99;if(y<0)y=99;return x-y||a.localeCompare(b);}
 
 function ordersByDate(){
@@ -913,8 +916,13 @@ function buildNoteTable(date, workMode){
           const sp=specForItem(c,it.product,it.text);
           if(sp){
             if(sp.spec) line+='<span class="spec">'+esc(sp.spec)+'</span>';
-            if(sp.status==='완료') line+='<span class="wdone">완료</span>';
-            else if(sp.spec) line+='<span class="wwait">작업</span>';
+            const st=(sp.status||'').trim();
+            if(st){
+              // 작업여부 어휘: 작업 / 작업/네이버 / 원물/박스 / 원물/팩 / 원물 …
+              // '원물'로 시작하면 손대지 않고 그대로 나가는 것 → 회색 배지
+              const raw = st.indexOf('원물')===0;
+              line+='<span class="'+(raw?'wraw':'wwait')+'">'+esc(st)+'</span>';
+            }
           }
         }
         line+='</span>';return line;
@@ -1144,7 +1152,7 @@ function renderMaster(){
       }
       h+='<td class="mini">'+esc(s.product||'(품목 없음)')+'</td>';
       h+='<td><select onchange="setStatus(\''+esc(sk)+'\','+i+',this.value)">'+
-         ['','대기','완료'].map(v=>'<option value="'+v+'"'+(s.status===v?' selected':'')+'>'+(v||'-')+'</option>').join('')+
+         (STATUSES.includes(s.status)?STATUSES:STATUSES.concat([s.status])).map(v=>'<option value="'+esc(v)+'"'+(s.status===v?' selected':'')+'>'+esc(v||'-')+'</option>').join('')+
          '</select></td>';
       h+='<td><input type="text" class="specin" value="'+esc(s.spec||'')+'" placeholder="예) 2.5mm 세절 / 8등분 커팅" '+
          'onchange="setSpecOne(\''+esc(sk)+'\','+i+',this.value)"></td>';
@@ -1166,7 +1174,7 @@ function setVehicle(sk,v){MASTER[sk].vehicle=v.trim();saveMaster(sk);reMatchVehi
 function setStatus(sk,i,v){
   const s=MASTER[sk].specs[i]; if(!s) return;
   s.status=v;
-  gsCall('setSpec',{client:sk,product:s.product,spec:s.spec||'',status:v||'대기'})
+  gsCall('setSpec',{client:sk,product:s.product,spec:s.spec||'',status:v||''})
     .catch(e=>setMsg('inMsg','시트 저장 실패: '+e.message,false));
   renderWork();
 }
@@ -1243,7 +1251,8 @@ async function bulkSpecUI(){
 async function bulkStatusUI(){
   const cs=prompt('작업여부를 바꿀 거래처 (쉼표 구분, 비우면 전체)')||'';
   const clients=cs.split(',').map(s=>s.trim()).filter(Boolean);
-  const st=prompt('작업여부 (완료 / 대기)'); if(!st) return;
+  const st=prompt('작업여부\n작업 / 원물/박스 / 원물/팩 / 원물 / 작업/네이버\n(비우면 지움)');
+  if(st===null) return;
   try{
     const j=await gsCall('bulkStatus',{clients:JSON.stringify(clients),status:st.trim()});
     setMsg('inMsg',`✓ ${j.rows}행 작업여부 변경`,true);
