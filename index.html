@@ -95,8 +95,21 @@
   details.help{margin-top:8px;font-size:12px;color:var(--muted)}
   details.help summary{cursor:pointer;font-weight:700}
   .warnbar{background:#fff6e6;border:1px solid #e8c979;color:#7a5a00;padding:8px 12px;border-radius:5px;font-size:12px;margin-bottom:12px}
+  /* ===== 로그인 게이트 ===== */
+  .gate{position:fixed;inset:0;z-index:200;background:var(--ink);display:flex;align-items:center;justify-content:center;padding:20px}
+  .gate.hide{display:none}
+  .gate-card{background:var(--panel);border-radius:8px;padding:32px 28px;width:100%;max-width:380px;text-align:center;border-top:4px solid var(--accent)}
+  .gate-mark{font-size:15px;font-weight:800;letter-spacing:3px;color:var(--ink)}
+  .gate-mark b{color:var(--accent)}
+  .gate-title{font-size:26px;font-weight:800;letter-spacing:4px;margin-top:6px}
+  .gate-sub{color:var(--muted);font-size:12px;margin-top:8px}
+  .uidbox{margin-top:16px;padding:12px;background:#f5f2ea;border-radius:6px;text-align:left;word-break:break-all}
+  .uidbox code{font-size:12px;display:block;margin-top:4px}
+  .whoami{font-size:11px;opacity:.75;display:flex;align-items:center;gap:8px}
+  .whoami button{background:transparent;border:1px solid #555;color:#ddd;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer}
+
   @media print{
-    header.top,nav.tabs,.no-print{display:none!important}
+    header.top,nav.tabs,.no-print,#gate{display:none!important}
     body{background:#fff}
     .panel{border:none;box-shadow:none;padding:0}
     table.note td.work,table.note col.c-work,table.note th.work{display:none}
@@ -110,6 +123,21 @@
 </style>
 </head>
 <body>
+<div id="gate" class="gate">
+  <div class="gate-card">
+    <div class="gate-mark">신화<b>미트</b></div>
+    <div class="gate-title">주문노트</div>
+    <div class="gate-sub">허가된 계정만 접속할 수 있습니다.</div>
+    <button class="btn accent" id="loginBtn" onclick="signIn()" style="width:100%;margin-top:18px">Google 계정으로 로그인</button>
+    <button class="btn ghost" onclick="tab('setup');document.getElementById('gate').classList.add('hide')" style="width:100%;margin-top:8px">⚙ 연결 설정 먼저 하기</button>
+    <div id="gateMsg" class="msg"></div>
+    <div id="uidBox" class="uidbox" style="display:none">
+      <div class="mini">내 UID (Firebase 규칙에 넣을 값)</div>
+      <code id="myUid" class="k"></code>
+      <button class="btn ghost" style="padding:4px 10px;margin-top:6px" onclick="copyUid()">복사</button>
+    </div>
+  </div>
+</div>
 <header class="top">
   <h1>신화<b>미트</b> · 주문노트</h1>
   <div class="status"><span id="fbdot" class="dot"></span><span id="fbstat">연결 준비</span></div>
@@ -127,10 +155,14 @@
 <section class="panel tabpage" data-page="setup" style="display:none">
   <h2>연결 설정</h2>
   <div class="sub">최초 1회만 입력하면 이 브라우저에 저장됩니다. (GitHub Pages 정적 호스팅 · 서버 불필요)</div>
-  <div class="warnbar">이 방식은 키가 브라우저에 노출됩니다. 사내 전용 URL로만 쓰고, 외부에 링크를 공유하지 마세요. Firebase 규칙과 Gemini 키 사용량 제한을 걸어두는 걸 권장합니다.</div>
+  <div class="warnbar">Gemini 키와 거래처 명단은 Apps Script·스프레드시트 뒤에 숨어 있어 브라우저로 내려오지 않습니다. 주문 데이터는 Firebase 규칙(내 UID)으로 보호됩니다.</div>
   <div class="row" style="margin-bottom:10px">
-    <label style="width:160px">Gemini API 키</label>
-    <input type="text" id="cfgGemini" placeholder="AIza..." style="flex:1;min-width:260px">
+    <label style="width:160px">Apps Script 웹앱 URL</label>
+    <input type="text" id="cfgGsUrl" placeholder="https://script.google.com/macros/s/.../exec" style="flex:1;min-width:260px">
+  </div>
+  <div class="row" style="margin-bottom:10px">
+    <label style="width:160px">APP_TOKEN</label>
+    <input type="text" id="cfgToken" placeholder="Apps Script 스크립트 속성에 넣은 값" style="flex:1;min-width:260px">
   </div>
   <div class="row" style="margin-bottom:10px">
     <label style="width:160px">Firebase databaseURL</label>
@@ -148,12 +180,17 @@
     <button class="btn accent" onclick="saveConfig()">저장하고 연결</button>
     <span class="mini">저장 후 새로고침 없이 바로 연결됩니다.</span>
   </div>
-  <details class="help">
-    <summary>Firebase 실시간DB 규칙 예시 (사내용 · 자유롭게 조정)</summary>
+  <details class="help" open>
+    <summary>Firebase 실시간DB 규칙 — 나만 접속 허용</summary>
+    <p>Firebase 콘솔 → 빌드 → Realtime Database → <b>규칙</b> 탭에 아래를 붙여넣고 <b>게시</b>. <code class="k">내UID</code>는 로그인 화면에 표시되는 값으로 바꾸세요.</p>
     <pre class="k" style="background:#f5f2ea;padding:10px;border-radius:5px;overflow:auto">{
-  "rules": { ".read": true, ".write": true }
+  "rules": {
+    ".read": "auth != null && auth.uid === '내UID'",
+    ".write": "auth != null && auth.uid === '내UID'"
+  }
 }</pre>
-    운영 시에는 인증을 붙여 read/write를 제한하세요.
+    <p>여러 명 허용하려면: <code class="k">auth.uid === 'UID1' || auth.uid === 'UID2'</code></p>
+    <p>또한 Firebase 콘솔 → 빌드 → <b>Authentication</b> → 로그인 방법에서 <b>Google</b>을 사용 설정해야 합니다.</p>
   </details>
 </section>
 
@@ -168,10 +205,10 @@
   </div>
   <textarea id="kakaoText" placeholder="예)
 안녕하세요! 내일 도착분 발주 드립니다.
-소들녘
+○○식당
 스페4박스 엑셀2박스 셀레2박스
 생불5kg La1박스
-피자펍
+△△가게
 돼지고기 3킬로 2봉지
 감사합니다~"></textarea>
   <div class="row" style="margin-top:12px">
@@ -199,7 +236,7 @@
 <!-- ============ ④ 마스터 ============ -->
 <section class="panel tabpage" data-page="master" style="display:none">
   <h2>차량 매칭 · 작업스펙 마스터</h2>
-  <div class="sub">거래처별 담당 차량과 대표 작업스펙을 관리합니다. 매출이력으로 490개 거래처가 미리 채워져 있고, 수정하면 이 브라우저+Firebase에 누적됩니다.</div>
+  <div class="sub">거래처별 담당 차량과 대표 작업스펙을 관리합니다. 거래처·차량·작업스펙은 <b>구글 스프레드시트</b>에 저장됩니다. 여기서 고치면 시트에 바로 반영되고, 시트에서 고치면 새로고침 시 반영됩니다.</div>
   <div class="row" style="margin-bottom:12px">
     <input type="text" id="masterSearch" placeholder="거래처 검색..." style="flex:1;min-width:220px" oninput="renderMaster()">
     <button class="btn ghost" onclick="addMasterRow()">+ 거래처 추가</button>
@@ -226,7 +263,7 @@
 <!-- Firebase (compat, CDN) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="spec_seed.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script>
 /* ============================================================
    신화미트 주문노트  ·  GitHub Pages + Firebase + Gemini
@@ -238,64 +275,94 @@ let ORDERS={};      // pushId -> order {id,date,vehicle,client,items:[{product,t
 let MASTER={};      // shortClient -> {vehicle, specs:[{product,how,manual}]}
 let seenHashes=new Set();
 
-/* ---------- 초기 마스터: 매출 시드 + 저장분 병합 ---------- */
+/* ---------- 마스터는 Firebase에서만 로드 (공개 파일에 거래처 명단 없음) ---------- */
 function shortName(name){
   return String(name||'').split(/[\(\-]/)[0].trim();
 }
 function buildInitialMaster(){
-  const seed=(window.SPEC_SEED&&window.SPEC_SEED.byClient)||{};
-  const m={};
-  for(const formal in seed){
-    const sk=shortName(formal);
-    if(!m[sk]) m[sk]={vehicle:'',specs:[]};
-    // top products as spec suggestions (원산지/등급 표기)
-    seed[formal].slice(0,8).forEach(([p,o,g,cnt])=>{
-      const how=[o,(g?g+'등급':'')].filter(Boolean).join(' ');
-      if(!m[sk].specs.some(s=>s.product===p))
-        m[sk].specs.push({product:p,how:how,manual:false});
-    });
-  }
-  return m;
+  return {}; // 시드는 Firebase /master 에 있음. 로그인 후에만 내려옴.
 }
 
 /* ---------- 설정 ---------- */
 function loadConfigUI(){
-  cfgGemini.value=cfg.gemini||''; cfgFbUrl.value=cfg.fbUrl||'';
-  cfgFbKey.value=cfg.fbKey||''; cfgFbProj.value=cfg.fbProj||'';
+  cfgGsUrl.value=cfg.gsUrl||''; cfgToken.value=cfg.token||'';
+  cfgFbUrl.value=cfg.fbUrl||''; cfgFbKey.value=cfg.fbKey||''; cfgFbProj.value=cfg.fbProj||'';
   baseDate.value=todayStr();
 }
 function saveConfig(){
-  cfg={gemini:cfgGemini.value.trim(),fbUrl:cfgFbUrl.value.trim(),
-       fbKey:cfgFbKey.value.trim(),fbProj:cfgFbProj.value.trim()};
+  cfg={gsUrl:cfgGsUrl.value.trim(), token:cfgToken.value.trim(),
+       fbUrl:cfgFbUrl.value.trim(), fbKey:cfgFbKey.value.trim(), fbProj:cfgFbProj.value.trim()};
   localStorage.setItem(LS,JSON.stringify(cfg));
   initFirebase();
+  loadMasterFromSheet();
 }
 function todayStr(){const d=new Date();return d.toISOString().slice(0,10);}
 
-/* ---------- Firebase ---------- */
+/* ---------- Firebase + 인증 ---------- */
 function setStat(on,txt){fbdot.classList.toggle('on',on);fbstat.textContent=txt;}
+let auth=null, ME=null;
+
 function initFirebase(){
-  if(!cfg.fbUrl||!cfg.fbKey||!cfg.fbProj){setStat(false,'설정 필요 (⚙)');return;}
+  if(!cfg.fbUrl||!cfg.fbKey||!cfg.fbProj){
+    setStat(false,'설정 필요 (⚙)');
+    gateMsgSet('먼저 ⚙ 연결 설정에서 Firebase 정보를 입력하세요.',false);
+    return;
+  }
   try{
     if(!firebase.apps.length){
-      firebase.initializeApp({apiKey:cfg.fbKey,databaseURL:cfg.fbUrl,projectId:cfg.fbProj});
+      firebase.initializeApp({
+        apiKey:cfg.fbKey, databaseURL:cfg.fbUrl, projectId:cfg.fbProj,
+        authDomain:cfg.fbProj+'.firebaseapp.com'
+      });
     }
-    db=firebase.database();fbReady=true;setStat(true,'실시간 연결됨');
-    // 주문 실시간 구독
-    db.ref('orders').on('value',s=>{
-      ORDERS=s.val()||{};
-      seenHashes=new Set(Object.values(ORDERS).map(o=>o.hash));
-      renderAll();
+    db=firebase.database();
+    auth=firebase.auth();
+    auth.onAuthStateChanged(u=>{
+      if(u){ ME=u; onSignedIn(u); }
+      else { ME=null; fbReady=false; showGate(); setStat(false,'로그아웃됨'); }
     });
-    // 마스터 구독 (저장분을 시드 위에 덮어씀)
-    db.ref('master').on('value',s=>{
-      const saved=s.val()||{};
-      MASTER=buildInitialMaster();
-      for(const k in saved){MASTER[k]=saved[k];}
-      renderAll();
-    });
-  }catch(e){setStat(false,'연결 오류');console.error(e);}
+    setStat(false,'로그인 필요');
+  }catch(e){setStat(false,'연결 오류');gateMsgSet('연결 오류: '+e.message,false);console.error(e);}
 }
+
+function signIn(){
+  if(!auth){ gateMsgSet('⚙ 연결 설정을 먼저 저장하세요.',false); return; }
+  const p=new firebase.auth.GoogleAuthProvider();
+  auth.signInWithPopup(p).catch(e=>gateMsgSet('로그인 실패: '+e.message,false));
+}
+function signOut(){ if(auth) auth.signOut(); }
+
+function onSignedIn(u){
+  // 데이터 접근 시도 → 규칙이 막으면 권한 오류를 보여주고 UID 안내
+  db.ref('orders').on('value',s=>{
+    fbReady=true; hideGate(); setStat(true,'실시간 연결됨');
+    ORDERS=s.val()||{};
+    seenHashes=new Set(Object.values(ORDERS).map(o=>o.hash));
+    renderAll();
+  },err=>{
+    fbReady=false;
+    showGate();
+    gateMsgSet('이 계정은 접근 권한이 없습니다. 아래 UID를 Firebase 규칙에 넣으세요.',false);
+    showUid(u.uid);
+    setStat(false,'권한 없음');
+  });
+  renderWhoami(u);
+  loadMasterFromSheet();
+}
+
+function renderWhoami(u){
+  let box=document.getElementById('whoami');
+  if(!box){
+    box=document.createElement('div');box.id='whoami';box.className='whoami';
+    document.querySelector('header.top .status').before(box);
+  }
+  box.innerHTML='<span>'+esc(u.email||'로그인됨')+'</span><button onclick="signOut()">로그아웃</button>';
+}
+function showGate(){document.getElementById('gate').classList.remove('hide');}
+function hideGate(){document.getElementById('gate').classList.add('hide');}
+function gateMsgSet(t,ok){const e=document.getElementById('gateMsg');e.textContent=t;e.className='msg '+(ok?'ok':'err');}
+function showUid(uid){document.getElementById('uidBox').style.display='';document.getElementById('myUid').textContent=uid;}
+function copyUid(){navigator.clipboard.writeText(document.getElementById('myUid').textContent);gateMsgSet('UID 복사됨. Firebase 규칙에 붙여넣으세요.',true);}
 
 /* ---------- 해시(중복 제거) ---------- */
 function hashOrder(o){
@@ -353,15 +420,46 @@ function specForItem(client, product, text){
   return bestScore>=2?best:null;
 }
 
-/* ---------- Gemini 파싱 ---------- */
+/* ---------- Apps Script 호출 (Gemini 키·마스터가 이 뒤에 있음) ----------
+   Content-Type: text/plain 은 CORS 단순요청이라 preflight가 없습니다.
+   application/json 으로 보내면 Apps Script가 OPTIONS에 응답하지 않아 실패합니다. */
+async function gsCall(action, params){
+  if(!cfg.gsUrl||!cfg.token) throw new Error('⚙ 설정에서 Apps Script URL과 APP_TOKEN을 입력하세요.');
+  const body=Object.assign({action:action, token:cfg.token}, params||{});
+  const qs=new URLSearchParams(body).toString();
+  const res=await fetch(cfg.gsUrl,{
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:qs,
+    redirect:'follow'
+  });
+  const j=await res.json();
+  if(!j.ok) throw new Error(j.error||'Apps Script 오류');
+  return j;
+}
+
+/* ---------- 마스터: 스프레드시트에서 로드 ---------- */
+async function loadMasterFromSheet(){
+  if(!cfg.gsUrl||!cfg.token) return;
+  try{
+    const j=await gsCall('getMaster');
+    MASTER=j.master||{};
+    renderAll();
+  }catch(e){
+    console.error(e);
+    setMsg('inMsg','마스터 로드 실패: '+e.message,false);
+  }
+}
 async function analyze(){
   const text=kakaoText.value.trim();
   if(!text){setMsg('inMsg','카톡 내용을 입력해주세요.',false);return;}
-  if(!cfg.gemini){setMsg('inMsg','⚙ 설정에서 Gemini 키를 먼저 입력하세요.',false);tab('setup');return;}
-  const btn=analyzeBtn;btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Gemini 분석 중...';
+  if(!cfg.gsUrl||!cfg.token){setMsg('inMsg','⚙ 설정에서 Apps Script URL과 APP_TOKEN을 먼저 입력하세요.',false);tab('setup');return;}
+  if(!ME){setMsg('inMsg','로그인이 필요합니다.',false);showGate();return;}
+  const btn=analyzeBtn;btn.disabled=true;btn.innerHTML='<span class="spinner"></span>AI 분석 중...';
   setMsg('inMsg','',true);
   try{
-    const parsed=await callGemini(text,baseDate.value||todayStr());
+    const j=await gsCall('parse',{text:text, baseDate:baseDate.value||todayStr()});
+    const parsed=j.orders||[];
     if(!parsed.length){setMsg('inMsg','분석할 주문을 찾지 못했습니다.',false);return;}
     let added=0,dup=0,newClients=[];
     for(const o of parsed){
@@ -385,31 +483,6 @@ async function analyze(){
     tab('note');
   }catch(e){setMsg('inMsg','오류: '+e.message,false);}
   finally{btn.disabled=false;btn.innerHTML='✦ AI 분석 후 누적';}
-}
-
-async function callGemini(text,baseDate){
-  const url=`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${cfg.gemini}`;
-  const sys=`당신은 육류 유통업체 신화미트의 주문 분류 전문가입니다. 아래 카카오톡 발주방 메시지를 분석해 JSON 배열로만 응답하세요. 마크다운 없이 순수 JSON만 출력합니다.
-
-[규칙]
-1. 인사말/잡담/감사인사/이모지 등 주문과 무관한 문장은 모두 제거한다.
-2. date: 'YYYY-MM-DD'. 메시지에 7.7, 07.07, 06.30, 6/30 같은 날짜가 있으면 그 날짜(연도는 ${baseDate.slice(0,4)})로. 없으면 ${baseDate}.
-3. vehicle: 0966,6506,1982,4232,택배,사무실,마포 중 하나로 보이면 넣고, 아니면 "미지정".
-4. client: 거래처(가게) 이름. 짧은 상호 그대로 (예: 소들녘, 피자펍, 토담골).
-5. items: 배열. 각 원소는 {product, text, price}.
-   - product: 핵심 상품명만 (예: 돈목전지, 삼겹살, LA갈비, 우삼겹).
-   - text: 수량·옵션·중량·두께가 포함된 주문 원문 (예: "스페4박스", "돼지고기 3킬로 2봉지", "목전지 8키로16개").
-   - price: 원문에 단가/금액(예: 8800원, 11000, 7,500원)이 있으면 그대로 문자열로. 없으면 "".
-6. 한 거래처에 여러 품목이면 items에 모두 담는다. 여러 거래처면 배열 원소를 나눈다.`;
-  const payload={contents:[{parts:[{text:sys+"\n\n[메시지]\n"+text}]}],
-    generationConfig:{temperature:0.1,responseMimeType:"application/json"}};
-  const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-  const j=await res.json();
-  if(j.error) throw new Error(j.error.message);
-  let t=j.candidates[0].content.parts[0].text.trim().replace(/^```json/,'').replace(/```$/,'');
-  const arr=JSON.parse(t);
-  return arr.map(o=>({date:o.date,vehicle:o.vehicle||'미지정',client:(o.client||'').trim(),
-    items:(o.items||[]).map(i=>({product:(i.product||'').trim(),text:(i.text||'').trim(),price:(i.price||'').trim()}))}));
 }
 
 /* ---------- 렌더링 ---------- */
@@ -518,6 +591,12 @@ function renderMaster(){
   const q=(masterSearch.value||'').trim();
   const keys=Object.keys(MASTER).filter(k=>!q||k.includes(q)).sort();
   const tb=masterBody;tb.innerHTML='';
+  if(!keys.length){
+    tb.innerHTML='<tr><td colspan="4" class="empty">'+(ME
+      ? '마스터 시트가 비어 있거나 아직 불러오지 못했습니다. ⚙ 설정의 Apps Script URL·APP_TOKEN을 확인하세요.'
+      : '로그인하면 거래처 마스터가 표시됩니다.')+'</td></tr>';
+    return;
+  }
   keys.slice(0,400).forEach(sk=>{
     const m=MASTER[sk];
     const tr=document.createElement('tr');
@@ -544,8 +623,19 @@ function addMasterRow(){
   const name=prompt('추가할 거래처(짧은 이름)?');if(!name)return;
   const sk=name.trim();if(!MASTER[sk])MASTER[sk]={vehicle:'',specs:[]};saveMaster(sk);renderMaster();
 }
-function delMaster(sk){if(!confirm(sk+' 를 마스터에서 삭제할까요?'))return;delete MASTER[sk];if(fbReady)db.ref('master/'+sk).remove();renderMaster();}
-function saveMaster(sk){if(fbReady)db.ref('master/'+sk).set(MASTER[sk]);}
+function delMaster(sk){
+  if(!confirm(sk+' 를 마스터 시트에서 삭제할까요?'))return;
+  delete MASTER[sk];
+  gsCall('deleteClient',{client:sk})
+    .catch(e=>alert('삭제 실패: '+e.message));
+  renderMaster();
+}
+async function saveMaster(sk){
+  const m=MASTER[sk]; if(!m) return;
+  try{
+    await gsCall('saveClient',{client:sk, vehicle:m.vehicle||'', specs:JSON.stringify(m.specs||[])});
+  }catch(e){ console.error(e); setMsg('inMsg','시트 저장 실패: '+e.message,false); }
+}
 async function reMatchVehicles(){
   // 마스터 차량이 바뀌면 미지정 주문 재매칭
   for(const id in ORDERS){const o=ORDERS[id];const v=matchVehicle(o.client);
