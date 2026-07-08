@@ -99,6 +99,26 @@
   details.help{margin-top:8px;font-size:12px;color:var(--muted)}
   details.help summary{cursor:pointer;font-weight:700}
   .warnbar{background:#fff6e6;border:1px solid #e8c979;color:#7a5a00;padding:8px 12px;border-radius:5px;font-size:12px;margin-bottom:12px}
+  /* ===== 진행바 ===== */
+  .progtrack{height:6px;background:#e8e2d5;border-radius:3px;overflow:hidden}
+  .progbar{height:100%;width:0;background:var(--accent);transition:width .25s ease}
+
+  /* ===== 모달 ===== */
+  .modal{position:fixed;inset:0;z-index:150;background:rgba(20,18,14,.62);display:none;
+         align-items:center;justify-content:center;padding:16px}
+  .modal.open{display:flex}
+  .modal-card{background:var(--panel);border-radius:8px;width:100%;max-width:860px;max-height:88vh;
+              display:flex;flex-direction:column;border-top:4px solid var(--accent)}
+  .modal-head{display:flex;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid var(--line)}
+  .modal-body{padding:16px 18px;overflow:auto;flex:1}
+  .modal-foot{display:flex;align-items:center;gap:8px;padding:12px 18px;border-top:1px solid var(--line)}
+  .gaph{margin:0 0 8px;font-size:13px;letter-spacing:1px}
+  .vpick{display:flex;flex-wrap:wrap;gap:4px}
+  .vpick button{padding:5px 10px;border:1px solid var(--line);background:#fff;border-radius:4px;
+                cursor:pointer;font-family:var(--mono);font-weight:700;font-size:12px}
+  .vpick button.sel{background:var(--accent);color:#fff;border-color:var(--accent)}
+  @media print{ .modal{display:none!important} }
+
   /* ===== 로그인 게이트 ===== */
   .gate{position:fixed;inset:0;z-index:200;background:var(--ink);display:flex;align-items:center;justify-content:center;padding:20px}
   .gate.hide{display:none}
@@ -217,9 +237,14 @@
 감사합니다~"></textarea>
   <div class="row" style="margin-top:12px">
     <button class="btn accent" id="analyzeBtn" onclick="analyze()">✦ AI 분석 후 누적</button>
+    <button class="btn ghost" id="cancelBtn" onclick="cancelAnalyze()" style="display:none">■ 중단</button>
     <button class="btn ghost" onclick="document.getElementById('kakaoText').value=''">지우기</button>
     <div class="flexspacer"></div>
-    <span class="mini">차량은 거래처 마스터에서 자동 매칭됩니다.</span>
+    <span class="mini">카톡 전체를 붙여넣어도 됩니다 — 날짜별로 자동 분리 처리합니다.</span>
+  </div>
+  <div id="progWrap" style="display:none;margin-top:12px">
+    <div class="progtrack"><div class="progbar" id="progBar"></div></div>
+    <div class="mini" id="progText" style="margin-top:4px"></div>
   </div>
   <div id="inMsg" class="msg"></div>
 </section>
@@ -272,6 +297,48 @@
   </div>
 </section>
 
+
+<!-- ===== 빈칸 채우기 모달 ===== -->
+<div id="gapModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div>
+        <h2 style="margin:0;font-size:15px;letter-spacing:1px">빠진 정보 채우기</h2>
+        <div class="mini" id="gapCount"></div>
+      </div>
+      <button class="btn ghost" style="padding:5px 10px" onclick="closeGapDialog()">나중에</button>
+    </div>
+
+    <div class="modal-body">
+      <div id="gapVehWrap">
+        <h3 class="gaph">🚚 차량이 없는 거래처</h3>
+        <table class="grid">
+          <thead><tr><th style="width:150px">거래처</th><th>차량 선택</th></tr></thead>
+          <tbody id="gapVehBody"></tbody>
+        </table>
+      </div>
+
+      <div id="gapSpecWrap" style="margin-top:18px">
+        <h3 class="gaph">✂ 작업스펙이 없는 상품</h3>
+        <div class="mini" style="margin-bottom:6px">어떻게 세절·절단하는지 적어주세요. 비워두면 저장하지 않습니다.</div>
+        <table class="grid">
+          <thead><tr>
+            <th style="width:110px">거래처</th><th style="width:160px">상품명</th>
+            <th style="width:80px">작업여부</th><th>작업스펙</th>
+          </tr></thead>
+          <tbody id="gapSpecBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="modal-foot">
+      <span class="mini">입력한 것만 스프레드시트에 저장됩니다. 빈칸은 그대로 둡니다.</span>
+      <div class="flexspacer"></div>
+      <button class="btn ghost" onclick="closeGapDialog()">건너뛰기</button>
+      <button class="btn accent" id="gapSaveBtn" onclick="saveGaps()">저장하고 닫기</button>
+    </div>
+  </div>
+</div>
 </main>
 
 <!-- Firebase (compat, CDN) -->
@@ -463,52 +530,285 @@ async function loadMasterFromSheet(){
     setMsg('inMsg','마스터 로드 실패: '+e.message,false);
   }
 }
+/* ---------- 카톡 텍스트 → 날짜별 청크 ---------- */
+// 카톡 내보내기의 "--------------- 2026년 7월 7일 화요일 ---------------" 구분선으로 자릅니다.
+// 구분선이 없으면(일부만 붙여넣기) 통째로 한 덩어리로 처리합니다.
+function splitByDay(raw){
+  const DIV=/^[-‐–—\s]*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일[^-]*[-‐–—\s]*$/;
+  const days=[]; let cur=null;
+  for(const ln of raw.split(/\r?\n/)){
+    const m=ln.match(DIV);
+    if(m){
+      cur={date:`${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`,lines:[]};
+      days.push(cur); continue;
+    }
+    if(/^[-‐–—\s]{5,}$/.test(ln)) continue;          // 장식용 대시줄
+    if(cur) cur.lines.push(ln);
+    else { if(!days.length){cur={date:null,lines:[]};days.push(cur);} days[0].lines.push(ln); }
+  }
+  return days.map(d=>({date:d.date,text:d.lines.join('\n').trim()}))
+             .filter(d=>d.text.length>0)
+             // 날짜 없는 덩어리는 실제 메시지([이름] [시각]) 또는 주문 같은 줄이 있어야 처리
+             .filter(d=>d.date || /^\[.+\]\s*\[.+\]/m.test(d.text) || /\d\s*(키로|킬로|kg|박스|팩|판|개)/i.test(d.text));
+}
+
+let CANCEL=false;
+function cancelAnalyze(){ CANCEL=true; setMsg('inMsg','중단 요청됨… 현재 날짜까지만 저장합니다.',false); }
+
 async function analyze(){
-  const text=kakaoText.value.trim();
-  if(!text){setMsg('inMsg','카톡 내용을 입력해주세요.',false);return;}
+  const raw=kakaoText.value.trim();
+  if(!raw){setMsg('inMsg','카톡 내용을 입력해주세요.',false);return;}
   if(!cfg.gsUrl||!cfg.token){setMsg('inMsg','⚙ 설정에서 Apps Script URL과 APP_TOKEN을 먼저 입력하세요.',false);tab('setup');return;}
   if(!ME){setMsg('inMsg','로그인이 필요합니다.',false);showGate();return;}
-  const btn=analyzeBtn;btn.disabled=true;btn.innerHTML='<span class="spinner"></span>AI 분석 중...';
-  setMsg('inMsg','',true);
+
+  const chunks=splitByDay(raw);
+  if(!chunks.length){setMsg('inMsg','분석할 내용이 없습니다.',false);return;}
+
+  if(chunks.length>1){
+    const mins=Math.ceil(chunks.length*2.5/60);
+    if(!confirm(`${chunks.length}일치가 감지되었습니다.\n하루씩 순서대로 분석하며, 약 ${mins}분 정도 걸립니다.\n창을 닫지 마세요. [중단] 버튼으로 언제든 멈출 수 있고, 그때까지 분석한 내용은 저장됩니다.\n\n계속할까요?`)) return;
+  }
+
+  CANCEL=false;
+  const btn=analyzeBtn; btn.disabled=true;
+  cancelBtn.style.display=chunks.length>1?'':'none';
+  progWrap.style.display=chunks.length>1?'':'none';
+
+  const tot={added:0,dup:0,newClients:[],newProducts:0,failed:[]};
+  const GAPS={vehicles:new Map(), specs:new Map()};   // 채워야 할 빈칸 수집
+
   try{
-    const j=await gsCall('parse',{text:text, baseDate:baseDate.value||todayStr()});
-    const parsed=j.orders||[];
-    if(!parsed.length){setMsg('inMsg','분석할 주문을 찾지 못했습니다.',false);return;}
-    let added=0,dup=0,newClients=[],newProducts=0;
-    for(const o of parsed){
-      o.vehicle=matchVehicle(o.client)||o.vehicle||'미지정';
-      o.hash=hashOrder(o);
-      if(seenHashes.has(o.hash)){dup++;continue;}
-      seenHashes.add(o.hash);
-      o.done=false;o.ts=Date.now();
-      if(fbReady){const ref=db.ref('orders').push();o.id=ref.key;await ref.set(o);}
-      else{o.id='local_'+o.hash;ORDERS[o.id]=o;}
-      added++;
-      // 신규 거래처 / 신규 상품을 마스터 시트에 자리 확보 (작업스펙은 비워둠 → 나중에 입력)
-      const sk=shortName(o.client);
-      if(!MASTER[sk]){
-        MASTER[sk]={vehicle:o.vehicle==='미지정'?'':o.vehicle,specs:[]};
-        newClients.push(sk);
-        await saveMaster(sk);
+    for(let i=0;i<chunks.length;i++){
+      if(CANCEL) break;
+      const ck=chunks[i];
+      const label=ck.date||'(날짜 미상)';
+      btn.innerHTML='<span class="spinner"></span>'+(chunks.length>1?`${i+1}/${chunks.length}일 분석 중…`:'AI 분석 중…');
+      if(chunks.length>1){
+        progBar.style.width=Math.round((i/chunks.length)*100)+'%';
+        progText.textContent=`${label} (${i+1}/${chunks.length}) · 누적 ${tot.added}건`;
       }
-      for(const it of o.items){
-        if(!it.product) continue;
-        if(specForItem(sk,it.product,it.text)) continue;      // 이미 매칭되는 상품 있음
-        if(MASTER[sk].specs.some(s=>s.product===it.product)) continue;
-        MASTER[sk].specs.push({product:it.product,spec:'',status:''});
-        newProducts++;
-        try{ await gsCall('setSpec',{client:sk,product:it.product,spec:'',status:''}); }catch(err){ console.error(err); }
+      try{
+        await processChunk(ck, tot, GAPS);
+      }catch(e){
+        console.error(label,e);
+        tot.failed.push(label+': '+e.message);
+      }
+      await sleep(chunks.length>1?900:0);   // Gemini 무료 티어 rate limit 여유 (백엔드에도 재시도 있음)
+    }
+
+    if(chunks.length>1){progBar.style.width='100%';progText.textContent=`완료 · ${tot.added}건`;}
+    if(!fbReady) renderAll();
+
+    let m=`✓ ${tot.added}건 누적`+(tot.dup?` · 중복 ${tot.dup}건 제외`:'');
+    if(tot.newClients.length) m+=` · 신규 거래처 ${tot.newClients.length}곳`;
+    if(tot.newProducts) m+=` · 신규 상품 ${tot.newProducts}개`;
+    if(CANCEL) m='(중단됨) '+m;
+    if(tot.failed.length) m+=` · 실패 ${tot.failed.length}일`;
+    setMsg('inMsg',m,!tot.failed.length);
+    if(tot.failed.length) console.warn('실패한 날짜:',tot.failed);
+
+    kakaoText.value='';
+
+    // 빈칸이 있으면 채우기 창을 띄웁니다
+    if(GAPS.vehicles.size || GAPS.specs.size) openGapDialog(GAPS);
+    else tab('note');
+
+  }finally{
+    btn.disabled=false; btn.innerHTML='✦ AI 분석 후 누적';
+    cancelBtn.style.display='none';
+    setTimeout(()=>{progWrap.style.display='none';progBar.style.width='0%';},1500);
+  }
+}
+
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+
+/* 하루치 청크 하나를 처리 */
+async function processChunk(ck, tot, GAPS){
+  const j=await gsCall('parse',{text:ck.text, baseDate:ck.date||baseDate.value||todayStr()});
+  const parsed=j.orders||[];
+  if(!parsed.length) return;
+
+  for(const o of parsed){
+    if(ck.date) o.date=ck.date;                       // 구분선 날짜가 최우선
+    const sk=shortName(o.client);
+    if(!sk) continue;
+
+    const known=matchVehicle(sk);
+    o.vehicle = known || (o.vehicle && o.vehicle!=='미지정' ? o.vehicle : '미지정');
+    o.hash=hashOrder(o);
+    if(seenHashes.has(o.hash)){tot.dup++;continue;}
+    seenHashes.add(o.hash);
+    o.done=false;o.ts=Date.now();
+
+    if(fbReady){const ref=db.ref('orders').push();o.id=ref.key;await ref.set(o);}
+    else{o.id='local_'+o.hash;ORDERS[o.id]=o;}
+    tot.added++;
+
+    // 신규 거래처 → 마스터에 자리 확보
+    if(!MASTER[sk]){
+      MASTER[sk]={vehicle: (o.vehicle!=='미지정'?o.vehicle:''), specs:[]};
+      tot.newClients.push(sk);
+      await saveMaster(sk);
+    }
+    // 차량이 여전히 비어 있으면 빈칸으로 수집
+    if(!MASTER[sk].vehicle){
+      const g=GAPS.vehicles.get(sk);
+      if(g) g.n++;
+      else GAPS.vehicles.set(sk,{veh:(o.vehicle!=='미지정'?o.vehicle:''), n:1});
+    }
+
+    // 신규 상품 → 행 추가, 스펙 비어 있으면 빈칸으로 수집
+    for(const it of o.items){
+      if(!it.product) continue;
+      let row=MASTER[sk].specs.find(s=>s.product===it.product);
+      if(!row){
+        const matched=specForItem(sk,it.product,it.text);
+        if(matched){ row=matched; }
+        else{
+          row={product:it.product,spec:'',status:''};
+          MASTER[sk].specs.push(row);
+          tot.newProducts++;
+          try{ await gsCall('setSpec',{client:sk,product:it.product,spec:'',status:''}); }
+          catch(err){ console.error(err); }
+        }
+      }
+      if(!row.spec){
+        const key=sk+'||'+row.product;
+        const g=GAPS.specs.get(key);
+        if(g) g.n++;
+        else GAPS.specs.set(key,{client:sk,product:row.product,spec:'',status:row.status||'',n:1});
       }
     }
-    if(!fbReady){renderAll();}
-    let m=`✓ ${added}건 누적`+(dup?` · 중복 ${dup}건 제외`:'');
-    if(newClients.length) m+=` · 신규 거래처 ${newClients.length}곳`;
-    if(newProducts) m+=` · 신규 상품 ${newProducts}개 (④ 마스터에서 작업스펙 입력)`;
-    setMsg('inMsg',m,true);
-    kakaoText.value='';
-    tab('note');
-  }catch(e){setMsg('inMsg','오류: '+e.message,false);}
-  finally{btn.disabled=false;btn.innerHTML='✦ AI 분석 후 누적';}
+  }
+}
+
+/* ---------- 빈칸 채우기 창 ---------- */
+let GAPSTATE=null;
+
+function openGapDialog(GAPS){
+  GAPSTATE=GAPS;
+  const CAP=120;   // 한 번에 너무 많이 띄우지 않습니다
+  const vb=document.getElementById('gapVehBody');
+  const sb=document.getElementById('gapSpecBody');
+  vb.innerHTML=''; sb.innerHTML='';
+
+  const VEHS=['0966','6506','1982','4232','택배','사무실','마포','방문'];
+
+  // 자주 나온 순 → 먼저 채우는 게 이득
+  const vList=[...GAPS.vehicles.entries()].sort((a,b)=>b[1].n-a[1].n || a[0].localeCompare(b[0]));
+  vList.slice(0,CAP).forEach(([c,info])=>{
+    const tr=document.createElement('tr');
+    const td1=document.createElement('td');
+    td1.innerHTML='<b>'+esc(c)+'</b> <span class="mini">'+info.n+'건</span>';
+    const td2=document.createElement('td');
+    const wrap=document.createElement('div'); wrap.className='vpick';
+    VEHS.forEach(v=>{
+      const b=document.createElement('button');
+      b.type='button'; b.textContent=v;
+      if(info.veh===v) b.classList.add('sel');
+      b.onclick=()=>{
+        wrap.querySelectorAll('button').forEach(x=>x.classList.remove('sel'));
+        b.classList.add('sel');
+        GAPS.vehicles.get(c).veh=v;
+      };
+      wrap.appendChild(b);
+    });
+    td2.appendChild(wrap);
+    tr.appendChild(td1); tr.appendChild(td2); vb.appendChild(tr);
+  });
+  if(vList.length>CAP){
+    const tr=document.createElement('tr'); const td=document.createElement('td');
+    td.colSpan=2; td.className='mini';
+    td.textContent=`…외 ${vList.length-CAP}곳. 나머지는 시트의 [🚚 주문노트 → 차량 지정 사이드바]에서 채우세요.`;
+    tr.appendChild(td); vb.appendChild(tr);
+  }
+
+  const sList=[...GAPS.specs.values()].sort((a,b)=>b.n-a.n || a.client.localeCompare(b.client));
+  sList.slice(0,CAP).forEach(g=>{
+    const key=g.client+'||'+g.product;
+    const tr=document.createElement('tr');
+
+    const td1=document.createElement('td'); td1.className='mini'; td1.textContent=g.client;
+    const td2=document.createElement('td');
+    td2.innerHTML=esc(g.product)+' <span class="mini">'+g.n+'건</span>';
+
+    const td3=document.createElement('td');
+    const sel=document.createElement('select');
+    ['','대기','완료'].forEach(v=>{
+      const op=document.createElement('option'); op.value=v; op.textContent=v||'-';
+      if(g.status===v) op.selected=true; sel.appendChild(op);
+    });
+    sel.onchange=()=>{ GAPS.specs.get(key).status=sel.value; };
+    td3.appendChild(sel);
+
+    const td4=document.createElement('td');
+    const inp=document.createElement('input');
+    inp.type='text'; inp.className='specin';
+    inp.placeholder='예) 2.5mm 세절 / 8등분 커팅 / 1kg씩 소분 진공';
+    inp.value=g.spec||'';
+    inp.oninput=()=>{ GAPS.specs.get(key).spec=inp.value; };
+    td4.appendChild(inp);
+
+    tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tr.appendChild(td4);
+    sb.appendChild(tr);
+  });
+  if(sList.length>CAP){
+    const tr=document.createElement('tr'); const td=document.createElement('td');
+    td.colSpan=4; td.className='mini';
+    td.textContent=`…외 ${sList.length-CAP}건. 나머지는 ④ 마스터 탭이나 스프레드시트에서 채우세요.`;
+    tr.appendChild(td); sb.appendChild(tr);
+  }
+
+  document.getElementById('gapVehWrap').style.display  = vList.length ? '' : 'none';
+  document.getElementById('gapSpecWrap').style.display = sList.length ? '' : 'none';
+  document.getElementById('gapCount').textContent =
+    `차량 ${vList.length}곳 · 작업스펙 ${sList.length}건` +
+    ((vList.length>CAP||sList.length>CAP) ? `  (자주 나온 순 ${CAP}개씩 표시)` : '');
+  document.getElementById('gapModal').classList.add('open');
+}
+
+function closeGapDialog(){
+  document.getElementById('gapModal').classList.remove('open');
+  GAPSTATE=null;
+  tab('note');
+}
+
+async function saveGaps(){
+  if(!GAPSTATE) return;
+  const btn=document.getElementById('gapSaveBtn');
+  btn.disabled=true; btn.textContent='저장 중…';
+  let okV=0, okS=0, fail=0;
+  try{
+    // 차량: 값이 있는 것만
+    for(const [c,info] of GAPSTATE.vehicles){
+      const v=info.veh;
+      if(!v) continue;
+      try{
+        await gsCall('bulkVehicle',{clients:JSON.stringify([c]),vehicle:v});
+        if(MASTER[c]) MASTER[c].vehicle=v;
+        okV++;
+      }catch(e){ console.error(c,e); fail++; }
+    }
+    // 스펙/작업여부: 하나라도 입력된 것만
+    for(const g of GAPSTATE.specs.values()){
+      if(!g.spec && !g.status) continue;
+      try{
+        await gsCall('setSpec',{client:g.client,product:g.product,spec:g.spec||'',status:g.status||''});
+        const m=MASTER[g.client];
+        if(m){
+          const row=m.specs.find(s=>s.product===g.product);
+          if(row){ row.spec=g.spec||''; row.status=g.status||''; }
+        }
+        okS++;
+      }catch(e){ console.error(g.client,g.product,e); fail++; }
+    }
+    setMsg('inMsg',`✓ 차량 ${okV}곳 · 작업스펙 ${okS}건 저장`+(fail?` · 실패 ${fail}건`:''), !fail);
+    await reMatchVehicles();
+    renderAll();
+    closeGapDialog();
+  }finally{
+    btn.disabled=false; btn.textContent='저장하고 닫기';
+  }
 }
 
 /* ---------- 렌더링 ---------- */
