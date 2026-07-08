@@ -99,6 +99,13 @@
   details.help{margin-top:8px;font-size:12px;color:var(--muted)}
   details.help summary{cursor:pointer;font-weight:700}
   .warnbar{background:#fff6e6;border:1px solid #e8c979;color:#7a5a00;padding:8px 12px;border-radius:5px;font-size:12px;margin-bottom:12px}
+  /* 주문 수정 */
+  .cli-edit{cursor:pointer;display:inline-flex;align-items:center;gap:5px;padding:2px 6px;border-radius:4px}
+  .cli-edit:hover{background:var(--accent-soft);color:var(--accent)}
+  .cli-edit .pen{font-style:normal;font-size:10px;opacity:0;transition:opacity .15s}
+  .cli-edit:hover .pen{opacity:.7}
+  #edItems tr.killed input{text-decoration:line-through;opacity:.45;background:#f6f2f2}
+
   /* ===== 진행바 ===== */
   .progtrack{height:6px;background:#e8e2d5;border-radius:3px;overflow:hidden}
   .progbar{height:100%;width:0;background:var(--accent);transition:width .25s ease}
@@ -133,7 +140,9 @@
   .whoami button{background:transparent;border:1px solid #555;color:#ddd;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer}
 
   @media print{
-    header.top,nav.tabs,.no-print,#gate{display:none!important}
+    header.top,nav.tabs,.no-print,#gate,#orderModal,#gapModal{display:none!important}
+    .cli-edit .pen{display:none!important}
+    .cli-edit{padding:0;background:none!important;color:inherit!important}
     body{background:#fff}
     .panel{border:none;box-shadow:none;padding:0}
     table.note td.work,table.note col.c-work,table.note th.work{display:none}
@@ -336,6 +345,49 @@
       <div class="flexspacer"></div>
       <button class="btn ghost" onclick="closeGapDialog()">건너뛰기</button>
       <button class="btn accent" id="gapSaveBtn" onclick="saveGaps()">저장하고 닫기</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 주문 수정/삭제 모달 ===== -->
+<div id="orderModal" class="modal">
+  <div class="modal-card" style="max-width:760px">
+    <div class="modal-head">
+      <div>
+        <h2 style="margin:0;font-size:15px;letter-spacing:1px">주문 수정</h2>
+        <div class="mini"><span id="edDate"></span> <span id="edCount"></span></div>
+      </div>
+      <button class="btn ghost" style="padding:5px 10px" onclick="closeOrderEditor()">✕</button>
+    </div>
+
+    <div class="modal-body">
+      <div class="row" style="margin-bottom:12px">
+        <label style="width:70px;font-size:12px;font-weight:700">거래처</label>
+        <input type="text" id="edClient" style="flex:1;min-width:180px">
+      </div>
+      <div style="margin-bottom:14px">
+        <div style="font-size:12px;font-weight:700;margin-bottom:5px">차량</div>
+        <div class="vpick" id="edVeh"></div>
+      </div>
+
+      <div style="font-size:12px;font-weight:700;margin-bottom:5px">품목</div>
+      <div class="mini" style="margin-bottom:6px">✕ 를 누르면 그 줄에 취소선이 그어집니다. 저장하면 삭제됩니다. 품목을 전부 지우면 주문이 삭제됩니다.</div>
+      <table class="grid">
+        <thead><tr>
+          <th>주문 원문 (수량·옵션 포함)</th>
+          <th style="width:150px">상품명</th>
+          <th style="width:100px">단가</th>
+          <th style="width:46px"></th>
+        </tr></thead>
+        <tbody id="edItems"></tbody>
+      </table>
+    </div>
+
+    <div class="modal-foot">
+      <button class="btn ghost" style="color:var(--accent);border-color:var(--accent)" onclick="deleteOrdersInEditor()">🗑 이 주문 삭제</button>
+      <div class="flexspacer"></div>
+      <button class="btn ghost" onclick="closeOrderEditor()">취소</button>
+      <button class="btn accent" id="edSaveBtn" onclick="saveOrderEdit()">저장</button>
     </div>
   </div>
 </div>
@@ -868,12 +920,16 @@ function buildNoteTable(date, workMode){
         line+='</span>';return line;
       }).join('');
 
+      const oids=orders.map(o=>o.id).join(',');
       html+='<tr class="'+(done?'done':'')+'">';
       if(ci===0) html+='<td class="veh" rowspan="'+clients.length+'">'+esc(v)+'</td>';
-      html+='<td class="cli">'+esc(c)+'</td>';
+      if(workMode){
+        html+='<td class="cli">'+esc(c)+'</td>';
+      }else{
+        html+='<td class="cli"><span class="cli-edit" onclick="openOrderEditor(\''+oids+'\')" title="클릭해서 수정/삭제">'+esc(c)+'<i class="pen">✎</i></span></td>';
+      }
       html+='<td class="items">'+itemHtml+'</td>';
       if(!workMode){
-        const oids=orders.map(o=>o.id).join(',');
         html+='<td class="work"><span class="worktag '+(done?'done':'wait')+'" onclick="toggleDone(\''+oids+'\')">'+(done?'완료':'대기')+'</span></td>';
       }
       html+='</tr>';
@@ -892,10 +948,14 @@ function renderNote(){
   noteWrap.innerHTML=
     '<div class="note-head"><span class="d">'+noteDate.replace(/-/g,'.')+'</span>'+
     '<span class="meta">거래처 '+new Set(meta.map(o=>o.client)).size+'곳 · 완료 '+doneN+'곳</span>'+
-    '<span class="actions no-print"><button class="btn ghost" onclick="window.print()">🖨 인쇄</button></span></div>'+
+    '<span class="actions no-print">'+
+      '<button class="btn ghost" onclick="deleteDay(\''+noteDate+'\')" title="이 날짜 주문 전체 삭제">🗑 하루 삭제</button>'+
+      '<button class="btn ghost" onclick="window.print()">🖨 인쇄</button>'+
+    '</span></div>'+
     buildNoteTable(noteDate,false)+
     '<div class="legend no-print"><span><i class="worktag wait" style="width:34px;text-align:center">대기</i>미작업</span>'+
-    '<span><i class="worktag done" style="width:34px;text-align:center">완료</i>작업완료(클릭 토글)</span></div>';
+    '<span><i class="worktag done" style="width:34px;text-align:center">완료</i>작업완료(클릭 토글)</span>'+
+    '<span>거래처명을 클릭하면 수정·삭제할 수 있습니다</span></div>';
 }
 function renderWork(){
   workDate=renderDateBar('workDates',workDate,d=>{workDate=d;renderWork();});
@@ -914,6 +974,148 @@ async function toggleDone(oids){
     if(fbReady) await db.ref('orders/'+id+'/done').set(!cur);
   }
   if(!fbReady) renderAll();
+}
+
+/* ---------- 주문 수정 / 삭제 ---------- */
+let EDIT_IDS=[];   // 지금 창에 열려 있는 주문 id들
+
+function openOrderEditor(oids){
+  EDIT_IDS=oids.split(',').filter(id=>ORDERS[id]);
+  if(!EDIT_IDS.length) return;
+  const first=ORDERS[EDIT_IDS[0]];
+
+  document.getElementById('edDate').textContent=first.date;
+  document.getElementById('edClient').value=first.client||'';
+
+  // 차량 버튼
+  const vp=document.getElementById('edVeh'); vp.innerHTML='';
+  ['0966','6506','1982','4232','택배','사무실','마포','방문','미지정'].forEach(v=>{
+    const b=document.createElement('button');
+    b.type='button'; b.textContent=v;
+    if((first.vehicle||'미지정')===v) b.classList.add('sel');
+    b.onclick=()=>{ vp.querySelectorAll('button').forEach(x=>x.classList.remove('sel')); b.classList.add('sel'); };
+    vp.appendChild(b);
+  });
+
+  // 품목 행 (여러 주문이 합쳐진 경우 각 주문의 품목을 모두 나열)
+  const tb=document.getElementById('edItems'); tb.innerHTML='';
+  EDIT_IDS.forEach(id=>{
+    (ORDERS[id].items||[]).forEach((it,ix)=>{
+      const tr=document.createElement('tr');
+      tr.dataset.oid=id; tr.dataset.ix=ix;
+
+      const t1=document.createElement('td');
+      const i1=document.createElement('input'); i1.type='text'; i1.className='specin'; i1.value=it.text||'';
+      t1.appendChild(i1);
+
+      const t2=document.createElement('td');
+      const i2=document.createElement('input'); i2.type='text'; i2.className='specin'; i2.value=it.product||'';
+      i2.placeholder='핵심 상품명'; t2.appendChild(i2);
+
+      const t3=document.createElement('td');
+      const i3=document.createElement('input'); i3.type='text'; i3.className='specin'; i3.value=it.price||'';
+      i3.placeholder='단가'; i3.style.width='90px'; t3.appendChild(i3);
+
+      const t4=document.createElement('td');
+      const del=document.createElement('button');
+      del.className='btn ghost'; del.style.padding='3px 8px'; del.textContent='✕';
+      del.title='이 품목 줄 삭제';
+      del.onclick=()=>{ tr.classList.toggle('killed'); };
+      t4.appendChild(del);
+
+      tr.append(t1,t2,t3,t4); tb.appendChild(tr);
+    });
+  });
+
+  document.getElementById('edCount').textContent =
+    EDIT_IDS.length>1 ? `주문 ${EDIT_IDS.length}건이 합쳐져 있습니다` : '';
+  document.getElementById('orderModal').classList.add('open');
+}
+
+function closeOrderEditor(){
+  document.getElementById('orderModal').classList.remove('open');
+  EDIT_IDS=[];
+}
+
+async function saveOrderEdit(){
+  if(!EDIT_IDS.length) return;
+  const btn=document.getElementById('edSaveBtn');
+  btn.disabled=true; btn.textContent='저장 중…';
+  try{
+    const client=document.getElementById('edClient').value.trim();
+    const selBtn=document.getElementById('edVeh').querySelector('button.sel');
+    const vehicle=selBtn?selBtn.textContent:'미지정';
+    if(!client){ alert('거래처명을 입력하세요.'); return; }
+
+    // 품목을 주문별로 다시 모읍니다 (삭제 표시된 줄 제외)
+    const byOid={};
+    EDIT_IDS.forEach(id=>byOid[id]=[]);
+    document.querySelectorAll('#edItems tr').forEach(tr=>{
+      if(tr.classList.contains('killed')) return;
+      const ins=tr.querySelectorAll('input');
+      const text=ins[0].value.trim();
+      if(!text) return;
+      byOid[tr.dataset.oid].push({
+        text:text,
+        product:ins[1].value.trim(),
+        price:ins[2].value.trim()
+      });
+    });
+
+    for(const id of EDIT_IDS){
+      const o=ORDERS[id]; if(!o) continue;
+      const items=byOid[id];
+
+      if(!items.length){                 // 품목이 다 지워지면 주문 자체를 삭제
+        await deleteOrder(id, true);
+        continue;
+      }
+      o.client=client; o.vehicle=vehicle; o.items=items;
+      const oldHash=o.hash;
+      o.hash=hashOrder(o);
+      if(oldHash!==o.hash){ seenHashes.delete(oldHash); seenHashes.add(o.hash); }
+
+      if(fbReady){
+        await db.ref('orders/'+id).update({client:o.client, vehicle:o.vehicle, items:o.items, hash:o.hash});
+      }
+    }
+    if(!fbReady) renderAll();
+    setMsg('inMsg','✓ 주문 수정됨',true);
+    closeOrderEditor();
+  }catch(e){
+    alert('저장 실패: '+e.message);
+  }finally{
+    btn.disabled=false; btn.textContent='저장';
+  }
+}
+
+async function deleteOrder(id, silent){
+  const o=ORDERS[id]; if(!o) return;
+  if(!silent && !confirm(`${o.client}의 주문을 삭제할까요?\n(${(o.items||[]).length}개 품목)`)) return;
+  seenHashes.delete(o.hash);
+  delete ORDERS[id];
+  if(fbReady) await db.ref('orders/'+id).remove();
+  if(!silent){ renderAll(); setMsg('inMsg','✓ 주문 삭제됨',true); }
+}
+
+async function deleteOrdersInEditor(){
+  if(!EDIT_IDS.length) return;
+  const names=[...new Set(EDIT_IDS.map(id=>ORDERS[id]&&ORDERS[id].client).filter(Boolean))];
+  if(!confirm(`${names.join(', ')} 의 주문 ${EDIT_IDS.length}건을 완전히 삭제합니다.\n되돌릴 수 없습니다. 계속할까요?`)) return;
+  for(const id of EDIT_IDS) await deleteOrder(id, true);
+  if(!fbReady) renderAll();
+  setMsg('inMsg',`✓ 주문 ${EDIT_IDS.length}건 삭제됨`,true);
+  closeOrderEditor();
+}
+
+/** 하루치 전체 삭제 (잘못 붙여넣었을 때) */
+async function deleteDay(date){
+  const ids=Object.keys(ORDERS).filter(id=>ORDERS[id].date===date);
+  if(!ids.length) return;
+  if(!confirm(`${date} 의 주문 ${ids.length}건을 전부 삭제합니다.\n되돌릴 수 없습니다. 계속할까요?`)) return;
+  for(const id of ids) await deleteOrder(id, true);
+  if(!fbReady) renderAll();
+  setMsg('inMsg',`✓ ${date} 주문 ${ids.length}건 삭제됨`,true);
 }
 
 /* ---------- 마스터 ---------- */
