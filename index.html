@@ -64,8 +64,12 @@
   td.work{text-align:center;padding:4px}
   .item-line{display:block}
   .price{color:var(--accent);font-weight:700}
-  .spec{display:inline-block;margin-left:8px;padding:1px 7px;border-radius:3px;background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:700;font-family:var(--sans)}
-  .spec.manual{background:#e6eef7;color:#204d7a}
+  .spec{display:inline-block;margin-left:8px;padding:1px 7px;border-radius:3px;background:#e6eef7;color:#204d7a;font-size:11.5px;font-weight:700;font-family:var(--sans)}
+    .specin{width:100%;padding:5px 7px;border:1px solid var(--line);border-radius:4px;font-size:12px;font-family:var(--sans)}
+  .specin:focus{border-color:var(--accent);outline:none}
+  table.grid select{padding:4px 6px;border:1px solid var(--line);border-radius:4px;font-size:12px}
+  .wwait{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:3px;background:var(--wait-soft);color:var(--wait);font-size:10px;font-weight:800;letter-spacing:1px}
+  .wdone{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:3px;background:var(--ok-soft);color:var(--ok);font-size:10px;font-weight:800;letter-spacing:1px}
   .worktag{cursor:pointer;user-select:none;display:inline-block;width:100%;padding:6px 2px;border-radius:4px;font-size:11px;font-weight:800;font-family:var(--mono)}
   .worktag.wait{background:var(--wait-soft);color:var(--wait)}
   .worktag.done{background:var(--ok-soft);color:var(--ok)}
@@ -229,32 +233,42 @@
 <!-- ============ ③ 작업용 노트 ============ -->
 <section class="panel tabpage" data-page="work" style="display:none">
   <div class="datebar" id="workDates"></div>
-  <div class="mini no-print" style="margin-bottom:8px">작업용 노트는 각 품목 옆에 <span class="spec">작업스펙</span>(거래처별 실제 나가는 상품·원산지·작업방법)을 함께 표시합니다. 스펙은 ④ 마스터에서 수정할 수 있습니다.</div>
+  <div class="mini no-print" style="margin-bottom:8px">각 품목 옆에 <span class="spec">작업스펙</span>(세절·절단 방법)과 작업여부가 표시됩니다. 값은 ④ 마스터 또는 스프레드시트에서 입력합니다.</div>
   <div id="workWrap"></div>
 </section>
 
 <!-- ============ ④ 마스터 ============ -->
 <section class="panel tabpage" data-page="master" style="display:none">
-  <h2>차량 매칭 · 작업스펙 마스터</h2>
-  <div class="sub">거래처별 담당 차량과 대표 작업스펙을 관리합니다. 거래처·차량·작업스펙은 <b>구글 스프레드시트</b>에 저장됩니다. 여기서 고치면 시트에 바로 반영되고, 시트에서 고치면 새로고침 시 반영됩니다.</div>
-  <div class="row" style="margin-bottom:12px">
-    <input type="text" id="masterSearch" placeholder="거래처 검색..." style="flex:1;min-width:220px" oninput="renderMaster()">
-    <button class="btn ghost" onclick="addMasterRow()">+ 거래처 추가</button>
+  <h2>차량 · 작업여부 · 작업스펙 마스터</h2>
+  <div class="sub">작업스펙은 <b>어떻게 세절/절단하는지</b>를 적는 칸입니다 (예: 2.5mm 세절, 8등분 커팅, 1kg씩 소분 진공).
+  모든 값은 <b>구글 스프레드시트</b>에 저장됩니다. 여기서 고치면 시트에 즉시 반영되고, 시트에서 고치면 새로고침 시 반영됩니다.</div>
+  <div class="row" style="margin-bottom:10px">
+    <input type="text" id="masterSearch" placeholder="거래처 검색..." style="flex:1;min-width:200px" oninput="renderMaster()">
+    <button class="btn ghost" onclick="loadMasterFromSheet()">↻ 시트에서 새로고침</button>
+    <button class="btn ghost" onclick="addMasterRow()">+ 거래처</button>
+  </div>
+  <div class="row no-print" style="margin-bottom:12px;gap:8px">
+    <span class="mini" style="align-self:center">일괄 변경:</span>
+    <button class="btn ghost" onclick="bulkVehicleUI()">차량</button>
+    <button class="btn ghost" onclick="bulkSpecUI()">작업스펙</button>
+    <button class="btn ghost" onclick="bulkStatusUI()">작업여부</button>
   </div>
   <div class="scroll">
     <table class="grid">
       <thead><tr>
-        <th style="width:150px">거래처(짧은이름)</th>
-        <th style="width:90px">담당차량</th>
-        <th>대표 작업스펙 (품목 → 작업방법)</th>
-        <th style="width:60px"></th>
+        <th style="width:130px">거래처</th>
+        <th style="width:80px">차량</th>
+        <th style="width:180px">상품명</th>
+        <th style="width:80px">작업여부</th>
+        <th>작업스펙 (세절·절단 방법)</th>
+        <th style="width:76px"></th>
       </tr></thead>
       <tbody id="masterBody"></tbody>
     </table>
   </div>
   <div class="legend">
-    <span><i style="background:var(--accent-soft)"></i>매출이력 자동제안</span>
-    <span><i style="background:#e6eef7"></i>직접 수정한 스펙</span>
+    <span>＋ 품목 추가</span><span>✕ 거래처 삭제</span>
+    <span>시트에서 대량 편집 후 [↻ 시트에서 새로고침]을 누르면 반영됩니다.</span>
   </div>
 </section>
 
@@ -386,20 +400,19 @@ function matchSpecs(client){
 function specNormalize(s){
   return String(s||'')
     .replace(/[\(（].*?[\)）]/g,' ')
-    .replace(/(냉장|냉동|국내산|미국산|호주산|칠레산|네덜란|미국|호주|수입|곡물|등급)/g,' ')
     .replace(/([가-힣])([0-9])/g,'$1 $2').replace(/([0-9])([가-힣])/g,'$1 $2')
     .replace(/[^가-힣A-Za-z0-9]/g,' ').replace(/\s+/g,' ').trim();
 }
 const SPEC_ALIAS=[
   [/스페(어)?/,'스페어립'],[/셀레|셀렉/,'셀렉트'],
-  [/\bla\b|엘에이/i,'LA갈비'],[/생불/,'생갈비'],[/생갈비/,'생갈비'],
+  [/\bla\b|엘에이/i,'LA갈비'],[/생불/,'생불'],[/생갈비/,'생갈비'],
   [/찌게|찌개/,'찌개'],[/오겹/,'오겹'],[/돈불/,'돈불고기'],[/우불/,'우불고기'],
-  [/돈목전지|목전지/,'돈목전지'],[/미전지|미박전지/,'돈목전지'],
-  [/제육/,'다짐육'],[/민찌|민치|다짐/,'다짐육'],[/돼지고기/,'다짐육'],
+  [/돈목전지|목전지/,'목전지'],[/미전지|미박전지/,'미전지'],
+  [/제육/,'제육'],[/민찌|민치|다짐/,'민찌'],[/돼지고기/,'돼지고기'],
   [/홍두께|홍두깨/,'홍두깨'],[/차돌/,'차돌'],[/우삼겹/,'우삼겹'],
-  [/부채/,'부채살'],[/설깃/,'설깃'],[/삼겹/,'삼겹살'],[/목살/,'목살'],
-  [/전지/,'목전지'],[/불고기/,'불고기'],[/늑간/,'늑간'],[/항정/,'항정'],
-  [/살치/,'살치'],[/등갈비/,'등갈비'],
+  [/부채/,'부채살'],[/설깃/,'설깃'],[/삼겹/,'삼겹'],[/목살/,'목살'],
+  [/전지/,'전지'],[/불고기/,'불고기'],[/늑간/,'늑간'],[/항정/,'항정'],
+  [/살치/,'살치'],[/등갈비/,'등갈비'],[/우목심/,'우목심'],[/척리블렛|리블렛/,'리블렛'],
 ];
 function specAliasHits(t){const o=[];for(const [re,c] of SPEC_ALIAS){if(re.test(t))o.push(c);}return o;}
 function specTokset(s){return new Set((specNormalize(s).match(/[가-힣A-Za-z]{2,}/g)||[]));}
@@ -461,7 +474,7 @@ async function analyze(){
     const j=await gsCall('parse',{text:text, baseDate:baseDate.value||todayStr()});
     const parsed=j.orders||[];
     if(!parsed.length){setMsg('inMsg','분석할 주문을 찾지 못했습니다.',false);return;}
-    let added=0,dup=0,newClients=[];
+    let added=0,dup=0,newClients=[],newProducts=0;
     for(const o of parsed){
       o.vehicle=matchVehicle(o.client)||o.vehicle||'미지정';
       o.hash=hashOrder(o);
@@ -471,13 +484,26 @@ async function analyze(){
       if(fbReady){const ref=db.ref('orders').push();o.id=ref.key;await ref.set(o);}
       else{o.id='local_'+o.hash;ORDERS[o.id]=o;}
       added++;
-      // 신규 거래처면 마스터에 자리 확보
+      // 신규 거래처 / 신규 상품을 마스터 시트에 자리 확보 (작업스펙은 비워둠 → 나중에 입력)
       const sk=shortName(o.client);
-      if(!MASTER[sk]){MASTER[sk]={vehicle:o.vehicle==='미지정'?'':o.vehicle,specs:[]};newClients.push(sk);saveMaster(sk);}
+      if(!MASTER[sk]){
+        MASTER[sk]={vehicle:o.vehicle==='미지정'?'':o.vehicle,specs:[]};
+        newClients.push(sk);
+        await saveMaster(sk);
+      }
+      for(const it of o.items){
+        if(!it.product) continue;
+        if(specForItem(sk,it.product,it.text)) continue;      // 이미 매칭되는 상품 있음
+        if(MASTER[sk].specs.some(s=>s.product===it.product)) continue;
+        MASTER[sk].specs.push({product:it.product,spec:'',status:''});
+        newProducts++;
+        try{ await gsCall('setSpec',{client:sk,product:it.product,spec:'',status:''}); }catch(err){ console.error(err); }
+      }
     }
     if(!fbReady){renderAll();}
     let m=`✓ ${added}건 누적`+(dup?` · 중복 ${dup}건 제외`:'');
-    if(newClients.length) m+=` · 신규 거래처 ${newClients.length}곳(마스터 확인)`;
+    if(newClients.length) m+=` · 신규 거래처 ${newClients.length}곳`;
+    if(newProducts) m+=` · 신규 상품 ${newProducts}개 (④ 마스터에서 작업스펙 입력)`;
     setMsg('inMsg',m,true);
     kakaoText.value='';
     tab('note');
@@ -533,7 +559,11 @@ function buildNoteTable(date, workMode){
         if(it.price) line=line.replace(/$/,''),line='<span class="item-line">'+esc(it.text)+' <span class="price">'+esc(it.price)+'</span>';
         if(workMode){
           const sp=specForItem(c,it.product,it.text);
-          if(sp) line+='<span class="spec'+(sp.manual?' manual':'')+'">'+esc(sp.product)+(sp.how?' · '+esc(sp.how):'')+'</span>';
+          if(sp){
+            if(sp.spec) line+='<span class="spec">'+esc(sp.spec)+'</span>';
+            if(sp.status==='완료') line+='<span class="wdone">완료</span>';
+            else if(sp.spec) line+='<span class="wwait">작업</span>';
+          }
         }
         line+='</span>';return line;
       }).join('');
@@ -592,50 +622,133 @@ function renderMaster(){
   const keys=Object.keys(MASTER).filter(k=>!q||k.includes(q)).sort();
   const tb=masterBody;tb.innerHTML='';
   if(!keys.length){
-    tb.innerHTML='<tr><td colspan="4" class="empty">'+(ME
+    tb.innerHTML='<tr><td colspan="6" class="empty">'+(ME
       ? '마스터 시트가 비어 있거나 아직 불러오지 못했습니다. ⚙ 설정의 Apps Script URL·APP_TOKEN을 확인하세요.'
       : '로그인하면 거래처 마스터가 표시됩니다.')+'</td></tr>';
     return;
   }
-  keys.slice(0,400).forEach(sk=>{
+  let shown=0;
+  for(const sk of keys){
+    if(shown>=300) break;
     const m=MASTER[sk];
-    const tr=document.createElement('tr');
-    const specTxt=(m.specs||[]).map(s=>s.product+(s.how?' ('+s.how+')':'')).join(', ');
-    tr.innerHTML=
-      '<td><b>'+esc(sk)+'</b></td>'+
-      '<td><input type="text" value="'+esc(m.vehicle||'')+'" style="width:70px" onchange="setVehicle(\''+esc(sk)+'\',this.value)" placeholder="차량"></td>'+
-      '<td><span class="inline-edit" contenteditable onblur="setSpecs(\''+esc(sk)+'\',this.innerText)">'+esc(specTxt||'(스펙 없음 — 클릭해 입력)')+'</span></td>'+
-      '<td><button class="btn ghost" style="padding:4px 8px" onclick="delMaster(\''+esc(sk)+'\')">✕</button></td>';
-    tb.appendChild(tr);
-  });
-  if(keys.length>400) tb.insertAdjacentHTML('beforeend','<tr><td colspan="4" class="mini">…검색으로 좁혀보세요 (총 '+keys.length+'곳)</td></tr>');
+    const specs=(m.specs&&m.specs.length)?m.specs:[{product:'',spec:'',status:''}];
+    specs.forEach((s,i)=>{
+      const tr=document.createElement('tr');
+      let h='';
+      if(i===0){
+        h+='<td rowspan="'+specs.length+'"><b>'+esc(sk)+'</b></td>';
+        h+='<td rowspan="'+specs.length+'"><input type="text" value="'+esc(m.vehicle||'')+'" style="width:66px" '+
+           'onchange="setVehicle(\''+esc(sk)+'\',this.value)" placeholder="차량"></td>';
+      }
+      h+='<td class="mini">'+esc(s.product||'(품목 없음)')+'</td>';
+      h+='<td><select onchange="setStatus(\''+esc(sk)+'\','+i+',this.value)">'+
+         ['','대기','완료'].map(v=>'<option value="'+v+'"'+(s.status===v?' selected':'')+'>'+(v||'-')+'</option>').join('')+
+         '</select></td>';
+      h+='<td><input type="text" class="specin" value="'+esc(s.spec||'')+'" placeholder="예) 2.5mm 세절 / 8등분 커팅" '+
+         'onchange="setSpecOne(\''+esc(sk)+'\','+i+',this.value)"></td>';
+      if(i===0){
+        h+='<td rowspan="'+specs.length+'">'+
+           '<button class="btn ghost" style="padding:3px 7px" onclick="addProduct(\''+esc(sk)+'\')" title="품목 추가">＋</button> '+
+           '<button class="btn ghost" style="padding:3px 7px" onclick="delMaster(\''+esc(sk)+'\')" title="거래처 삭제">✕</button></td>';
+      }
+      tr.innerHTML=h;
+      tb.appendChild(tr);
+    });
+    shown++;
+  }
+  if(keys.length>shown) tb.insertAdjacentHTML('beforeend','<tr><td colspan="6" class="mini">…검색으로 좁혀보세요 (총 '+keys.length+'곳)</td></tr>');
 }
+
 function setVehicle(sk,v){MASTER[sk].vehicle=v.trim();saveMaster(sk);reMatchVehicles();}
-function setSpecs(sk,txt){
-  // "돈목전지 (미국산 CH등급), 삼겹살" 형태 파싱
-  const specs=txt.split(',').map(s=>s.trim()).filter(s=>s&&s!=='(스펙 없음 — 클릭해 입력)').map(s=>{
-    const mm=s.match(/^(.*?)\s*\((.*)\)\s*$/);
-    return mm?{product:mm[1].trim(),how:mm[2].trim(),manual:true}:{product:s,how:'',manual:true};
-  });
-  MASTER[sk].specs=specs;saveMaster(sk);renderWork();
+
+function setStatus(sk,i,v){
+  const s=MASTER[sk].specs[i]; if(!s) return;
+  s.status=v;
+  gsCall('setSpec',{client:sk,product:s.product,spec:s.spec||'',status:v||'대기'})
+    .catch(e=>setMsg('inMsg','시트 저장 실패: '+e.message,false));
+  renderWork();
 }
+
+function setSpecOne(sk,i,v){
+  const s=MASTER[sk].specs[i]; if(!s) return;
+  s.spec=v.trim();
+  if(!s.product){ setMsg('inMsg','품목명이 없어 저장할 수 없습니다. ＋로 품목을 먼저 추가하세요.',false); return; }
+  gsCall('setSpec',{client:sk,product:s.product,spec:s.spec,status:s.status||''})
+    .catch(e=>setMsg('inMsg','시트 저장 실패: '+e.message,false));
+  renderWork();
+}
+
+function addProduct(sk){
+  const p=prompt('추가할 상품명? (예: 돈목전지)'); if(!p) return;
+  const spec=prompt('작업스펙? (예: 2.5mm 세절) — 나중에 넣으려면 비워두세요')||'';
+  if(!MASTER[sk].specs) MASTER[sk].specs=[];
+  MASTER[sk].specs.push({product:p.trim(),spec:spec.trim(),status:''});
+  gsCall('setSpec',{client:sk,product:p.trim(),spec:spec.trim(),status:''})
+    .then(()=>{renderMaster();renderWork();})
+    .catch(e=>alert('추가 실패: '+e.message));
+}
+
 function addMasterRow(){
   const name=prompt('추가할 거래처(짧은 이름)?');if(!name)return;
-  const sk=name.trim();if(!MASTER[sk])MASTER[sk]={vehicle:'',specs:[]};saveMaster(sk);renderMaster();
+  const sk=name.trim();if(!MASTER[sk])MASTER[sk]={vehicle:'',specs:[]};
+  saveMaster(sk);renderMaster();
 }
+
 function delMaster(sk){
   if(!confirm(sk+' 를 마스터 시트에서 삭제할까요?'))return;
   delete MASTER[sk];
-  gsCall('deleteClient',{client:sk})
-    .catch(e=>alert('삭제 실패: '+e.message));
+  gsCall('deleteClient',{client:sk}).catch(e=>alert('삭제 실패: '+e.message));
   renderMaster();
 }
+
 async function saveMaster(sk){
   const m=MASTER[sk]; if(!m) return;
   try{
-    await gsCall('saveClient',{client:sk, vehicle:m.vehicle||'', specs:JSON.stringify(m.specs||[])});
+    await gsCall('saveClient',{client:sk, vehicle:m.vehicle||'', rows:JSON.stringify(m.specs||[])});
   }catch(e){ console.error(e); setMsg('inMsg','시트 저장 실패: '+e.message,false); }
 }
+
+/* ---------- 일괄 변경 ---------- */
+async function bulkVehicleUI(){
+  const cs=prompt('차량을 바꿀 거래처 (쉼표 구분)\n비우면 현재 검색결과 전체'); if(cs===null) return;
+  let clients=cs.split(',').map(s=>s.trim()).filter(Boolean);
+  if(!clients.length){
+    const q=(masterSearch.value||'').trim();
+    clients=Object.keys(MASTER).filter(k=>!q||k.includes(q));
+    if(!confirm(clients.length+'개 거래처의 차량을 일괄 변경합니다. 계속할까요?')) return;
+  }
+  const v=prompt('지정할 차량 (0966 / 6506 / 1982 / 4232 / 택배 / 사무실 / 마포)'); if(!v) return;
+  try{
+    const j=await gsCall('bulkVehicle',{clients:JSON.stringify(clients),vehicle:v.trim()});
+    clients.forEach(c=>{if(MASTER[c])MASTER[c].vehicle=v.trim();});
+    setMsg('inMsg',`✓ ${j.rows}행 차량 변경`,true);
+    renderMaster();reMatchVehicles();
+  }catch(e){alert('실패: '+e.message);}
+}
+
+async function bulkSpecUI(){
+  const p=prompt('작업스펙을 적용할 상품명 (부분일치)\n예) 돈목전지'); if(!p) return;
+  const spec=prompt('적용할 작업스펙\n예) 2.5mm 세절 / 8등분 커팅 / 1kg씩 소분 진공'); if(spec===null) return;
+  const cs=prompt('특정 거래처만? (쉼표 구분, 비우면 전체 거래처)')||'';
+  const clients=cs.split(',').map(s=>s.trim()).filter(Boolean);
+  try{
+    const j=await gsCall('bulkSpec',{product:p.trim(),spec:spec,clients:JSON.stringify(clients)});
+    setMsg('inMsg',`✓ ${j.rows}행 작업스펙 변경`,true);
+    await loadMasterFromSheet();
+  }catch(e){alert('실패: '+e.message);}
+}
+
+async function bulkStatusUI(){
+  const cs=prompt('작업여부를 바꿀 거래처 (쉼표 구분, 비우면 전체)')||'';
+  const clients=cs.split(',').map(s=>s.trim()).filter(Boolean);
+  const st=prompt('작업여부 (완료 / 대기)'); if(!st) return;
+  try{
+    const j=await gsCall('bulkStatus',{clients:JSON.stringify(clients),status:st.trim()});
+    setMsg('inMsg',`✓ ${j.rows}행 작업여부 변경`,true);
+    await loadMasterFromSheet();
+  }catch(e){alert('실패: '+e.message);}
+}
+
 async function reMatchVehicles(){
   // 마스터 차량이 바뀌면 미지정 주문 재매칭
   for(const id in ORDERS){const o=ORDERS[id];const v=matchVehicle(o.client);
