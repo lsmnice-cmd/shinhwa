@@ -55,17 +55,22 @@
   .note-head .actions{margin-left:auto;display:flex;gap:8px}
 
   table.note{width:100%;border-collapse:collapse;table-layout:fixed;background:#fff}
-  table.note col.c-veh{width:70px} table.note col.c-cli{width:150px} table.note col.c-item{width:auto} table.note col.c-work{width:52px}
+  table.note col.c-cli{width:180px} table.note col.c-item{width:auto} table.note col.c-work{width:52px}
+  /* 차량별 섹션 */
+  .veh-page{margin-bottom:26px}
+  .veh-page-head{display:flex;align-items:baseline;gap:14px;padding:8px 4px 10px;border-bottom:3px solid var(--line-strong);margin-bottom:0}
+  .vp-veh{font-family:var(--mono);font-weight:800;font-size:26px;letter-spacing:2px;color:var(--ink)}
+  .vp-meta{font-size:13px;color:var(--muted)}
   table.note th{background:var(--line-strong);color:#fff;font-size:12px;letter-spacing:2px;padding:8px 6px;text-align:center;font-weight:700}
   table.note td{border:1px solid var(--line);vertical-align:middle;padding:0}
-  td.veh{background:var(--veh-bg);text-align:center;font-family:var(--mono);font-weight:800;font-size:17px;letter-spacing:1px;border-left:3px solid var(--line-strong);border-right:2px solid var(--line-strong)}
   td.cli{text-align:center;font-weight:700;font-size:14px;padding:8px 6px}
   td.items{padding:8px 10px;line-height:1.65}
   td.work{text-align:center;padding:4px}
   .item-line{display:block}
   .price{color:var(--accent);font-weight:700}
   .spec{display:inline-block;margin-left:8px;padding:1px 7px;border-radius:3px;background:#e6eef7;color:#204d7a;font-size:11.5px;font-weight:700;font-family:var(--sans)}
-    .specin{width:100%;padding:5px 7px;border:1px solid var(--line);border-radius:4px;font-size:12px;font-family:var(--sans)}
+    .single-tag{display:inline-block;margin-right:5px;padding:2px 6px;border-radius:3px;background:#eef3e8;color:#3a5a2a;font-size:11px;font-weight:700}
+  .specin{width:100%;padding:5px 7px;border:1px solid var(--line);border-radius:4px;font-size:12px;font-family:var(--sans)}
   .specin:focus{border-color:var(--accent);outline:none}
   table.grid select{padding:4px 6px;border:1px solid var(--line);border-radius:4px;font-size:12px}
   .wwait{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:3px;background:var(--wait-soft);color:var(--wait);font-size:10px;font-weight:800;letter-spacing:1px}
@@ -141,6 +146,7 @@
   .whoami button{background:transparent;border:1px solid #555;color:#ddd;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer}
 
   @media print{
+    @page{ size:A4 portrait; margin:12mm; }
     header.top,nav.tabs,.no-print,#gate,#orderModal,#gapModal{display:none!important}
     .cli-edit .pen{display:none!important}
     .cli-edit{padding:0;background:none!important;color:inherit!important}
@@ -148,10 +154,21 @@
     .panel{border:none;box-shadow:none;padding:0}
     table.note td.work,table.note col.c-work,table.note th.work{display:none}
     .note-head .actions{display:none}
+    /* 날짜 머리말은 첫 장에만: 차량 섹션마다 자체 머리말이 있음 */
+    .note-head{display:none}
+    /* ▶ 차량 한 대 = A4 한 장 */
+    .veh-page{ page-break-after:always; break-after:page; margin-bottom:0; }
+    .veh-page:last-child{ page-break-after:auto; break-after:auto; }
+    .veh-page-head{ padding-top:0; }
+    .vp-veh{font-size:30px}
+    table.note tr{ page-break-inside:avoid; break-inside:avoid; }
+    table.note thead{ display:table-header-group; }   /* 여러 장 넘어가도 헤더 반복 */
+    .veh-page{ page-break-inside:auto; }
   }
   @media (max-width:640px){
     main{padding:10px}
-    td.veh{font-size:14px} td.cli{font-size:13px}
+    td.cli{font-size:13px}
+    .vp-veh{font-size:22px}
     .note-head .d{font-size:18px}
   }
 </style>
@@ -338,6 +355,20 @@
           </tr></thead>
           <tbody id="gapSpecBody"></tbody>
         </table>
+        <button class="btn ghost no-print" style="margin-top:8px;padding:5px 10px" onclick="addGapSpecRow()">＋ 상품 추가</button>
+      </div>
+
+      <div id="gapSingleWrap" style="margin-top:18px">
+        <h3 class="gaph">📦 단일품목 업체</h3>
+        <div class="mini" style="margin-bottom:6px">
+          한 가지 품목만 받는 곳입니다. 여기 등록하면 카톡에 뭐라고 와도(예: 육전·우불) 그 상품명으로 바꾸고 숫자만 붙여 나옵니다.
+        </div>
+        <table class="grid">
+          <thead><tr>
+            <th style="width:44px">지정</th><th style="width:150px">거래처</th><th>단일 상품명 (마스터의 상품)</th>
+          </tr></thead>
+          <tbody id="gapSingleBody"></tbody>
+        </table>
       </div>
     </div>
 
@@ -499,6 +530,8 @@ function showUid(uid){document.getElementById('uidBox').style.display='';documen
 function copyUid(){navigator.clipboard.writeText(document.getElementById('myUid').textContent);gateMsgSet('UID 복사됨. Firebase 규칙에 붙여넣으세요.',true);}
 
 /* ---------- 해시(중복 제거) ---------- */
+function itemText(it){ return (it.text||it.product||'').trim(); }
+
 function hashOrder(o){
   const key=(o.date||'')+'|'+(o.client||'')+'|'+o.items.map(i=>i.text).join('~');
   let h=0;for(let i=0;i<key.length;i++){h=(h*31+key.charCodeAt(i))|0;}
@@ -686,21 +719,50 @@ async function processChunk(ck, tot, GAPS){
   const parsed=j.orders||[];
   if(!parsed.length) return;
 
-  for(const o of parsed){
+  for(let o of parsed){
     if(ck.date) o.date=ck.date;                       // 구분선 날짜가 최우선
     const sk=shortName(o.client);
     if(!sk) continue;
 
     const known=matchVehicle(sk);
     o.vehicle = known || (o.vehicle && o.vehicle!=='미지정' ? o.vehicle : '미지정');
-    o.hash=hashOrder(o);
-    if(seenHashes.has(o.hash)){tot.dup++;continue;}
-    seenHashes.add(o.hash);
-    o.done=false;o.ts=Date.now();
 
-    if(fbReady){const ref=db.ref('orders').push();o.id=ref.key;await ref.set(o);}
-    else{o.id='local_'+o.hash;ORDERS[o.id]=o;}
-    tot.added++;
+    // ── 단일품목 업체: 모든 품목을 지정 상품명으로 바꾸고 숫자만 붙임 ──
+    const single = MASTER[sk] && MASTER[sk].single;
+    if(single){
+      o.items = o.items.map(it=>{
+        const nums=(it.text||'').match(/\d+(?:\.\d+)?/g);
+        const qty = nums ? nums.join(' ') : '';
+        return { product: single, text: (single+' '+qty).trim(), price: it.price||'' };
+      });
+    }
+
+    // ── 항목 단위 중복 제거 / 기존 주문에 병합 ──
+    // 같은 (날짜, 거래처) 주문이 이미 있으면 새 품목만 추가한다.
+    let existing=null;
+    for(const id in ORDERS){ const e=ORDERS[id];
+      if(e.date===o.date && e.client===o.client){ existing=e; break; } }
+
+    if(existing){
+      const have=new Set((existing.items||[]).map(itemText));
+      const fresh=o.items.filter(it=>!have.has(itemText(it)));
+      if(!fresh.length){ tot.dup++; continue; }        // 전부 이미 있음 → 스킵
+      existing.items=existing.items.concat(fresh);
+      existing.hash=hashOrder(existing);
+      if(fbReady) await db.ref('orders/'+existing.id).update({items:existing.items, hash:existing.hash});
+      tot.added += fresh.length;
+      seenHashes.add(existing.hash);
+      // 신규 상품 마스터 반영은 아래 공통 루프에서
+      o=existing;                                       // 아래 상품/스펙 수집은 병합된 주문 기준
+    } else {
+      o.hash=hashOrder(o);
+      if(seenHashes.has(o.hash)){tot.dup++;continue;}
+      seenHashes.add(o.hash);
+      o.done=false;o.ts=Date.now();
+      if(fbReady){const ref=db.ref('orders').push();o.id=ref.key;await ref.set(o);}
+      else{o.id='local_'+o.hash;ORDERS[o.id]=o;}
+      tot.added += o.items.length || 1;
+    }
 
     // 신규 거래처 → 마스터에 자리 확보
     if(!MASTER[sk]){
@@ -818,6 +880,35 @@ function openGapDialog(GAPS){
     tr.appendChild(td); sb.appendChild(tr);
   }
 
+  // ── 단일품목 업체 섹션 ──
+  const singleBody=document.getElementById('gapSingleBody');
+  singleBody.innerHTML='';
+  // 이 붙여넣기에 등장한 거래처 = 차량갭 + 스펙갭에 나온 거래처 합집합
+  const clientsInPaste=new Set([...vList.map(([c])=>c), ...sList.map(g=>g.client)]);
+  if(!GAPS.singles) GAPS.singles=new Map();
+  [...clientsInPaste].sort().slice(0,CAP).forEach(c=>{
+    const cur=(MASTER[c]&&MASTER[c].single)||'';
+    if(!GAPS.singles.has(c)) GAPS.singles.set(c,{single:cur, on:!!cur});
+    const st=GAPS.singles.get(c);
+    const tr=document.createElement('tr');
+
+    const t1=document.createElement('td'); t1.style.textAlign='center';
+    const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=st.on;
+    t1.appendChild(cb);
+
+    const t2=document.createElement('td'); t2.className='mini'; t2.textContent=c;
+
+    const t3=document.createElement('td');
+    const inp=document.createElement('input'); inp.type='text'; inp.className='specin';
+    inp.placeholder='예) 알목심'; inp.value=st.single; inp.disabled=!st.on;
+    inp.oninput=()=>{ GAPS.singles.get(c).single=inp.value.trim(); };
+    cb.onchange=()=>{ st.on=cb.checked; inp.disabled=!cb.checked; if(cb.checked) inp.focus(); };
+    t3.appendChild(inp);
+
+    tr.append(t1,t2,t3); singleBody.appendChild(tr);
+  });
+  document.getElementById('gapSingleWrap').style.display = clientsInPaste.size ? '' : 'none';
+
   document.getElementById('gapVehWrap').style.display  = vList.length ? '' : 'none';
   document.getElementById('gapSpecWrap').style.display = sList.length ? '' : 'none';
   document.getElementById('gapCount').textContent =
@@ -836,7 +927,7 @@ async function saveGaps(){
   if(!GAPSTATE) return;
   const btn=document.getElementById('gapSaveBtn');
   btn.disabled=true; btn.textContent='저장 중…';
-  let okV=0, okS=0, fail=0;
+  let okV=0, okS=0, okSingle=0, fail=0;
   try{
     // 차량: 값이 있는 것만
     for(const [c,info] of GAPSTATE.vehicles){
@@ -848,26 +939,59 @@ async function saveGaps(){
         okV++;
       }catch(e){ console.error(c,e); fail++; }
     }
-    // 스펙/작업여부: 하나라도 입력된 것만
+    // 스펙/작업여부: 하나라도 입력된 것만 (사용자가 추가한 행 포함)
     for(const g of GAPSTATE.specs.values()){
+      if(!g.product) continue;
       if(!g.spec && !g.status) continue;
       try{
         await gsCall('setSpec',{client:g.client,product:g.product,spec:g.spec||'',status:g.status||''});
         const m=MASTER[g.client];
         if(m){
-          const row=m.specs.find(s=>s.product===g.product);
-          if(row){ row.spec=g.spec||''; row.status=g.status||''; }
+          let row=m.specs.find(s=>s.product===g.product);
+          if(!row){ row={product:g.product,spec:'',status:''}; m.specs.push(row); }
+          row.spec=g.spec||''; row.status=g.status||'';
         }
         okS++;
       }catch(e){ console.error(g.client,g.product,e); fail++; }
     }
-    setMsg('inMsg',`✓ 차량 ${okV}곳 · 작업스펙 ${okS}건 저장`+(fail?` · 실패 ${fail}건`:''), !fail);
+    // 단일품목 설정
+    if(GAPSTATE.singles){
+      for(const [c,st] of GAPSTATE.singles){
+        const val = st.on ? (st.single||'').trim() : '';
+        const cur = (MASTER[c]&&MASTER[c].single)||'';
+        if(val===cur) continue;                    // 바뀐 것만
+        if(st.on && !val) continue;                // 체크만 하고 상품명 안 쓴 건 건너뜀
+        try{
+          await gsCall('setSingle',{client:c, single:val});
+          if(MASTER[c]) MASTER[c].single=val;
+          okSingle++;
+        }catch(e){ console.error('single',c,e); fail++; }
+      }
+    }
+    setMsg('inMsg',`✓ 차량 ${okV} · 작업스펙 ${okS} · 단일품목 ${okSingle} 저장`+(fail?` · 실패 ${fail}`:''), !fail);
     await reMatchVehicles();
     renderAll();
     closeGapDialog();
   }finally{
     btn.disabled=false; btn.textContent='저장하고 닫기';
   }
+}
+
+/** 빠진정보 창에서 상품 행 직접 추가 */
+function addGapSpecRow(){
+  if(!GAPSTATE) return;
+  const clientsSeen=[...new Set([
+    ...[...GAPSTATE.vehicles.keys()],
+    ...[...GAPSTATE.specs.values()].map(g=>g.client)
+  ])].sort();
+  const client=prompt('거래처명?\n(이 붙여넣기에 나온 곳: '+(clientsSeen.slice(0,8).join(', ')||'없음')+' …)');
+  if(!client) return;
+  const product=prompt('추가할 상품명?');
+  if(!product) return;
+  const key=client.trim()+'||'+product.trim();
+  if(!GAPSTATE.specs.has(key))
+    GAPSTATE.specs.set(key,{client:client.trim(),product:product.trim(),spec:'',status:'',n:0});
+  openGapDialog(GAPSTATE);   // 다시 그림
 }
 
 /* ---------- 렌더링 ---------- */
@@ -902,16 +1026,23 @@ function buildNoteTable(date, workMode){
   const vehicles=Object.keys(g).sort(vsort);
   if(!vehicles.length) return '<div class="empty">이 날짜의 주문이 없습니다.</div>';
 
-  let html='<table class="note"><colgroup><col class="c-veh"><col class="c-cli"><col class="c-item">'+
-           (workMode?'':'<col class="c-work">')+'</colgroup><thead><tr><th>차량</th><th>거래처</th><th>품목 / 원산지 / 중량'+
-           (workMode?' · 작업스펙':'')+'</th>'+(workMode?'':'<th class="work">작업</th>')+'</tr></thead><tbody>';
-
+  let out='';
   vehicles.forEach(v=>{
     const clients=Object.keys(g[v]);
-    let rows=0;clients.forEach(c=>rows+=1); // one row per client (items stacked)
-    clients.forEach((c,ci)=>{
+    // 차량별 거래처/품목 수 (인쇄 머리말용)
+    let itemCount=0;
+    clients.forEach(c=>g[v][c].forEach(o=>itemCount+=o.items.length));
+
+    let html='<section class="veh-page">'+
+      '<div class="veh-page-head"><span class="vp-veh">'+esc(v)+'</span>'+
+      '<span class="vp-meta">'+esc(fmtDate(date))+' · 거래처 '+clients.length+'곳 · 품목 '+itemCount+'건'+
+      (workMode?' · 작업용':'')+'</span></div>'+
+      '<table class="note"><colgroup><col class="c-cli"><col class="c-item">'+
+      (workMode?'':'<col class="c-work">')+'</colgroup><thead><tr><th>거래처</th><th>품목 / 원산지 / 중량'+
+      (workMode?' · 작업스펙':'')+'</th>'+(workMode?'':'<th class="work">작업</th>')+'</tr></thead><tbody>';
+
+    clients.forEach((c)=>{
       const orders=g[v][c];
-      // merge all items of this client (may be multiple messages)
       const allItems=[];orders.forEach(o=>o.items.forEach(it=>allItems.push({...it,oid:o.id})));
       const done=orders.every(o=>o.done);
       let itemHtml=allItems.map(it=>{
@@ -923,8 +1054,6 @@ function buildNoteTable(date, workMode){
             if(sp.spec) line+='<span class="spec">'+esc(sp.spec)+'</span>';
             const st=(sp.status||'').trim();
             if(st){
-              // 작업여부 어휘: 작업 / 작업/네이버 / 원물/박스 / 원물/팩 / 원물 …
-              // '원물'로 시작하면 손대지 않고 그대로 나가는 것 → 회색 배지
               const raw = st.indexOf('원물')===0;
               line+='<span class="'+(raw?'wraw':'wwait')+'">'+esc(st)+'</span>';
             }
@@ -935,7 +1064,6 @@ function buildNoteTable(date, workMode){
 
       const oids=orders.map(o=>o.id).join(',');
       html+='<tr class="'+(done?'done':'')+'">';
-      if(ci===0) html+='<td class="veh" rowspan="'+clients.length+'">'+esc(v)+'</td>';
       if(workMode){
         html+='<td class="cli">'+esc(c)+'</td>';
       }else{
@@ -947,9 +1075,18 @@ function buildNoteTable(date, workMode){
       }
       html+='</tr>';
     });
+    html+='</tbody></table></section>';
+    out+=html;
   });
-  html+='</tbody></table>';
-  return html;
+  return out;
+}
+
+function fmtDate(d){
+  if(!d) return '';
+  const [y,m,day]=d.split('-');
+  const wk=['일','월','화','수','목','금','토'];
+  const dt=new Date(+y,+m-1,+day);
+  return `${y}. ${+m}. ${+day} (${wk[dt.getDay()]||''})`;
 }
 
 let noteDate=null, workDate=null;
@@ -963,7 +1100,7 @@ function renderNote(){
     '<span class="meta">거래처 '+new Set(meta.map(o=>o.client)).size+'곳 · 완료 '+doneN+'곳</span>'+
     '<span class="actions no-print">'+
       '<button class="btn ghost" onclick="deleteDay(\''+noteDate+'\')" title="이 날짜 주문 전체 삭제">🗑 하루 삭제</button>'+
-      '<button class="btn ghost" onclick="window.print()">🖨 인쇄</button>'+
+      '<button class="btn ghost" onclick="window.print()">🖨 차량별 인쇄</button>'+
     '</span></div>'+
     buildNoteTable(noteDate,false)+
     '<div class="legend no-print"><span><i class="worktag wait" style="width:34px;text-align:center">대기</i>미작업</span>'+
@@ -975,7 +1112,7 @@ function renderWork(){
   if(!workDate){workWrap.innerHTML='';return;}
   workWrap.innerHTML=
     '<div class="note-head"><span class="d">'+workDate.replace(/-/g,'.')+' <span class="meta">작업용</span></span>'+
-    '<span class="actions no-print"><button class="btn ghost" onclick="window.print()">🖨 인쇄</button></span></div>'+
+    '<span class="actions no-print"><button class="btn ghost" onclick="window.print()">🖨 차량별 인쇄</button></span></div>'+
     buildNoteTable(workDate,true);
 }
 
@@ -1162,7 +1299,9 @@ function renderMaster(){
       h+='<td><input type="text" class="specin" value="'+esc(s.spec||'')+'" placeholder="예) 2.5mm 세절 / 8등분 커팅" '+
          'onchange="setSpecOne(\''+esc(sk)+'\','+i+',this.value)"></td>';
       if(i===0){
-        h+='<td rowspan="'+specs.length+'">'+
+        const singleBadge = m.single ? '<span class="single-tag" title="단일품목: '+esc(m.single)+'">📦 '+esc(m.single)+'</span>' : '';
+        h+='<td rowspan="'+specs.length+'">'+singleBadge+
+           '<button class="btn ghost" style="padding:3px 7px" onclick="setSingleUI(\''+esc(sk)+'\')" title="단일품목 지정/해제">📦</button> '+
            '<button class="btn ghost" style="padding:3px 7px" onclick="addProduct(\''+esc(sk)+'\')" title="품목 추가">＋</button> '+
            '<button class="btn ghost" style="padding:3px 7px" onclick="delMaster(\''+esc(sk)+'\')" title="거래처 삭제">✕</button></td>';
       }
@@ -1207,6 +1346,21 @@ function addMasterRow(){
   const name=prompt('추가할 거래처(짧은 이름)?');if(!name)return;
   const sk=name.trim();if(!MASTER[sk])MASTER[sk]={vehicle:'',specs:[]};
   saveMaster(sk);renderMaster();
+}
+
+function setSingleUI(sk){
+  const m=MASTER[sk]; if(!m) return;
+  const cur=m.single||'';
+  const msg = cur
+    ? `현재 단일품목: "${cur}"\n\n새 상품명을 입력하면 바꾸고, 비우면 해제합니다.`
+    : `${sk}를 단일품목 업체로 지정합니다.\n카톡에 뭐라고 와도 이 상품명으로 바꿔 나옵니다.\n\n단일 상품명 (예: 알목심):`;
+  const v=prompt(msg, cur);
+  if(v===null) return;
+  const val=v.trim();
+  m.single=val;
+  gsCall('setSingle',{client:sk, single:val})
+    .then(()=>{ renderMaster(); renderWork(); setMsg('inMsg', val?`✓ ${sk} 단일품목 → ${val}`:`✓ ${sk} 단일품목 해제`, true); })
+    .catch(e=>alert('저장 실패: '+e.message));
 }
 
 function delMaster(sk){
