@@ -67,6 +67,13 @@
   td.items{padding:8px 10px;line-height:1.65}
   td.work{text-align:center;padding:4px}
   .item-line{display:block}
+  .item-grid{display:grid;grid-template-columns:1fr 1fr;gap:1px 16px}
+  .item-cell{display:block;padding:1px 0}
+  .item-cell.dup{color:var(--accent);font-weight:700}
+  /* 작업용 노트: 스펙이 길어 글자를 살짝 줄이고 열 간격을 넓혀 2열 유지 */
+  .work-note .item-grid{grid-template-columns:1fr 1fr;gap:2px 22px;font-size:12.5px}
+  .work-note .spec{font-size:11px;margin-left:5px;padding:1px 5px}
+  .work-note .wwait,.work-note .wraw{font-size:9.5px;margin-left:4px;padding:1px 5px}
   .price{color:var(--accent);font-weight:700}
   .spec{display:inline-block;margin-left:8px;padding:1px 7px;border-radius:3px;background:#e6eef7;color:#204d7a;font-size:11.5px;font-weight:700;font-family:var(--sans)}
     .single-tag{display:inline-block;margin-right:5px;padding:2px 6px;border-radius:3px;background:#eef3e8;color:#3a5a2a;font-size:11px;font-weight:700}
@@ -231,17 +238,38 @@
     <button class="btn accent" onclick="saveConfig()">저장하고 연결</button>
     <span class="mini">저장 후 새로고침 없이 바로 연결됩니다.</span>
   </div>
+
+  <div id="accessMgr" style="display:none;margin-top:24px;padding:16px;background:#f5f2ea;border-radius:8px">
+    <h2 style="margin:0 0 4px">👥 직원 접근 관리</h2>
+    <div class="sub">여기서 등록한 이메일만 로그인할 수 있고, ①②③ 탭만 보입니다. ④·⚙는 관리자(대표님)만 보입니다.</div>
+    <div class="row" style="margin-bottom:10px">
+      <label style="width:160px">관리자 UID (대표님)</label>
+      <input type="text" id="acAdminUid" placeholder="로그인 화면에 뜨는 내 UID" style="flex:1;min-width:260px">
+      <button class="btn ghost" onclick="fillMyUid()">내 UID 넣기</button>
+    </div>
+    <div class="row" style="margin-bottom:10px;align-items:flex-start">
+      <label style="width:160px;padding-top:6px">허용 직원 이메일</label>
+      <textarea id="acEmails" placeholder="한 줄에 하나씩&#10;kim@shinhwa.com&#10;lee@gmail.com" style="flex:1;min-width:260px;min-height:90px;padding:8px;border:1px solid var(--line);border-radius:4px;font-family:var(--mono);font-size:13px"></textarea>
+    </div>
+    <div class="row">
+      <button class="btn accent" onclick="saveAccess()">직원 명단 저장</button>
+      <button class="btn ghost" onclick="makeInviteLink()">🔗 직원 초대 링크 복사</button>
+      <span class="mini" id="acMsg"></span>
+    </div>
+    <div class="warnbar" style="margin-top:10px">이 명단은 Apps Script에 저장되어 직원 브라우저에서 바꿀 수 없습니다. 단, 실제 데이터 차단은 Firebase 규칙이 담당하므로, 아래 규칙에도 직원 UID를 넣어야 데이터가 보입니다.</div>
+  </div>
+
   <details class="help" open>
-    <summary>Firebase 실시간DB 규칙 — 나만 접속 허용</summary>
-    <p>Firebase 콘솔 → 빌드 → Realtime Database → <b>규칙</b> 탭에 아래를 붙여넣고 <b>게시</b>. <code class="k">내UID</code>는 로그인 화면에 표시되는 값으로 바꾸세요.</p>
+    <summary>Firebase 실시간DB 규칙 — 허용된 직원만 접속</summary>
+    <p>Firebase 콘솔 → 빌드 → Realtime Database → <b>규칙</b> 탭에 붙여넣고 <b>게시</b>. 직원마다 한 번씩 로그인하면 UID가 표시되니, 그 UID들을 아래에 나열하세요.</p>
     <pre class="k" style="background:#f5f2ea;padding:10px;border-radius:5px;overflow:auto">{
   "rules": {
-    ".read": "auth != null && auth.uid === '내UID'",
-    ".write": "auth != null && auth.uid === '내UID'"
+    ".read":  "auth != null && (auth.uid === '대표UID' || auth.uid === '직원1UID' || auth.uid === '직원2UID')",
+    ".write": "auth != null && (auth.uid === '대표UID' || auth.uid === '직원1UID' || auth.uid === '직원2UID')"
   }
 }</pre>
-    <p>여러 명 허용하려면: <code class="k">auth.uid === 'UID1' || auth.uid === 'UID2'</code></p>
-    <p>또한 Firebase 콘솔 → 빌드 → <b>Authentication</b> → 로그인 방법에서 <b>Google</b>을 사용 설정해야 합니다.</p>
+    <p>위 "👥 직원 접근 관리"의 이메일 명단은 <b>화면 노출</b>을 제어하고, 이 Firebase 규칙은 <b>실제 데이터 접근</b>을 제어합니다. 둘 다 등록해야 직원이 정상적으로 씁니다.</p>
+    <p>Firebase 콘솔 → 빌드 → <b>Authentication</b> → 로그인 방법에서 <b>Google</b>을 사용 설정하고, Settings → 승인된 도메인에 <code class="k">lsmnice-cmd.github.io</code>를 추가하세요.</p>
   </details>
 </section>
 
@@ -444,15 +472,79 @@ let seenHashes=new Set();
 function shortName(name){
   return String(name||'').split(/[\(\-]/)[0].trim();
 }
+
+/* 카톡의 지저분한 거래처명을 마스터의 정식 거래처로 연결.
+   상품명 매칭과 같은 방식: 정규화 → 정확 → 별칭 → 접두. */
+let _clientIndex=null;
+function buildClientIndex(){
+  _clientIndex={};
+  for(const c in MASTER){
+    const k=cliNorm(c);
+    if(!k) continue;
+    (_clientIndex[k]=_clientIndex[k]||[]).push(c);
+  }
+}
+function cliNorm(n){
+  n=String(n||'');
+  n=n.replace(/^[\-\s]+/,'');
+  n=n.replace(/^(신규|택배)\s*[-–]?\s*/,'');
+  n=n.replace(/\([^)]*\)?/g,'');
+  n=n.replace(/[\-–—]\s*(카드|현금|신규).*$/,'');
+  n=n.replace(/\(주\)|㈜|주식회사/g,'');
+  return n.replace(/[^가-힣A-Za-z0-9]/g,'').toLowerCase();
+}
+function matchClient(raw){
+  if(!_clientIndex) buildClientIndex();
+  const k=cliNorm(raw);
+  if(!k) return shortName(raw);
+  // 1) 정확
+  if(_clientIndex[k]) return _clientIndex[k][0];
+  // 2) 괄호 안 별칭 (예: 남부수산(할매보쌈) → 할매보쌈)
+  const inner=String(raw).match(/[\(（]([^)）]*)/);
+  if(inner){
+    const ik=cliNorm(inner[1].replace(/^구[-\s]*/,''));
+    if(ik.length>=2 && _clientIndex[ik]) return _clientIndex[ik][0];
+  }
+  // 3) 접두: 카톡명이 마스터명으로 시작하거나 그 반대 (지점명 붙은 경우)
+  const keys=Object.keys(_clientIndex).sort((a,b)=>b.length-a.length);
+  let hit=keys.find(m=>m.length>=3 && k.startsWith(m));
+  if(hit) return _clientIndex[hit][0];
+  hit=keys.find(m=>k.length>=3 && m.startsWith(k));
+  if(hit) return _clientIndex[hit][0];
+  // 못 찾으면 원래 shortName (신규 거래처로 등록됨)
+  return shortName(raw);
+}
 function buildInitialMaster(){
   return {}; // 시드는 Firebase /master 에 있음. 로그인 후에만 내려옴.
 }
 
 /* ---------- 설정 ---------- */
 function loadConfigUI(){
+  // 직원 초대 링크로 접속한 경우: #cfg=... 에서 설정을 받아 저장
+  if(location.hash.startsWith('#cfg=')){
+    try{
+      const dec=JSON.parse(decodeURIComponent(escape(atob(location.hash.slice(5)))));
+      if(dec&&dec.gsUrl){
+        cfg=Object.assign({},cfg,dec);
+        localStorage.setItem(LS,JSON.stringify(cfg));
+        history.replaceState(null,'',location.pathname);   // 주소창에서 해시 제거
+      }
+    }catch(e){ console.error('초대 링크 해석 실패',e); }
+  }
   cfgGsUrl.value=cfg.gsUrl||''; cfgToken.value=cfg.token||'';
   cfgFbUrl.value=cfg.fbUrl||''; cfgFbKey.value=cfg.fbKey||''; cfgFbProj.value=cfg.fbProj||'';
   baseDate.value=todayStr();
+}
+
+function makeInviteLink(){
+  if(!cfg.gsUrl||!cfg.fbUrl){ alert('먼저 연결 설정을 저장하세요.'); return; }
+  const share={gsUrl:cfg.gsUrl,token:cfg.token,fbUrl:cfg.fbUrl,fbKey:cfg.fbKey,fbProj:cfg.fbProj};
+  const enc=btoa(unescape(encodeURIComponent(JSON.stringify(share))));
+  const url=location.origin+location.pathname+'#cfg='+enc;
+  navigator.clipboard.writeText(url).then(()=>{
+    const m=document.getElementById('acMsg');
+    if(m){ m.textContent='✓ 초대 링크가 복사되었습니다. 직원에게 보내세요.'; }
+  }).catch(()=>{ prompt('아래 링크를 직원에게 보내세요:', url); });
 }
 function saveConfig(){
   cfg={gsUrl:cfgGsUrl.value.trim(), token:cfgToken.value.trim(),
@@ -512,7 +604,81 @@ function onSignedIn(u){
     setStat(false,'권한 없음');
   });
   renderWhoami(u);
+  applyRole(u);            // 권한에 따라 탭 노출
   loadMasterFromSheet();
+}
+
+let IS_ADMIN=false;
+
+async function applyRole(u){
+  // 관리자 UID / 허용 이메일 명단을 시트(Apps Script)에서 가져옴
+  let access={adminUid:'',emails:[]};
+  try{ const j=await gsCall('getAccess'); access=j.access||access; }
+  catch(e){ console.error('getAccess',e); }
+
+  const email=(u.email||'').toLowerCase();
+  const noConfig = !access.adminUid && (!access.emails||!access.emails.length);
+
+  // 관리자: UID 일치. 명단이 아예 없으면(초기 설정 전) 최초 로그인자를 관리자로 간주
+  IS_ADMIN = noConfig || (access.adminUid && u.uid===access.adminUid);
+
+  // 직원 허용 여부: 관리자이거나, 이메일이 명단에 있으면 허용
+  const allowed = IS_ADMIN || (access.emails && access.emails.indexOf(email)>=0);
+
+  if(!allowed){
+    // 허용되지 않은 계정 → 접근 차단
+    fbReady=false;
+    document.getElementById('orders')&&0;
+    showGate();
+    gateMsgSet('접근이 허용되지 않은 계정입니다. 대표님께 이메일('+esc(email)+') 등록을 요청하세요.',false);
+    setStat(false,'미허용 계정');
+    // 탭 다 숨김
+    setTabVisible('note',false);setTabVisible('work',false);
+    setTabVisible('master',false);setTabVisible('setup',false);
+    return;
+  }
+
+  // ④ 마스터·⚙ 설정은 관리자만
+  setTabVisible('master', IS_ADMIN);
+  setTabVisible('setup',  IS_ADMIN);
+  // 직원이 숨겨진 탭에 있으면 ①로 이동
+  if(!IS_ADMIN){
+    const cur=document.querySelector('nav.tabs button.active')?.dataset.tab;
+    if(cur==='master'||cur==='setup') tab('input');
+  }
+  // 관리자용 접근관리 UI 표시
+  const am=document.getElementById('accessMgr');
+  if(am) am.style.display = IS_ADMIN ? '' : 'none';
+}
+
+function setTabVisible(tabName, show){
+  const btn=document.querySelector('nav.tabs button[data-tab="'+tabName+'"]');
+  if(btn) btn.style.display = show ? '' : 'none';
+}
+
+function fillMyUid(){
+  if(ME&&ME.uid){ document.getElementById('acAdminUid').value=ME.uid; }
+}
+
+async function loadAccessForm(){
+  try{
+    const j=await gsCall('getAccess');
+    const a=j.access||{adminUid:'',emails:[]};
+    document.getElementById('acAdminUid').value=a.adminUid||'';
+    document.getElementById('acEmails').value=(a.emails||[]).join('\n');
+  }catch(e){ console.error(e); }
+}
+
+async function saveAccess(){
+  const adminUid=document.getElementById('acAdminUid').value.trim();
+  const emails=document.getElementById('acEmails').value.trim();
+  const m=document.getElementById('acMsg');
+  m.textContent='저장 중…';
+  try{
+    await gsCall('setAccess',{adminUid:adminUid, emails:emails});
+    m.textContent='✓ 저장됨';
+    m.className='mini';
+  }catch(e){ m.textContent='실패: '+e.message; }
 }
 
 function renderWhoami(u){
@@ -540,7 +706,7 @@ function hashOrder(o){
 
 /* ---------- 차량 매칭 ---------- */
 function matchVehicle(client){
-  const sk=shortName(client);
+  const sk=matchClient(client);
   if(MASTER[sk]&&MASTER[sk].vehicle) return MASTER[sk].vehicle;
   return '';
 }
@@ -610,6 +776,7 @@ async function loadMasterFromSheet(){
   try{
     const j=await gsCall('getMaster');
     MASTER=j.master||{};
+    _clientIndex=null;
     renderAll();
   }catch(e){
     console.error(e);
@@ -665,7 +832,7 @@ async function analyze(){
   cancelBtn.style.display=chunks.length>1?'':'none';
   progWrap.style.display=chunks.length>1?'':'none';
 
-  const tot={added:0,dup:0,newClients:[],newProducts:0,failed:[]};
+  const tot={added:0,dup:0,dupItems:[],newClients:[],newProducts:0,failed:[]};
   const GAPS={vehicles:new Map(), specs:new Map()};   // 채워야 할 빈칸 수집
 
   try{
@@ -690,7 +857,7 @@ async function analyze(){
     if(chunks.length>1){progBar.style.width='100%';progText.textContent=`완료 · ${tot.added}건`;}
     if(!fbReady) renderAll();
 
-    let m=`✓ ${tot.added}건 누적`+(tot.dup?` · 중복 ${tot.dup}건 제외`:'');
+    let m=`✓ ${tot.added}건 누적`+(tot.dup?` · ⚠ 중복의심 ${tot.dup}건 (주문노트에서 * 표시 확인)`:'');
     if(tot.newClients.length) m+=` · 신규 거래처 ${tot.newClients.length}곳`;
     if(tot.newProducts) m+=` · 신규 상품 ${tot.newProducts}개`;
     if(CANCEL) m='(중단됨) '+m;
@@ -721,11 +888,11 @@ async function processChunk(ck, tot, GAPS){
 
   for(let o of parsed){
     if(ck.date) o.date=ck.date;                       // 구분선 날짜가 최우선
-    const sk=shortName(o.client);
+    const sk=matchClient(o.client);
     if(!sk) continue;
 
     const known=matchVehicle(sk);
-    o.vehicle = known || (o.vehicle && o.vehicle!=='미지정' ? o.vehicle : '미지정');
+    o.vehicle = normVeh(known || (o.vehicle && o.vehicle!=='미지정' ? o.vehicle : '미지정'));
 
     // ── 단일품목 업체: 모든 품목을 지정 상품명으로 바꾸고 숫자만 붙임 ──
     const single = MASTER[sk] && MASTER[sk].single;
@@ -737,26 +904,41 @@ async function processChunk(ck, tot, GAPS){
       });
     }
 
-    // ── 항목 단위 중복 제거 / 기존 주문에 병합 ──
-    // 같은 (날짜, 거래처) 주문이 이미 있으면 새 품목만 추가한다.
+    // ── 항목 단위 중복 감지 / 기존 주문에 병합 ──
+    // 같은 (날짜, 거래처) 주문이 이미 있으면: 새 품목은 추가, 중복 품목은 *표시로 추가.
     let existing=null;
     for(const id in ORDERS){ const e=ORDERS[id];
       if(e.date===o.date && e.client===o.client){ existing=e; break; } }
 
     if(existing){
       const have=new Set((existing.items||[]).map(itemText));
-      const fresh=o.items.filter(it=>!have.has(itemText(it)));
-      if(!fresh.length){ tot.dup++; continue; }        // 전부 이미 있음 → 스킵
-      existing.items=existing.items.concat(fresh);
+      const toAdd=[];
+      for(const it of o.items){
+        if(have.has(itemText(it))){
+          // 중복 → *표시해서 추가하고 리포트에 기록
+          const dup=Object.assign({}, it, { text:'*'+(it.text||it.product||''), dup:true });
+          toAdd.push(dup);
+          tot.dupItems.push({client:o.client, text:itemText(it)});
+          tot.dup++;
+        } else {
+          toAdd.push(it); have.add(itemText(it));
+        }
+      }
+      if(!toAdd.length){ continue; }
+      existing.items=existing.items.concat(toAdd);
       existing.hash=hashOrder(existing);
       if(fbReady) await db.ref('orders/'+existing.id).update({items:existing.items, hash:existing.hash});
-      tot.added += fresh.length;
+      tot.added += toAdd.filter(x=>!x.dup).length;
       seenHashes.add(existing.hash);
-      // 신규 상품 마스터 반영은 아래 공통 루프에서
       o=existing;                                       // 아래 상품/스펙 수집은 병합된 주문 기준
     } else {
       o.hash=hashOrder(o);
-      if(seenHashes.has(o.hash)){tot.dup++;continue;}
+      if(seenHashes.has(o.hash)){                       // 완전히 같은 주문 재입력
+        // 이미 있는 주문과 동일 → 품목 전체를 *표시로 다시 넣지는 않고 리포트만
+        tot.dup += o.items.length;
+        o.items.forEach(it=>tot.dupItems.push({client:o.client, text:itemText(it)}));
+        continue;
+      }
       seenHashes.add(o.hash);
       o.done=false;o.ts=Date.now();
       if(fbReady){const ref=db.ref('orders').push();o.id=ref.key;await ref.set(o);}
@@ -767,6 +949,7 @@ async function processChunk(ck, tot, GAPS){
     // 신규 거래처 → 마스터에 자리 확보
     if(!MASTER[sk]){
       MASTER[sk]={vehicle: (o.vehicle!=='미지정'?o.vehicle:''), specs:[]};
+      _clientIndex=null;                 // 인덱스 갱신 필요
       tot.newClients.push(sk);
       await saveMaster(sk);
     }
@@ -996,6 +1179,15 @@ function addGapSpecRow(){
 
 /* ---------- 렌더링 ---------- */
 const VORDER=['0966','6506','1982','4232','사무실','택배','마포','미지정'];
+
+// 차량번호 정규화: 966 → 0966, 앞의 0이 날아간 경우 복원
+function normVeh(v){
+  v=String(v||'').trim();
+  if(!v) return '미지정';
+  // 순수 숫자 3~4자리면 4자리로 zero-pad (0966, 6506 등)
+  if(/^\d{3,4}$/.test(v)) return v.padStart(4,'0');
+  return v;
+}
 const STATUSES=['','작업','원물/박스','원물/팩','원물','작업/네이버','원물/네이버'];
 function vsort(a,b){let x=VORDER.indexOf(a),y=VORDER.indexOf(b);if(x<0)x=99;if(y<0)y=99;return x-y||a.localeCompare(b);}
 
@@ -1022,7 +1214,7 @@ function buildNoteTable(date, workMode){
   const by=ordersByDate();const list=(by[date]||[]);
   // 차량 -> 거래처 -> [orders]
   const g={};
-  list.forEach(o=>{const v=o.vehicle||'미지정';(g[v]=g[v]||{});(g[v][o.client]=g[v][o.client]||[]).push(o);});
+  list.forEach(o=>{const v=normVeh(o.vehicle||'미지정');(g[v]=g[v]||{});(g[v][o.client]=g[v][o.client]||[]).push(o);});
   const vehicles=Object.keys(g).sort(vsort);
   if(!vehicles.length) return '<div class="empty">이 날짜의 주문이 없습니다.</div>';
 
@@ -1033,7 +1225,7 @@ function buildNoteTable(date, workMode){
     let itemCount=0;
     clients.forEach(c=>g[v][c].forEach(o=>itemCount+=o.items.length));
 
-    let html='<section class="veh-page">'+
+    let html='<section class="veh-page'+(workMode?' work-note':'')+'">'+
       '<div class="veh-page-head"><span class="vp-veh">'+esc(v)+'</span>'+
       '<span class="vp-meta">'+esc(fmtDate(date))+' · 거래처 '+clients.length+'곳 · 품목 '+itemCount+'건'+
       (workMode?' · 작업용':'')+'</span></div>'+
@@ -1046,21 +1238,24 @@ function buildNoteTable(date, workMode){
       const allItems=[];orders.forEach(o=>o.items.forEach(it=>allItems.push({...it,oid:o.id})));
       const done=orders.every(o=>o.done);
       let itemHtml=allItems.map(it=>{
-        let line='<span class="item-line">'+esc(it.text||it.product);
-        if(it.price) line=line.replace(/$/,''),line='<span class="item-line">'+esc(it.text)+' <span class="price">'+esc(it.price)+'</span>';
+        const rawText=it.text||it.product||'';
+        const isDup = it.dup || rawText.charAt(0)==='*';
+        let inner=esc(rawText);
+        if(it.price) inner=esc(rawText)+' <span class="price">'+esc(it.price)+'</span>';
         if(workMode){
           const sp=specForItem(c,it.product,it.text);
           if(sp){
-            if(sp.spec) line+='<span class="spec">'+esc(sp.spec)+'</span>';
+            if(sp.spec) inner+='<span class="spec">'+esc(sp.spec)+'</span>';
             const st=(sp.status||'').trim();
             if(st){
               const raw = st.indexOf('원물')===0;
-              line+='<span class="'+(raw?'wraw':'wwait')+'">'+esc(st)+'</span>';
+              inner+='<span class="'+(raw?'wraw':'wwait')+'">'+esc(st)+'</span>';
             }
           }
         }
-        line+='</span>';return line;
+        return '<span class="item-cell'+(isDup?' dup':'')+'">'+inner+'</span>';
       }).join('');
+      itemHtml='<div class="item-grid">'+itemHtml+'</div>';
 
       const oids=orders.map(o=>o.id).join(',');
       html+='<tr class="'+(done?'done':'')+'">';
@@ -1433,6 +1628,7 @@ function renderAll(){renderNote();renderWork();renderMaster();}
 function tab(name){
   document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
   document.querySelectorAll('.tabpage').forEach(p=>p.style.display=(p.dataset.page===name?'':'none'));
+  if(name==='setup' && IS_ADMIN) loadAccessForm();
 }
 document.querySelectorAll('nav.tabs button').forEach(b=>b.onclick=()=>tab(b.dataset.tab));
 
