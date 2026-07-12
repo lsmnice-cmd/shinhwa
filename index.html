@@ -116,6 +116,8 @@
   .cli-edit{cursor:pointer;display:inline-flex;align-items:center;gap:5px;padding:2px 6px;border-radius:4px}
   .cli-edit:hover{background:var(--accent-soft);color:var(--accent)}
   .cli-edit .pen{font-style:normal;font-size:10px;opacity:0;transition:opacity .15s}
+  .src{font-style:normal;font-size:10px;opacity:.45;cursor:help;margin-left:3px}
+  .src:hover{opacity:1}
   .cli-edit:hover .pen{opacity:.7}
   #edItems tr.killed input{text-decoration:line-through;opacity:.45;background:#f6f2f2}
 
@@ -422,6 +424,11 @@
 
     <div class="modal-body">
       <div class="row" style="margin-bottom:12px">
+        <label style="width:70px;font-size:12px;font-weight:700">날짜</label>
+        <input type="date" id="edDateInput" style="min-width:160px">
+        <span class="mini">날짜가 잘못 잡혔으면 여기서 옮기세요.</span>
+      </div>
+      <div class="row" style="margin-bottom:12px">
         <label style="width:70px;font-size:12px;font-weight:700">거래처</label>
         <input type="text" id="edClient" style="flex:1;min-width:180px">
       </div>
@@ -429,6 +436,12 @@
         <div style="font-size:12px;font-weight:700;margin-bottom:5px">차량</div>
         <div class="vpick" id="edVeh"></div>
       </div>
+
+      <details id="edRawWrap" style="margin-bottom:14px">
+        <summary style="cursor:pointer;font-size:12px;font-weight:700">📄 카톡 원문 보기</summary>
+        <pre id="edRaw" style="margin:6px 0 0;padding:10px;background:#f5f2ea;border-radius:5px;
+             font-size:12px;line-height:1.5;white-space:pre-wrap;max-height:200px;overflow:auto"></pre>
+      </details>
 
       <div style="font-size:12px;font-weight:700;margin-bottom:5px">품목</div>
       <div class="mini" style="margin-bottom:6px">✕ 를 누르면 그 줄에 취소선이 그어집니다. 저장하면 삭제됩니다. 품목을 전부 지우면 주문이 삭제됩니다.</div>
@@ -452,6 +465,8 @@
   </div>
 </div>
 </main>
+
+<datalist id="prodList"></datalist>
 
 <!-- Firebase (compat, CDN) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -777,6 +792,7 @@ async function loadMasterFromSheet(){
     const j=await gsCall('getMaster');
     MASTER=j.master||{};
     _clientIndex=null;
+    refreshProdList();
     renderAll();
   }catch(e){
     console.error(e);
@@ -888,6 +904,7 @@ async function processChunk(ck, tot, GAPS){
 
   for(let o of parsed){
     if(ck.date) o.date=ck.date;                       // 구분선 날짜가 최우선
+    if(!o.raw || !String(o.raw).trim()) o.raw=(ck.text||'').slice(0,1500);   // Gemini가 원문을 빼먹으면 청크 전체로
     const sk=matchClient(o.client);
     if(!sk) continue;
 
@@ -1179,6 +1196,24 @@ function addGapSpecRow(){
 
 /* ---------- 렌더링 ---------- */
 const VORDER=['0966','6506','1982','4232','사무실','택배','마포','미지정'];
+let PRODBYCODE={};   // 상품코드 → 상품명 (ERP 코드로 바로 고칠 수 있게)
+
+/* 마스터의 모든 상품을 자동완성 목록으로 (상품명 오파싱 수정용) */
+function refreshProdList(){
+  const dl=document.getElementById('prodList');
+  if(!dl) return;
+  const set=new Set();
+  for(const c in MASTER) (MASTER[c].specs||[]).forEach(sp=>{ if(sp.product) set.add(sp.product); });
+  dl.innerHTML='';
+  [...set].sort().forEach(p=>{
+    const o=document.createElement('option'); o.value=p; dl.appendChild(o);
+  });
+  // 코드 매핑 (마스터에 code가 있으면)
+  PRODBYCODE={};
+  for(const c in MASTER) (MASTER[c].specs||[]).forEach(sp=>{
+    if(sp.code) PRODBYCODE[String(sp.code)]=sp.product;
+  });
+}
 
 // 차량번호 정규화: 966 → 0966, 앞의 0이 날아간 경우 복원
 function normVeh(v){
@@ -1260,9 +1295,14 @@ function buildNoteTable(date, workMode){
       const oids=orders.map(o=>o.id).join(',');
       html+='<tr class="'+(done?'done':'')+'">';
       if(workMode){
-        html+='<td class="cli">'+esc(c)+'</td>';
+        const wraws=orders.map(o=>(o.raw||'').trim()).filter(Boolean);
+        const wtip = wraws.length ? ' title="'+esc(wraws.join('\n─────\n'))+'"' : '';
+        html+='<td class="cli"'+wtip+'>'+esc(c)+(wraws.length?' <i class="src">📄</i>':'')+'</td>';
       }else{
-        html+='<td class="cli"><span class="cli-edit" onclick="openOrderEditor(\''+oids+'\')" title="클릭해서 수정/삭제">'+esc(c)+'<i class="pen">✎</i></span></td>';
+        const raws=orders.map(o=>(o.raw||'').trim()).filter(Boolean);
+        const tip = raws.length ? esc(raws.join('\n─────\n')) : '클릭해서 수정/삭제';
+        html+='<td class="cli"><span class="cli-edit" onclick="openOrderEditor(\''+oids+'\')" title="'+tip+'">'
+             +esc(c)+(raws.length?'<i class="src" title="'+tip+'">📄</i>':'')+'<i class="pen">✎</i></span></td>';
       }
       html+='<td class="items">'+itemHtml+'</td>';
       if(!workMode){
@@ -1330,7 +1370,16 @@ function openOrderEditor(oids){
   const first=ORDERS[EDIT_IDS[0]];
 
   document.getElementById('edDate').textContent=first.date;
+  document.getElementById('edDateInput').value=first.date||'';
   document.getElementById('edClient').value=first.client||'';
+
+  // 카톡 원문 (여러 주문이 합쳐졌으면 모두)
+  const raws=[];
+  EDIT_IDS.forEach(id=>{ const r=(ORDERS[id].raw||'').trim(); if(r && !raws.includes(r)) raws.push(r); });
+  const rw=document.getElementById('edRawWrap');
+  const rp=document.getElementById('edRaw');
+  if(raws.length){ rp.textContent=raws.join('\n\n─────────\n\n'); rw.style.display=''; }
+  else { rp.textContent=''; rw.style.display='none'; }
 
   // 차량 버튼
   const vp=document.getElementById('edVeh'); vp.innerHTML='';
@@ -1355,7 +1404,14 @@ function openOrderEditor(oids){
 
       const t2=document.createElement('td');
       const i2=document.createElement('input'); i2.type='text'; i2.className='specin'; i2.value=it.product||'';
-      i2.placeholder='핵심 상품명'; t2.appendChild(i2);
+      i2.placeholder='상품명 (또는 코드)'; i2.setAttribute('list','prodList');
+      // 코드를 넣으면 상품명으로 바꿔줌
+      i2.onchange=()=>{
+        const v=i2.value.trim();
+        const hit=PRODBYCODE[v];
+        if(hit){ i2.value=hit; setMsg('inMsg','코드 '+v+' → '+hit,true); }
+      };
+      t2.appendChild(i2);
 
       const t3=document.createElement('td');
       const i3=document.createElement('input'); i3.type='text'; i3.className='specin'; i3.value=it.price||'';
@@ -1390,7 +1446,9 @@ async function saveOrderEdit(){
     const client=document.getElementById('edClient').value.trim();
     const selBtn=document.getElementById('edVeh').querySelector('button.sel');
     const vehicle=selBtn?selBtn.textContent:'미지정';
+    const newDate=document.getElementById('edDateInput').value.trim();
     if(!client){ alert('거래처명을 입력하세요.'); return; }
+    if(!newDate){ alert('날짜를 입력하세요.'); return; }
 
     // 품목을 주문별로 다시 모읍니다 (삭제 표시된 줄 제외)
     const byOid={};
@@ -1415,16 +1473,19 @@ async function saveOrderEdit(){
         await deleteOrder(id, true);
         continue;
       }
-      o.client=client; o.vehicle=vehicle; o.items=items;
+      o.client=client; o.vehicle=normVeh(vehicle); o.items=items; o.date=newDate;
       const oldHash=o.hash;
       o.hash=hashOrder(o);
       if(oldHash!==o.hash){ seenHashes.delete(oldHash); seenHashes.add(o.hash); }
 
       if(fbReady){
-        await db.ref('orders/'+id).update({client:o.client, vehicle:o.vehicle, items:o.items, hash:o.hash});
+        await db.ref('orders/'+id).update({client:o.client, vehicle:o.vehicle,
+                                           items:o.items, date:o.date, hash:o.hash});
       }
     }
     if(!fbReady) renderAll();
+    noteDate=newDate;                 // 옮긴 날짜로 따라감
+    renderAll();
     setMsg('inMsg','✓ 주문 수정됨',true);
     closeOrderEditor();
   }catch(e){
