@@ -117,6 +117,8 @@
   .cli-edit:hover{background:var(--accent-soft);color:var(--accent)}
   .cli-edit .pen{font-style:normal;font-size:10px;opacity:0;transition:opacity .15s}
   .src{font-style:normal;font-size:10px;opacity:.45;cursor:help;margin-left:3px}
+  .fixed{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:3px;background:#e6eef5;
+         color:#1e4f7a;font-size:10.5px;font-weight:700;cursor:help}
   .src:hover{opacity:1}
   .cli-edit:hover .pen{opacity:.7}
   #edItems tr.killed input{text-decoration:line-through;opacity:.45;background:#f6f2f2}
@@ -791,6 +793,7 @@ async function loadMasterFromSheet(){
   try{
     const j=await gsCall('getMaster');
     MASTER=j.master||{};
+    LEARNED=j.learned||{perCustomer:{},global:{}};
     _clientIndex=null;
     refreshProdList();
     renderAll();
@@ -874,6 +877,7 @@ async function analyze(){
     if(!fbReady) renderAll();
 
     let m=`✓ ${tot.added}건 누적`+(tot.dup?` · ⚠ 중복의심 ${tot.dup}건 (주문노트에서 * 표시 확인)`:'');
+    if(tot.fixed) m+=` · 🔧 상품명 교정 ${tot.fixed}건`;
     if(tot.newClients.length) m+=` · 신규 거래처 ${tot.newClients.length}곳`;
     if(tot.newProducts) m+=` · 신규 상품 ${tot.newProducts}개`;
     if(CANCEL) m='(중단됨) '+m;
@@ -918,6 +922,20 @@ async function processChunk(ck, tot, GAPS){
         const nums=(it.text||'').match(/\d+(?:\.\d+)?/g);
         const qty = nums ? nums.join(' ') : '';
         return { product: single, text: (single+' '+qty).trim(), price: it.price||'' };
+      });
+    }
+
+    // ── 학습사전으로 상품명 교정 (카톡 은어 → ERP 정식명) ──
+    // 원문(text)은 그대로 두고 product 만 바꿉니다. 바뀐 건 fixed 표시.
+    if(!single){
+      o.items.forEach(it=>{
+        const c=correctProduct(sk, it.product, it.text);
+        if(c && c.item!==it.product){
+          it.wasProduct=it.product||'';
+          it.product=c.item;
+          it.fixed=1;
+          tot.fixed=(tot.fixed||0)+1;
+        }
       });
     }
 
@@ -1197,6 +1215,34 @@ function addGapSpecRow(){
 /* ---------- 렌더링 ---------- */
 const VORDER=['0966','6506','1982','4232','사무실','택배','마포','미지정'];
 let PRODBYCODE={};   // 상품코드 → 상품명 (ERP 코드로 바로 고칠 수 있게)
+let LEARNED={perCustomer:{},global:{}};   // 카톡 은어 → ERP 정식 상품명 (학습사전 시트)
+
+/* 카톡 용어를 ERP 정식 상품명으로 교정.
+   거래처별 사전 우선 → 없으면 전사 공통 → 없으면 원래대로. */
+function correctProduct(client, product, text){
+  const cand=[product, text].filter(Boolean);
+  const per=LEARNED.perCustomer[client]||{};
+  for(const src of cand){
+    const w=learnKey(src);
+    if(!w) continue;
+    if(per[w]) return {item:per[w], via:'거래처'};
+    // 부분일치도 허용 (원문에 은어가 섞여 있는 경우)
+    for(const k in per){ if(w.indexOf(learnKey(k))>=0) return {item:per[k], via:'거래처'}; }
+  }
+  for(const src of cand){
+    const w=learnKey(src);
+    if(!w) continue;
+    if(LEARNED.global[w]) return {item:LEARNED.global[w], via:'공통'};
+    for(const k in LEARNED.global){ if(w.indexOf(learnKey(k))>=0) return {item:LEARNED.global[k], via:'공통'}; }
+  }
+  return null;
+}
+function learnKey(s){
+  s=String(s||'');
+  s=s.replace(/[\d.,]+/g,'');
+  s=s.replace(/(키로|킬로|kg|박스|팩|판|개|두|봉지|box|덩이|마리|미리|mm|cm|근)/gi,'');
+  return s.replace(/[^가-힣A-Za-z0-9]/g,'').toLowerCase();
+}
 
 /* 마스터의 모든 상품을 자동완성 목록으로 (상품명 오파싱 수정용) */
 function refreshProdList(){
@@ -1278,6 +1324,9 @@ function buildNoteTable(date, workMode){
         let inner=esc(rawText);
         if(it.price) inner=esc(rawText)+' <span class="price">'+esc(it.price)+'</span>';
         if(workMode){
+          if(it.fixed && it.product){
+            inner+='<span class="fixed" title="카톡: '+esc(it.wasProduct||'')+' → ERP 정식명">'+esc(it.product)+'</span>';
+          }
           const sp=specForItem(c,it.product,it.text);
           if(sp){
             if(sp.spec) inner+='<span class="spec">'+esc(sp.spec)+'</span>';
