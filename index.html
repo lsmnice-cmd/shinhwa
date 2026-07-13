@@ -148,6 +148,7 @@
   .src{font-style:normal;font-size:10px;opacity:.45;cursor:help;margin-left:3px}
   .fixed{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:3px;background:#e6eef5;
          color:#1e4f7a;font-size:10.5px;font-weight:700;cursor:help}
+  .guess .q{font-style:normal;margin-left:2px}
   .guess{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:3px;background:#f7efe0;
          color:#8a6a20;font-size:10.5px;font-weight:700;cursor:help;border:1px dashed #c9a961}
   .src:hover{opacity:1}
@@ -191,6 +192,7 @@
     @page{ size:A4 portrait; margin:12mm; }
     header.top,nav.tabs,.no-print,#gate,#orderModal,#gapModal{display:none!important}
     .cli-edit .pen{display:none!important}
+    .guess .q{display:none!important}
     .cli-edit{padding:0;background:none!important;color:inherit!important}
     body{background:#fff}
     .panel{border:none;box-shadow:none;padding:0}
@@ -1770,15 +1772,20 @@ function buildNoteTable(date, workMode){
         const isDup = it.dup || rawText.charAt(0)==='*';
         let inner=esc(rawText);
         if(it.price) inner=esc(rawText)+' <span class="price">'+esc(it.price)+'</span>';
+
+        // ERP 정식 상품명 — 주문노트·작업용 노트 양쪽에 표시.
+        // 창고에서 물건 꺼낼 때 "탕갈비"만으론 어느 탕갈비인지 모르므로
+        // "우등갈비(엑셀)탕갈비" 처럼 프로그램의 이름을 같이 보여줍니다.
+        if(it.fixed && it.product){
+          const guess = it.via==='최근' && it.cands && it.cands.length>1;
+          const tip = guess
+            ? '추천(최근 구매 기준) — 다른 후보: '+esc((it.cands||[]).slice(1).join(', '))+'\n거래처명 클릭해서 고치세요'
+            : '카톡: '+esc(it.wasProduct||'')+' → ERP 정식명';
+          inner+='<span class="'+(guess?'guess':'fixed')+'" title="'+tip+'">'
+               +esc(it.product)+(guess?'<i class="q">?</i>':'')+'</span>';
+        }
+
         if(workMode){
-          if(it.fixed && it.product){
-            const guess = it.via==='최근' && it.cands && it.cands.length>1;
-            const tip = guess
-              ? '추천(최근 구매 기준) — 다른 후보: '+esc((it.cands||[]).slice(1).join(', '))+'\n거래처명 클릭해서 고치세요'
-              : '카톡: '+esc(it.wasProduct||'')+' → ERP 정식명';
-            inner+='<span class="'+(guess?'guess':'fixed')+'" title="'+tip+'">'
-                 +esc(it.product)+(guess?'?':'')+'</span>';
-          }
           const sp=specForItem(c,it.product,it.text);
           if(sp){
             if(sp.spec) inner+='<span class="spec">'+esc(sp.spec)+'</span>';
