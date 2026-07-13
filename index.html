@@ -1168,18 +1168,24 @@ async function processChunk(ck, tot, GAPS){
         const matched=specForItem(sk,it.product,it.text);
         if(matched){ row=matched; }
         else{
-          row={product:it.product,spec:'',status:''};
-          MASTER[sk].specs.push(row);
-          tot.newProducts++;
-          try{ await gsCall('setSpec',{client:sk,product:it.product,spec:'',status:''}); }
-          catch(err){ console.error(err); }
+          // ★ 카톡에 쓰는 줄임말·은어를 마스터에 상품으로 등록하면 안 됩니다.
+          //    그러면 "이미 아는 상품"이 되어 ERP 정식명으로 교정되지 않습니다.
+          //    시트에는 안 쓰고, 빠진정보 창에만 올려 대표님이 상품명을 고르게 합니다.
+          //    (거기서 고치면 그 이름으로 저장되고 학습사전에도 등록됩니다)
+          row={product:it.product,spec:'',status:'',_raw:!it.fixed && !single};
+          if(!row._raw){
+            MASTER[sk].specs.push(row);
+            tot.newProducts++;
+            try{ await gsCall('setSpec',{client:sk,product:it.product,spec:'',status:''}); }
+            catch(err){ console.error(err); }
+          }
         }
       }
       if(!row.spec){
         const key=sk+'||'+row.product;
         const g=GAPS.specs.get(key);
         if(g) g.n++;
-        else GAPS.specs.set(key,{client:sk,product:row.product,spec:'',status:row.status||'',n:1});
+        else GAPS.specs.set(key,{client:sk,product:row.product,spec:'',status:row.status||'',n:1,raw:!!row._raw});
       }
     }
   }
@@ -1560,6 +1566,8 @@ async function saveGaps(){
     // 스펙/작업여부: 하나라도 입력된 것만 (사용자가 추가한 행 포함)
     for(const g of GAPSTATE.specs.values()){
       if(!g.product) continue;
+      // 카톡 원문 그대로면(안 고쳤으면) 시트에 쓰지 않습니다 — 마스터 오염 방지
+      if(g.raw && !g.orig) continue;
       // 상품명을 고쳤으면 학습사전에 저장 → 다음부터 자동 교정
       if(g.orig && g.orig!==g.product){
         try{
@@ -1570,7 +1578,8 @@ async function saveGaps(){
           okLearn++;
         }catch(e){ console.warn('addLearned',e); }
       }
-      if(!g.spec && !g.status) continue;
+      // 스펙·작업여부가 없어도, 상품명을 고쳤으면 시트에 등록해야 합니다(ERP 정식명 확보)
+      if(!g.spec && !g.status && !(g.orig && g.orig!==g.product)) continue;
       try{
         await gsCall('setSpec',{client:g.client,product:g.product,spec:g.spec||'',status:g.status||''});
         const m=MASTER[g.client];
