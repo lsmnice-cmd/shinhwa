@@ -58,6 +58,13 @@
   table.note col.c-cli{width:180px} table.note col.c-item{width:auto} table.note col.c-work{width:52px}
   /* 차량별 섹션 */
   .veh-page{margin-bottom:26px}
+  .veh-sec{margin-bottom:22px}
+  /* 택배 아래 빈 줄 — 나중에 손으로 적는 자리 */
+  .fill-rows{margin:6px 0 14px}
+  .fill-rows .blank-h{font-size:11px;color:var(--muted);padding:3px 4px;letter-spacing:1px}
+  table.note.blank td{height:26px;background:#fff}
+  table.note.blank td.cli{border-right:1px solid var(--line)}
+  .veh-sec:last-child{margin-bottom:0}
   .veh-page-head{display:flex;align-items:baseline;gap:14px;padding:8px 4px 10px;border-bottom:3px solid var(--line-strong);margin-bottom:0}
   .vp-veh{font-family:var(--mono);font-weight:800;font-size:26px;letter-spacing:2px;color:var(--ink)}
   .vp-meta{font-size:13px;color:var(--muted)}
@@ -200,14 +207,16 @@
     .note-head .actions{display:none}
     /* 날짜 머리말은 첫 장에만: 차량 섹션마다 자체 머리말이 있음 */
     .note-head{display:none}
-    /* ▶ 차량 한 대 = A4 한 장 */
-    .veh-page{ page-break-after:always; break-after:page; margin-bottom:0; }
+    .datebar{display:none!important}   /* 날짜 탭은 화면용 */
+    /* ▶ 한 페이지 = .veh-page (택배+사무실은 한 장에 위아래로) */
+    .veh-page{ page-break-after:always; break-after:page; margin-bottom:0; page-break-inside:auto; }
     .veh-page:last-child{ page-break-after:auto; break-after:auto; }
+    .veh-sec{ margin-bottom:14px; page-break-inside:auto; }
+    .veh-sec:last-child{ margin-bottom:0; }
     .veh-page-head{ padding-top:0; }
     .vp-veh{font-size:30px}
     table.note tr{ page-break-inside:avoid; break-inside:avoid; }
     table.note thead{ display:table-header-group; }   /* 여러 장 넘어가도 헤더 반복 */
-    .veh-page{ page-break-inside:auto; }
   }
   @media (max-width:640px){
     main{padding:10px}
@@ -1406,7 +1415,7 @@ function openGapDialog(GAPS){
   const sb=document.getElementById('gapSpecBody');
   vb.innerHTML=''; sb.innerHTML='';
 
-  const VEHS=['0966','6506','1982','4232','택배/사무실','온라인'];
+  const VEHS=['0966','6506','1982','4232','택배','사무실','온라인'];
 
   // 자주 나온 순 → 먼저 채우는 게 이득
   const vList=[...GAPS.vehicles.entries()].sort((a,b)=>b[1].n-a[1].n || a[0].localeCompare(b[0]));
@@ -1644,7 +1653,7 @@ function addGapSpecRow(){
 }
 
 /* ---------- 렌더링 ---------- */
-const VORDER=['0966','6506','1982','4232','택배/사무실','온라인','미지정'];
+const VORDER=['0966','6506','1982','4232','택배','사무실','온라인','미지정'];
 
 /* 네이버 스마트스토어 등 온라인 판매 거래처 — 별도 페이지로 뺍니다.
    인터넷 주문은 추가/취소가 잦아 배송 차량과 섞이면 헷갈립니다. */
@@ -1740,10 +1749,10 @@ function refreshProdList(){
 // 차량번호 정규화: 966 → 0966, 앞의 0이 날아간 경우 복원
 /* 차량 정규화.
    - 966 → 0966 (엑셀이 앞의 0을 날리는 문제)
-   - 택배·사무실·방문 → '택배/사무실' 로 통합 (한 장에 인쇄)
-   - 마포 → 사용 안 함 (택배/사무실로 흡수)
+   - 방문·마포 → '사무실' 로 흡수
+   - 택배·사무실은 따로 두되, 인쇄할 땐 한 장에 위아래로 배치 (PAIR_PAGE)
    기존 시트 데이터를 안 고쳐도 화면·인쇄가 정리됩니다. */
-const VEH_MERGE = { '사무실':'택배/사무실', '방문':'택배/사무실', '택배':'택배/사무실', '마포':'택배/사무실' };
+const VEH_MERGE = { '방문':'사무실', '마포':'사무실' };   // 방문·마포 → 사무실로 흡수
 
 function normVeh(v){
   v=String(v||'').trim();
@@ -1787,14 +1796,14 @@ function buildNoteTable(date, workMode){
   const vehicles=Object.keys(g).sort(vsort);
   if(!vehicles.length) return '<div class="empty">이 날짜의 주문이 없습니다.</div>';
 
-  let out='';
+  const parts={};
   vehicles.forEach(v=>{
     const clients=Object.keys(g[v]);
     // 차량별 거래처/품목 수 (인쇄 머리말용)
     let itemCount=0;
     clients.forEach(c=>g[v][c].forEach(o=>itemCount+=o.items.length));
 
-    let html='<section class="veh-page'+(workMode?' work-note':'')+'">'+
+    let html='<section class="veh-sec'+(workMode?' work-note':'')+'">'+
       '<div class="veh-page-head"><span class="vp-veh">'+esc(v)+'</span>'+
       '<span class="vp-meta">'+esc(fmtDate(date))+' · 거래처 '+clients.length+'곳 · 품목 '+itemCount+'건'+
       (workMode?' · 작업용':'')+'</span></div>'+
@@ -1858,9 +1867,73 @@ function buildNoteTable(date, workMode){
       html+='</tr>';
     });
     html+='</tbody></table></section>';
-    out+=html;
+    parts[v]=html;
+  });
+
+  // ── 페이지 조립 ──
+  // 택배와 사무실은 한 장에 위아래로 (둘 다 있을 때). 나머지는 각각 한 장.
+  let out='';
+  const used=new Set();
+  let pairDone=false;
+
+  vehicles.forEach(v=>{
+    if(used.has(v)) return;
+
+    // 택배·사무실은 만나는 자리에서 한 장으로 묶습니다.
+    // 상단 택배 → [빈 줄: 나중에 손으로 추가하는 택배 주문용] → 하단 사무실
+    if(v==='택배' || v==='사무실'){
+      if(pairDone) return;
+      out+='<div class="veh-page tp-page">'
+         + (parts['택배']||'')
+         + '<div class="fill-rows" data-fill="1"></div>'   // 남는 공간만큼 빈 줄 (renderNote 후 계산)
+         + (parts['사무실']||'')
+         + '</div>';
+      used.add('택배'); used.add('사무실');
+      pairDone=true;
+      return;
+    }
+    out+='<div class="veh-page">'+parts[v]+'</div>';
+    used.add(v);
   });
   return out;
+}
+
+/* 택배·사무실 한 장에서, 택배 아래에 남는 공간만큼 빈 줄을 채웁니다.
+   나중에 들어오는 택배 주문을 손으로 적을 자리입니다.
+   A4 높이에서 실제 내용 높이를 빼서 몇 줄 들어갈지 계산합니다. */
+function fillBlankRows(root){
+  const wrap=(root||document).querySelector('.tp-page .fill-rows');
+  if(!wrap) return;
+  const page=wrap.closest('.veh-page');
+  if(!page) return;
+
+  wrap.innerHTML='';
+
+  // A4 세로 297mm - 위아래 여백 12mm = 273mm ≒ 1032px (96dpi)
+  // 화면에서 재는 값과 인쇄가 미세하게 달라서 여유를 40px 둡니다.
+  const PAGE_H = Math.floor(273 * 96 / 25.4) - 40;
+  const ROW_H  = 26;
+
+  const baseH = page.getBoundingClientRect().height;   // 빈 줄 없는 상태
+  let rows = Math.floor((PAGE_H - baseH) / ROW_H);
+  if(rows < 2) return;
+  if(rows > 22) rows = 22;
+
+  const build = n => {
+    let h='<table class="note blank"><colgroup><col class="c-cli"><col class="c-item">'
+        + '<col class="c-work"></colgroup><tbody>';
+    for(let i=0;i<n;i++) h+='<tr><td class="cli"></td><td class="items"></td><td class="work"></td></tr>';
+    return h+'</tbody></table>';
+  };
+
+  // 넣어보고, 페이지를 넘기면 한 줄씩 줄입니다 (실측 기반이라 확실합니다)
+  wrap.innerHTML=build(rows);
+  let guard=0;
+  while(rows>1 && page.getBoundingClientRect().height > PAGE_H && guard++ < 30){
+    rows--;
+    wrap.innerHTML=build(rows);
+  }
+  if(rows<1) wrap.innerHTML='';
 }
 
 function fmtDate(d){
@@ -1889,6 +1962,7 @@ function renderNote(){
     '<div class="legend no-print"><span><i class="worktag wait" style="width:34px;text-align:center">대기</i>미작업</span>'+
     '<span><i class="worktag done" style="width:34px;text-align:center">완료</i>작업완료(클릭 토글)</span>'+
     '<span>거래처명을 클릭하면 수정·삭제할 수 있습니다</span></div>';
+  fillBlankRows(document.getElementById('noteWrap'));
 }
 function renderWork(){
   workDate=renderDateBar('workDates',workDate,d=>{workDate=d;renderWork();});
@@ -1933,7 +2007,7 @@ function openOrderEditor(oids){
 
   // 차량 버튼
   const vp=document.getElementById('edVeh'); vp.innerHTML='';
-  ['0966','6506','1982','4232','택배/사무실','온라인','미지정'].forEach(v=>{
+  ['0966','6506','1982','4232','택배','사무실','온라인','미지정'].forEach(v=>{
     const b=document.createElement('button');
     b.type='button'; b.textContent=v;
     if((first.vehicle||'미지정')===v) b.classList.add('sel');
