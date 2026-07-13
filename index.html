@@ -76,7 +76,21 @@
   .work-note .wwait,.work-note .wraw{font-size:9.5px;margin-left:4px;padding:1px 5px}
   .price{color:var(--accent);font-weight:700}
   .spec{display:inline-block;margin-left:8px;padding:1px 7px;border-radius:3px;background:#e6eef7;color:#204d7a;font-size:11.5px;font-weight:700;font-family:var(--sans)}
-    .single-tag{display:inline-block;margin-right:5px;padding:2px 6px;border-radius:3px;background:#eef3e8;color:#3a5a2a;font-size:11px;font-weight:700}
+    .dgrp{border:1px solid var(--line);border-radius:6px;margin-bottom:10px;overflow:hidden}
+  .dgrp-h{display:flex;align-items:center;gap:8px;padding:8px 10px;background:#f5f2ea;border-bottom:1px solid var(--line)}
+  .dgrp-h input[type=date]{padding:4px 6px;border:1px solid var(--line);border-radius:4px;font-size:13px}
+  .dgrp-h .n{font-size:12px;color:var(--muted)}
+  .dsrc{font-size:10px;padding:1px 6px;border-radius:3px;font-weight:700}
+  .dsrc.원문{background:#e3f0e7;color:var(--ok)}
+  .dsrc.AI{background:#e6eef5;color:#1e4f7a}
+  .dsrc.구분선{background:#efe9dd;color:#6f6a5d}
+  .dgrp-b{padding:6px 10px;font-size:12px;line-height:1.7;max-height:120px;overflow:auto}
+  .dgrp-b .c{display:inline-block;margin-right:10px}
+  .cands{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px}
+  .cands button{padding:2px 6px;font-size:10.5px;border:1px solid var(--line);background:#fff;
+                border-radius:3px;cursor:pointer}
+  .cands button.sel{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .single-tag{display:inline-block;margin-right:5px;padding:2px 6px;border-radius:3px;background:#eef3e8;color:#3a5a2a;font-size:11px;font-weight:700}
   .specin{width:100%;padding:5px 7px;border:1px solid var(--line);border-radius:4px;font-size:12px;font-family:var(--sans)}
   .specin:focus{border-color:var(--accent);outline:none}
   table.grid select{padding:4px 6px;border:1px solid var(--line);border-radius:4px;font-size:12px}
@@ -119,6 +133,8 @@
   .src{font-style:normal;font-size:10px;opacity:.45;cursor:help;margin-left:3px}
   .fixed{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:3px;background:#e6eef5;
          color:#1e4f7a;font-size:10.5px;font-weight:700;cursor:help}
+  .guess{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:3px;background:#f7efe0;
+         color:#8a6a20;font-size:10.5px;font-weight:700;cursor:help;border:1px dashed #c9a961}
   .src:hover{opacity:1}
   .cli-edit:hover .pen{opacity:.7}
   #edItems tr.killed input{text-decoration:line-through;opacity:.45;background:#f6f2f2}
@@ -358,6 +374,29 @@
 
 
 <!-- ===== 빈칸 채우기 모달 ===== -->
+<!-- ===== 날짜 확인 모달 ===== -->
+<div id="dateModal" class="modal">
+  <div class="modal-card" style="max-width:720px">
+    <div class="modal-head">
+      <div>
+        <h2 style="margin:0;font-size:15px;letter-spacing:1px">📅 날짜 확인</h2>
+        <div class="mini" id="dateCount"></div>
+      </div>
+      <button class="btn ghost" style="padding:5px 10px" onclick="closeDateReview()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="mini" style="margin-bottom:10px">
+        카톡에 적힌 날짜대로 들어갔는지 확인하세요. <b>틀린 날짜를 고치면 그 주문들이 옮겨집니다.</b>
+      </div>
+      <div id="dateList"></div>
+    </div>
+    <div class="modal-foot">
+      <span class="mini" id="dateMsg"></span>
+      <button class="btn accent" onclick="closeDateReview()">확인</button>
+    </div>
+  </div>
+</div>
+
 <div id="gapModal" class="modal">
   <div class="modal-card">
     <div class="modal-head">
@@ -379,10 +418,13 @@
 
       <div id="gapSpecWrap" style="margin-top:18px">
         <h3 class="gaph">✂ 작업스펙이 없는 상품</h3>
-        <div class="mini" style="margin-bottom:6px">어떻게 세절·절단하는지 적어주세요. 비워두면 저장하지 않습니다.</div>
+        <div class="mini" style="margin-bottom:6px">
+          어떻게 세절·절단하는지 적어주세요. 비워두면 저장하지 않습니다.<br>
+          <b>상품명이 틀렸으면 고치세요</b> — 아래 후보 버튼(최근 구매 이력)을 누르거나 직접 입력·ERP 코드 입력. 고친 건 학습됩니다.
+        </div>
         <table class="grid">
           <thead><tr>
-            <th style="width:110px">거래처</th><th style="width:160px">상품명</th>
+            <th style="width:100px">거래처</th><th style="width:230px">상품명 (고칠 수 있음)</th>
             <th style="width:80px">작업여부</th><th>작업스펙</th>
           </tr></thead>
           <tbody id="gapSpecBody"></tbody>
@@ -713,6 +755,29 @@ function showUid(uid){document.getElementById('uidBox').style.display='';documen
 function copyUid(){navigator.clipboard.writeText(document.getElementById('myUid').textContent);gateMsgSet('UID 복사됨. Firebase 규칙에 붙여넣으세요.',true);}
 
 /* ---------- 해시(중복 제거) ---------- */
+/* 카톡 원문 앞부분에서 배송일을 직접 읽습니다.
+   Gemini에만 맡기면 "7/13 월요일" 같은 형식을 놓치거나, 중량(2.33)을 날짜로 오해합니다. */
+function dateFromRaw(raw, year){
+  if(!raw) return null;
+  const lines=String(raw).split(/\n/).map(x=>x.trim()).filter(Boolean);
+  for(const l of lines.slice(0,3)){                       // 날짜는 항상 머리에 옴
+    if(/^(0?966|6506|1982|4232|택배|사무실|마포|방문)$/.test(l)) continue;   // 차량번호
+    // 7.13 / 7/13 / 07.13  (뒤에 요일·괄호 허용)
+    let m=l.match(/^(\d{1,2})\s*[.\/\-]\s*(\d{1,2})(?:\s*[\(\s]*(?:월|화|수|목|금|토|일)요?일?[\)\s]*)?$/);
+    if(m){
+      const mo=+m[1], d=+m[2];
+      if(mo>=1&&mo<=12&&d>=1&&d<=31) return year+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    }
+    // 0713
+    m=l.match(/^(\d{2})(\d{2})$/);
+    if(m){
+      const mo=+m[1], d=+m[2];
+      if(mo>=1&&mo<=12&&d>=1&&d<=31) return year+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    }
+  }
+  return null;
+}
+
 function itemText(it){ return (it.text||it.product||'').trim(); }
 
 function hashOrder(o){
@@ -730,7 +795,7 @@ function matchVehicle(client){
 
 /* ---------- 작업스펙 매칭 (정규화 + 별칭 브릿지) ---------- */
 function matchSpecs(client){
-  const sk=shortName(client);
+  const sk=matchClient(client);          // 카톡명 → 마스터 정식 거래처명
   return (MASTER[sk]&&MASTER[sk].specs)||[];
 }
 function specNormalize(s){
@@ -760,8 +825,14 @@ function specForItem(client, product, text){
     const sTok=specTokset(s.product), sAlias=specAliasHits(s.product);
     let score=0;
     for(const t of sTok){
-      if(oTok.has(t)){score+=2;continue;}
-      for(const o of oTok){if(o.length>=2&&t.length>=2&&(o.includes(t)||t.includes(o))){score+=1;break;}}
+      if(oTok.has(t)){score+=3;continue;}                 // 완전일치
+      for(const o of oTok){
+        if(o.length>=2&&t.length>=2&&(o.includes(t)||t.includes(o))){
+          // 부분포함: '잡뼈' ⊂ '한우잡뼈', '목살' ⊂ '돈목살'
+          // 짧은 쪽이 길수록(2글자 이상) 신뢰도 높음 → 2점
+          score+=2; break;
+        }
+      }
     }
     for(const a of oAlias){if(sAlias.includes(a))score+=3;}
     if(score>bestScore){bestScore=score;best=s;}
@@ -851,7 +922,7 @@ async function analyze(){
   cancelBtn.style.display=chunks.length>1?'':'none';
   progWrap.style.display=chunks.length>1?'':'none';
 
-  const tot={added:0,dup:0,dupItems:[],newClients:[],newProducts:0,failed:[]};
+  const tot={added:0,dup:0,dupItems:[],newClients:[],newProducts:0,failed:[],touched:[]};
   const GAPS={vehicles:new Map(), specs:new Map()};   // 채워야 할 빈칸 수집
 
   try{
@@ -878,6 +949,7 @@ async function analyze(){
 
     let m=`✓ ${tot.added}건 누적`+(tot.dup?` · ⚠ 중복의심 ${tot.dup}건 (주문노트에서 * 표시 확인)`:'');
     if(tot.fixed) m+=` · 🔧 상품명 교정 ${tot.fixed}건`;
+    if(tot.guess) m+=` (그중 ${tot.guess}건은 추천 — 확인 필요)`;
     if(tot.newClients.length) m+=` · 신규 거래처 ${tot.newClients.length}곳`;
     if(tot.newProducts) m+=` · 신규 상품 ${tot.newProducts}개`;
     if(CANCEL) m='(중단됨) '+m;
@@ -887,9 +959,12 @@ async function analyze(){
 
     kakaoText.value='';
 
-    // 빈칸이 있으면 채우기 창을 띄웁니다
-    if(GAPS.vehicles.size || GAPS.specs.size) openGapDialog(GAPS);
-    else tab('note');
+    // ① 날짜 확인 → ② 빠진정보 순서로
+    PENDING_GAPS = (GAPS.vehicles.size || GAPS.specs.size) ? GAPS : null;
+    if(!openDateReview(tot.touched)){
+      if(PENDING_GAPS){ const g=PENDING_GAPS; PENDING_GAPS=null; openGapDialog(g); }
+      else tab('note');
+    }
 
   }finally{
     btn.disabled=false; btn.innerHTML='✦ AI 분석 후 누적';
@@ -904,10 +979,40 @@ function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
 async function processChunk(ck, tot, GAPS){
   const j=await gsCall('parse',{text:ck.text, baseDate:ck.date||baseDate.value||todayStr()});
   const parsed=j.orders||[];
+
+  // 이 덩어리에 나온 거래처들의 ERP 최근구매를 한 번에 가져옵니다.
+  // (아직 안 받아온 거래처만 — 반복 요청 방지)
+  try{
+    const need=[...new Set(parsed.map(o=>matchClient(o.client)).filter(c=>c && !(c in RECENT)))];
+    if(need.length){
+      const r=await gsCall('getRecent',{clients:JSON.stringify(need)});
+      const got=r.recent||{};
+      if(got.__error__){ console.warn('최근구매 로드 실패:',got.__error__); }
+      else {
+        need.forEach(c=>{ RECENT[c]=got[c]||[]; });   // 없으면 빈 배열로 (재요청 방지)
+      }
+    }
+  }catch(e){ console.warn('getRecent',e); }
   if(!parsed.length) return;
 
   for(let o of parsed){
-    if(ck.date) o.date=ck.date;                       // 구분선 날짜가 최우선
+    // ── 날짜 결정 ──
+    //  ① 카톡 원문 앞줄의 날짜 (우리가 직접 읽음 — 가장 믿을 만함)
+    //  ② Gemini가 뽑은 날짜
+    //  ③ 카톡 구분선 날짜
+    const yr=(ck.date||baseDate.value||todayStr()).slice(0,4);
+    const rawDate=dateFromRaw(o.raw, yr);
+    o.dateSrc = rawDate ? '원문' : (o.date ? 'AI' : '구분선');
+    if(rawDate) o.date=rawDate;
+    else if(!o.date && ck.date) o.date=ck.date;
+
+    // 안전장치: 구분선에서 -1일~+7일 밖이면 오인식으로 보고 구분선 사용
+    if(o.date && ck.date && o.date!==ck.date){
+      const gd=new Date(o.date+'T00:00:00'), cd=new Date(ck.date+'T00:00:00');
+      const diff=(gd-cd)/86400000;
+      if(!isFinite(diff) || diff< -1 || diff>7){ o.date=ck.date; o.dateSrc='구분선'; }
+    }
+    if(!o.date){ o.date=baseDate.value||todayStr(); o.dateSrc='오늘'; }
     if(!o.raw || !String(o.raw).trim()) o.raw=(ck.text||'').slice(0,1500);   // Gemini가 원문을 빼먹으면 청크 전체로
     const sk=matchClient(o.client);
     if(!sk) continue;
@@ -934,7 +1039,11 @@ async function processChunk(ck, tot, GAPS){
           it.wasProduct=it.product||'';
           it.product=c.item;
           it.fixed=1;
+          it.via=c.via;
+          // 최근이력 추천은 후보를 남겨 대표님이 고칠 수 있게 (확정 아님)
+          if(c.cands && c.cands.length>1) it.cands=c.cands.map(x=>x.item);
           tot.fixed=(tot.fixed||0)+1;
+          if(c.via==='최근' && c.cands && c.cands.length>1) tot.guess=(tot.guess||0)+1;
         }
       });
     }
@@ -962,6 +1071,7 @@ async function processChunk(ck, tot, GAPS){
       if(!toAdd.length){ continue; }
       existing.items=existing.items.concat(toAdd);
       existing.hash=hashOrder(existing);
+      if(!tot.touched.includes(existing.id)) tot.touched.push(existing.id);
       if(fbReady) await db.ref('orders/'+existing.id).update({items:existing.items, hash:existing.hash});
       tot.added += toAdd.filter(x=>!x.dup).length;
       seenHashes.add(existing.hash);
@@ -978,6 +1088,7 @@ async function processChunk(ck, tot, GAPS){
       o.done=false;o.ts=Date.now();
       if(fbReady){const ref=db.ref('orders').push();o.id=ref.key;await ref.set(o);}
       else{o.id='local_'+o.hash;ORDERS[o.id]=o;}
+      tot.touched.push(o.id);
       tot.added += o.items.length || 1;
     }
 
@@ -1023,6 +1134,80 @@ async function processChunk(ck, tot, GAPS){
 /* ---------- 빈칸 채우기 창 ---------- */
 let GAPSTATE=null;
 
+/* ---------- 날짜 확인 ---------- */
+let DATE_TOUCHED=[];
+let PENDING_GAPS=null;   // 이번 붙여넣기로 들어간 주문 id
+
+function openDateReview(ids){
+  DATE_TOUCHED=(ids||[]).filter(id=>ORDERS[id]);
+  if(!DATE_TOUCHED.length) return false;
+
+  // 날짜별로 묶기
+  const g={};
+  DATE_TOUCHED.forEach(id=>{
+    const o=ORDERS[id];
+    const k=o.date||'(없음)';
+    (g[k]=g[k]||[]).push(o);
+  });
+  const dates=Object.keys(g).sort();
+
+  const wrap=document.getElementById('dateList'); wrap.innerHTML='';
+  dates.forEach(d=>{
+    const list=g[d];
+    const box=document.createElement('div'); box.className='dgrp';
+
+    const h=document.createElement('div'); h.className='dgrp-h';
+    const inp=document.createElement('input'); inp.type='date'; inp.value=d;
+    inp.onchange=()=>moveDate(list.map(o=>o.id), inp.value);
+    const n=document.createElement('span'); n.className='n';
+    n.textContent='거래처 '+list.length+'곳';
+    // 출처: 이 묶음에서 가장 많은 것
+    const cnt={};
+    list.forEach(o=>{const s2=o.dateSrc||'구분선'; cnt[s2]=(cnt[s2]||0)+1;});
+    const top=Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a])[0]||'구분선';
+    const tag=document.createElement('span'); tag.className='dsrc '+top;
+    tag.textContent = top==='원문' ? '카톡에 적힌 날짜' : top==='AI' ? 'AI가 읽음' : '대화 날짜';
+    h.append(inp,n,tag);
+
+    const b=document.createElement('div'); b.className='dgrp-b';
+    b.innerHTML=list.map(o=>'<span class="c">'+esc(o.client)+'</span>').join('');
+
+    box.append(h,b); wrap.appendChild(box);
+  });
+
+  document.getElementById('dateCount').textContent =
+    dates.length+'개 날짜 · 주문 '+DATE_TOUCHED.length+'건';
+  document.getElementById('dateMsg').textContent='';
+  document.getElementById('dateModal').classList.add('open');
+  return true;
+}
+
+async function moveDate(ids, newDate){
+  if(!newDate) return;
+  let n=0;
+  for(const id of ids){
+    const o=ORDERS[id]; if(!o||o.date===newDate) continue;
+    const oldHash=o.hash;
+    o.date=newDate; o.dateSrc='수정';
+    o.hash=hashOrder(o);
+    if(oldHash!==o.hash){ seenHashes.delete(oldHash); seenHashes.add(o.hash); }
+    if(fbReady) await db.ref('orders/'+id).update({date:o.date, hash:o.hash});
+    n++;
+  }
+  noteDate=newDate;
+  renderAll();
+  openDateReview(DATE_TOUCHED);   // 다시 그림
+  document.getElementById('dateMsg').textContent='✓ '+n+'건 → '+newDate+' 로 옮김';
+}
+
+function closeDateReview(){
+  document.getElementById('dateModal').classList.remove('open');
+  // 날짜 확인이 끝나면 빠진정보 창으로
+  if(PENDING_GAPS && (PENDING_GAPS.vehicles.size || PENDING_GAPS.specs.size)){
+    const g=PENDING_GAPS; PENDING_GAPS=null;
+    openGapDialog(g);
+  } else { PENDING_GAPS=null; tab('note'); }
+}
 function openGapDialog(GAPS){
   GAPSTATE=GAPS;
   const CAP=120;   // 한 번에 너무 많이 띄우지 않습니다
@@ -1067,8 +1252,43 @@ function openGapDialog(GAPS){
     const tr=document.createElement('tr');
 
     const td1=document.createElement('td'); td1.className='mini'; td1.textContent=g.client;
+
+    // 상품명: 고칠 수 있게 (파싱이 틀렸거나 ERP 정식명으로 바꿔야 할 때)
     const td2=document.createElement('td');
-    td2.innerHTML=esc(g.product)+' <span class="mini">'+g.n+'건</span>';
+    const pin=document.createElement('input');
+    pin.type='text'; pin.className='specin'; pin.value=g.product||'';
+    pin.setAttribute('list','prodList');
+    pin.title='ERP 상품명 또는 코드. 고치면 그 이름으로 저장됩니다.';
+    pin.onchange=()=>{
+      let v=pin.value.trim();
+      if(PRODBYCODE[v]){ v=PRODBYCODE[v]; pin.value=v; }   // 코드 → 이름
+      const row=GAPS.specs.get(key);
+      if(row){ if(row.orig===undefined) row.orig=g.product; row.product=v; }
+    };
+    pin.oninput=()=>{ const row=GAPS.specs.get(key); if(row){ if(row.orig===undefined) row.orig=g.product; row.product=pin.value.trim(); } };
+    td2.appendChild(pin);
+    const cnt=document.createElement('span'); cnt.className='mini'; cnt.textContent=' '+g.n+'건';
+    td2.appendChild(cnt);
+
+    // 최근 구매이력 후보 (있으면) — 클릭해서 바로 교체
+    const cands=recentCandidates(g.client, g.product);
+    if(cands.length){
+      const pick=document.createElement('div'); pick.className='cands';
+      cands.slice(0,4).forEach(cd=>{
+        const b=document.createElement('button'); b.type='button'; b.textContent=cd.item;
+        b.title='최근 '+cd.last+' · '+cd.cnt+'회';
+        if(cd.item===g.product) b.classList.add('sel');
+        b.onclick=()=>{
+          pin.value=cd.item;
+          const row=GAPS.specs.get(key);
+          if(row){ if(row.orig===undefined) row.orig=g.product; row.product=cd.item; }
+          pick.querySelectorAll('button').forEach(x=>x.classList.remove('sel'));
+          b.classList.add('sel');
+        };
+        pick.appendChild(b);
+      });
+      td2.appendChild(pick);
+    }
 
     const td3=document.createElement('td');
     const sel=document.createElement('select');
@@ -1145,7 +1365,7 @@ async function saveGaps(){
   if(!GAPSTATE) return;
   const btn=document.getElementById('gapSaveBtn');
   btn.disabled=true; btn.textContent='저장 중…';
-  let okV=0, okS=0, okSingle=0, fail=0;
+  let okV=0, okS=0, okSingle=0, okLearn=0, fail=0;
   try{
     // 차량: 값이 있는 것만
     for(const [c,info] of GAPSTATE.vehicles){
@@ -1160,6 +1380,16 @@ async function saveGaps(){
     // 스펙/작업여부: 하나라도 입력된 것만 (사용자가 추가한 행 포함)
     for(const g of GAPSTATE.specs.values()){
       if(!g.product) continue;
+      // 상품명을 고쳤으면 학습사전에 저장 → 다음부터 자동 교정
+      if(g.orig && g.orig!==g.product){
+        try{
+          await gsCall('addLearned',{client:g.client, katok:g.orig, item:g.product});
+          if(!LEARNED.perCustomer[g.client]) LEARNED.perCustomer[g.client]={};
+          LEARNED.perCustomer[g.client][learnKey(g.orig)]=g.product;
+          LEARNED.perCustomer[g.client][g.orig]=g.product;
+          okLearn++;
+        }catch(e){ console.warn('addLearned',e); }
+      }
       if(!g.spec && !g.status) continue;
       try{
         await gsCall('setSpec',{client:g.client,product:g.product,spec:g.spec||'',status:g.status||''});
@@ -1186,7 +1416,8 @@ async function saveGaps(){
         }catch(e){ console.error('single',c,e); fail++; }
       }
     }
-    setMsg('inMsg',`✓ 차량 ${okV} · 작업스펙 ${okS} · 단일품목 ${okSingle} 저장`+(fail?` · 실패 ${fail}`:''), !fail);
+    setMsg('inMsg',`✓ 차량 ${okV} · 작업스펙 ${okS} · 단일품목 ${okSingle} 저장`
+      +(okLearn?` · 📚 상품명 학습 ${okLearn}건`:'')+(fail?` · 실패 ${fail}`:''), !fail);
     await reMatchVehicles();
     renderAll();
     closeGapDialog();
@@ -1216,6 +1447,37 @@ function addGapSpecRow(){
 const VORDER=['0966','6506','1982','4232','사무실','택배','마포','미지정'];
 let PRODBYCODE={};   // 상품코드 → 상품명 (ERP 코드로 바로 고칠 수 있게)
 let LEARNED={perCustomer:{},global:{}};   // 카톡 은어 → ERP 정식 상품명 (학습사전 시트)
+let RECENT={};    // 거래처 → [{item,cnt,last}]  ERP 최근 구매이력 (드라이브 스냅샷)
+
+/* 최근 구매이력에서 후보 찾기.
+   상품이 바뀌어도(공급사 EXCEL→SWIFT) 최근 산 것이 자동으로 1순위가 됩니다. */
+function recentCandidates(client, word){
+  const list=RECENT[client]; if(!list||!list.length) return [];
+  const w=recKey(word); if(w.length<2) return [];
+  const today=new Date();
+  const out=[];
+  for(const d of list){
+    const it=recKey(d.item);
+    let sc=0;
+    if(it.indexOf(w)>=0) sc=w.length*2;          // 우양지 ⊂ 우차돌양지
+    else if(w.indexOf(it)>=0) sc=it.length*2;
+    else { for(let i=0;i+2<=w.length;i++) if(it.indexOf(w.substr(i,2))>=0) sc+=1; }
+    if(sc<=0) continue;
+    // 최근일수록 가산 — 이게 '상품이 바뀌어도 따라가는' 핵심
+    const y=+String(d.last).slice(0,4), m=+String(d.last).slice(4,6), dd=+String(d.last).slice(6,8);
+    const days=(today - new Date(y,m-1,dd))/86400000;
+    const rec = days<=14?6 : days<=45?3 : days<=90?1 : 0;
+    out.push({item:d.item, score:sc+rec+Math.min((d.cnt||0)/10,3), last:d.last, cnt:d.cnt});
+  }
+  out.sort((a,b)=>b.score-a.score);
+  return out;
+}
+function recKey(s){
+  s=String(s||'');
+  s=s.replace(/[\d.,]+/g,'');
+  s=s.replace(/(키로|킬로|kg|박스|팩|판|개|두|봉지|box|덩이|마리|미리|mm|cm|근)/gi,'');
+  return s.replace(/[^가-힣A-Za-z0-9]/g,'').toLowerCase();
+}
 
 /* 카톡 용어를 ERP 정식 상품명으로 교정.
    거래처별 사전 우선 → 없으면 전사 공통 → 없으면 원래대로. */
@@ -1234,6 +1496,13 @@ function correctProduct(client, product, text){
     if(!w) continue;
     if(LEARNED.global[w]) return {item:LEARNED.global[w], via:'공통'};
     for(const k in LEARNED.global){ if(w.indexOf(learnKey(k))>=0) return {item:LEARNED.global[k], via:'공통'}; }
+  }
+  // 학습사전에 없으면: ERP 최근 구매이력에서 추천.
+  // 확정하지 않고 후보를 담아둡니다(cands) — 대표님이 고를 수 있게.
+  const cands=recentCandidates(client, product) .length ? recentCandidates(client, product)
+                                                 : recentCandidates(client, text);
+  if(cands.length){
+    return {item:cands[0].item, via:'최근', cands:cands.slice(0,4), sure:cands.length===1};
   }
   return null;
 }
@@ -1325,7 +1594,12 @@ function buildNoteTable(date, workMode){
         if(it.price) inner=esc(rawText)+' <span class="price">'+esc(it.price)+'</span>';
         if(workMode){
           if(it.fixed && it.product){
-            inner+='<span class="fixed" title="카톡: '+esc(it.wasProduct||'')+' → ERP 정식명">'+esc(it.product)+'</span>';
+            const guess = it.via==='최근' && it.cands && it.cands.length>1;
+            const tip = guess
+              ? '추천(최근 구매 기준) — 다른 후보: '+esc((it.cands||[]).slice(1).join(', '))+'\n거래처명 클릭해서 고치세요'
+              : '카톡: '+esc(it.wasProduct||'')+' → ERP 정식명';
+            inner+='<span class="'+(guess?'guess':'fixed')+'" title="'+tip+'">'
+                 +esc(it.product)+(guess?'?':'')+'</span>';
           }
           const sp=specForItem(c,it.product,it.text);
           if(sp){
@@ -1412,8 +1686,10 @@ async function toggleDone(oids){
 
 /* ---------- 주문 수정 / 삭제 ---------- */
 let EDIT_IDS=[];   // 지금 창에 열려 있는 주문 id들
+let LEARN_QUEUE=[];  // 고친 상품명 → 학습사전에 보낼 것
 
 function openOrderEditor(oids){
+  LEARN_QUEUE=[];
   EDIT_IDS=oids.split(',').filter(id=>ORDERS[id]);
   if(!EDIT_IDS.length) return;
   const first=ORDERS[EDIT_IDS[0]];
@@ -1454,6 +1730,7 @@ function openOrderEditor(oids){
       const t2=document.createElement('td');
       const i2=document.createElement('input'); i2.type='text'; i2.className='specin'; i2.value=it.product||'';
       i2.placeholder='상품명 (또는 코드)'; i2.setAttribute('list','prodList');
+      i2.title='ERP 상품명 또는 코드. 고치면 학습되어 다음부터 자동 적용됩니다.';
       // 코드를 넣으면 상품명으로 바꿔줌
       i2.onchange=()=>{
         const v=i2.value.trim();
@@ -1461,6 +1738,44 @@ function openOrderEditor(oids){
         if(hit){ i2.value=hit; setMsg('inMsg','코드 '+v+' → '+hit,true); }
       };
       t2.appendChild(i2);
+
+      // 후보 버튼 — 파싱 때 받은 후보 + 그 거래처의 최근 구매이력에서 즉석 계산
+      const cl=(ORDERS[id]&&ORDERS[id].client)||'';
+      const seen=new Set();
+      const cands=[];
+      (it.cands||[]).forEach(x=>{ if(!seen.has(x)){seen.add(x); cands.push(x);} });
+      const src=it.wasProduct || it.product || it.text || '';
+      const mc=matchClient(cl);
+      // ① 최근 구매이력에서 (글자 겹치는 것)
+      recentCandidates(mc, src).slice(0,4).forEach(x=>{
+        if(!seen.has(x.item)){ seen.add(x.item); cands.push(x.item); }
+      });
+      // ② 그래도 부족하면 이 거래처가 최근 산 것들을 그냥 나열 (전혀 다른 상품으로 바꿀 때)
+      if(cands.length<5 && RECENT[mc]){
+        RECENT[mc].slice(0,6).forEach(d=>{
+          if(cands.length<6 && !seen.has(d.item)){ seen.add(d.item); cands.push(d.item); }
+        });
+      }
+      // ③ 마스터에 등록된 그 거래처 상품들
+      if(cands.length<6 && MASTER[mc]){
+        (MASTER[mc].specs||[]).forEach(sp=>{
+          if(cands.length<8 && sp.product && !seen.has(sp.product)){ seen.add(sp.product); cands.push(sp.product); }
+        });
+      }
+      if(cands.length){
+        const pick=document.createElement('div'); pick.className='cands';
+        cands.slice(0,8).forEach(cd=>{
+          const b=document.createElement('button'); b.type='button'; b.textContent=cd;
+          if(cd===i2.value) b.classList.add('sel');
+          b.onclick=()=>{
+            i2.value=cd;
+            pick.querySelectorAll('button').forEach(x=>x.classList.remove('sel'));
+            b.classList.add('sel');
+          };
+          pick.appendChild(b);
+        });
+        t2.appendChild(pick);
+      }
 
       const t3=document.createElement('td');
       const i3=document.createElement('input'); i3.type='text'; i3.className='specin'; i3.value=it.price||'';
@@ -1507,11 +1822,17 @@ async function saveOrderEdit(){
       const ins=tr.querySelectorAll('input');
       const text=ins[0].value.trim();
       if(!text) return;
-      byOid[tr.dataset.oid].push({
-        text:text,
-        product:ins[1].value.trim(),
-        price:ins[2].value.trim()
-      });
+      const prod=ins[1].value.trim();
+      byOid[tr.dataset.oid].push({ text:text, product:prod, price:ins[2].value.trim() });
+      // 대표님이 고친 상품명은 학습사전에 저장 → 다음부터 자동 적용
+      const o0=ORDERS[tr.dataset.oid];
+      const it0=o0 && o0.items && o0.items[+tr.dataset.ix];
+      if(prod && it0){
+        const wasKatok = it0.wasProduct || it0.product || '';
+        if(wasKatok && prod!==it0.product){
+          LEARN_QUEUE.push({client:client, katok:wasKatok, item:prod});
+        }
+      }
     });
 
     for(const id of EDIT_IDS){
@@ -1532,10 +1853,23 @@ async function saveOrderEdit(){
                                            items:o.items, date:o.date, hash:o.hash});
       }
     }
+    // 고친 상품명을 학습사전에 반영 (다음 붙여넣기부터 자동 적용)
+    let learned=0;
+    for(const q of LEARN_QUEUE){
+      try{
+        await gsCall('addLearned',{client:q.client, katok:q.katok, item:q.item});
+        if(!LEARNED.perCustomer[q.client]) LEARNED.perCustomer[q.client]={};
+        LEARNED.perCustomer[q.client][learnKey(q.katok)]=q.item;
+        LEARNED.perCustomer[q.client][q.katok]=q.item;
+        learned++;
+      }catch(e){ console.warn('addLearned',e); }
+    }
+    LEARN_QUEUE=[];
+
     if(!fbReady) renderAll();
     noteDate=newDate;                 // 옮긴 날짜로 따라감
     renderAll();
-    setMsg('inMsg','✓ 주문 수정됨',true);
+    setMsg('inMsg','✓ 주문 수정됨'+(learned?` · 📚 학습 ${learned}건`:''),true);
     closeOrderEditor();
   }catch(e){
     alert('저장 실패: '+e.message);
