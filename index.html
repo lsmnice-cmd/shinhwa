@@ -86,6 +86,21 @@
   .dsrc.구분선{background:#efe9dd;color:#6f6a5d}
   .dgrp-b{padding:6px 10px;font-size:12px;line-height:1.7;max-height:120px;overflow:auto}
   .dgrp-b .c{display:inline-block;margin-right:10px}
+  .badge{display:inline-block;min-width:16px;padding:0 5px;border-radius:8px;background:var(--accent);
+         color:#fff;font-size:10px;font-weight:800;line-height:16px;text-align:center;margin-left:4px}
+  .lrow{border:1px solid var(--line);border-radius:6px;margin-bottom:8px;padding:10px 12px;background:#fff}
+  .lrow.done{opacity:.45}
+  .lhead{display:flex;align-items:baseline;gap:10px;margin-bottom:7px}
+  .lhead .cli{font-weight:700;font-size:13px}
+  .lhead .kw{font-family:var(--mono);font-size:14px;font-weight:800;color:var(--accent)}
+  .lhead .meta{font-size:11px;color:var(--muted)}
+  .lsrc{font-size:11px;color:var(--muted);margin-bottom:7px;padding:4px 8px;background:#f7f5ef;border-radius:4px}
+  .lpick{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+  .lpick button{padding:4px 9px;font-size:12px;border:1px solid var(--line);background:#fff;
+                border-radius:4px;cursor:pointer}
+  .lpick button:hover{border-color:var(--accent);color:var(--accent)}
+  .lpick input{padding:4px 8px;border:1px solid var(--line);border-radius:4px;font-size:12px;min-width:150px}
+  .lpick .skip{background:#efe9dd;border-color:#efe9dd;color:#6f6a5d}
   .cands{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px}
   .cands button{padding:2px 6px;font-size:10.5px;border:1px solid var(--line);background:#fff;
                 border-radius:3px;cursor:pointer}
@@ -224,6 +239,7 @@
   <button data-tab="input" class="active">① 카톡 입력</button>
   <button data-tab="note">② 주문노트</button>
   <button data-tab="work">③ 작업용 노트</button>
+  <button data-tab="learn">📚 학습 <span id="learnBadge" class="badge" style="display:none">0</span></button>
   <button data-tab="master">④ 차량·작업스펙 마스터</button>
   <button data-tab="setup">⚙ 설정</button>
 </nav>
@@ -338,6 +354,24 @@
 </section>
 
 <!-- ============ ④ 마스터 ============ -->
+<!-- ============ 학습 ============ -->
+<section class="panel tabpage" data-page="learn" style="display:none">
+  <div class="note-head">
+    <div>
+      <h2 style="margin:0">📚 학습 대기</h2>
+      <div class="sub" id="learnSub">카톡에 나왔지만 아직 어떤 상품인지 모르는 것들입니다.</div>
+    </div>
+    <span class="actions no-print">
+      <button class="btn ghost" onclick="loadPending()">↻ 새로고침</button>
+    </span>
+  </div>
+  <div class="mini" style="margin-bottom:10px">
+    상품을 골라주시면 <b>학습사전에 등록</b>되어 다음부터 자동으로 붙습니다.<br>
+    모르겠으면 [나중에]를 누르세요 — 다음에 다시 물어봅니다.
+  </div>
+  <div id="learnList"></div>
+</section>
+
 <section class="panel tabpage" data-page="master" style="display:none">
   <h2>차량 · 작업여부 · 작업스펙 마스터</h2>
   <div class="sub">작업스펙은 <b>어떻게 세절/절단하는지</b>를 적는 칸입니다 (예: 2.5mm 세절, 8등분 커팅, 1kg씩 소분 진공).
@@ -868,6 +902,7 @@ async function loadMasterFromSheet(){
     _clientIndex=null;
     refreshProdList();
     renderAll();
+    loadPending();          // 📚 학습 대기 목록
   }catch(e){
     console.error(e);
     setMsg('inMsg','마스터 로드 실패: '+e.message,false);
@@ -959,6 +994,15 @@ async function analyze(){
 
     kakaoText.value='';
 
+    // 아직 모르는 표현을 학습 대기목록에 누적 (📚 탭에서 나중에 처리)
+    if(tot.pending && tot.pending.length){
+      try{
+        const r=await gsCall('addPending',{rows:JSON.stringify(tot.pending)});
+        if(r.added) m+=` · 📚 학습대기 ${r.added}건 추가`;
+        await loadPending();
+      }catch(e){ console.warn('addPending',e); }
+    }
+
     // ① 날짜 확인 → ② 빠진정보 순서로
     PENDING_GAPS = (GAPS.vehicles.size || GAPS.specs.size) ? GAPS : null;
     if(!openDateReview(tot.touched)){
@@ -1035,6 +1079,14 @@ async function processChunk(ck, tot, GAPS){
     if(!single){
       o.items.forEach(it=>{
         const c=correctProduct(sk, it.product, it.text);
+        // 학습사전으로 확정되지 않은 것 = 아직 모르는 표현 → 학습 대기로
+        if(!c || c.via!=='거래처' && c.via!=='공통'){
+          const kw=(it.product||'').trim();
+          if(kw && kw.length>=2){
+            tot.pending=tot.pending||[];
+            tot.pending.push({client:sk, katok:kw, text:(it.text||'').slice(0,60)});
+          }
+        }
         if(c && c.item!==it.product){
           it.wasProduct=it.product||'';
           it.product=c.item;
@@ -1133,6 +1185,132 @@ async function processChunk(ck, tot, GAPS){
 
 /* ---------- 빈칸 채우기 창 ---------- */
 let GAPSTATE=null;
+
+/* ---------- 학습 대기 ---------- */
+let PENDING=[];
+
+async function loadPending(){
+  try{
+    const j=await gsCall('getPending');
+    PENDING=j.pending||[];
+  }catch(e){ console.warn('getPending',e); PENDING=[]; }
+  renderPending();
+  updateLearnBadge();
+}
+
+function updateLearnBadge(){
+  const b=document.getElementById('learnBadge');
+  if(!b) return;
+  const n=PENDING.length;
+  b.textContent=n;
+  b.style.display = n ? '' : 'none';
+}
+
+function renderPending(){
+  const wrap=document.getElementById('learnList');
+  if(!wrap) return;
+  const sub=document.getElementById('learnSub');
+  if(!PENDING.length){
+    wrap.innerHTML='<div class="empty">학습할 것이 없습니다. 카톡을 붙여넣으면 여기에 쌓입니다.</div>';
+    if(sub) sub.textContent='모두 정리되었습니다.';
+    return;
+  }
+  if(sub) sub.textContent=PENDING.length+'건 — 자주 나온 순서입니다.';
+  wrap.innerHTML='';
+
+  PENDING.forEach(p=>{
+    const box=document.createElement('div'); box.className='lrow';
+
+    const h=document.createElement('div'); h.className='lhead';
+    h.innerHTML='<span class="cli">'+esc(p.client||'(전체)')+'</span>'
+      +'<span class="kw">'+esc(p.katok)+'</span>'
+      +'<span class="meta">'+p.n+'번 나옴'+(p.last?' · 최근 '+esc(p.last):'')
+      +(p.skipped?' · 건너뜀 '+p.skipped+'회':'')+'</span>';
+    box.appendChild(h);
+
+    if(p.text){
+      const src=document.createElement('div'); src.className='lsrc';
+      src.textContent='카톡 원문:  '+p.text;
+      box.appendChild(src);
+    }
+
+    const pick=document.createElement('div'); pick.className='lpick';
+
+    // 후보: 그 거래처가 최근 산 상품들 (글자 안 겹쳐도 다 보여줌 — 은어는 안 겹치니까)
+    const mc=matchClient(p.client||'');
+    const seen=new Set(); const cands=[];
+    recentCandidates(mc, p.katok).slice(0,3).forEach(x=>{
+      if(!seen.has(x.item)){ seen.add(x.item); cands.push(x.item); }
+    });
+    (RECENT[mc]||[]).slice(0,8).forEach(d=>{
+      if(cands.length<8 && !seen.has(d.item)){ seen.add(d.item); cands.push(d.item); }
+    });
+    (MASTER[mc] && MASTER[mc].specs || []).forEach(sp=>{
+      if(cands.length<10 && sp.product && !seen.has(sp.product)){ seen.add(sp.product); cands.push(sp.product); }
+    });
+
+    cands.forEach(cd=>{
+      const b=document.createElement('button'); b.type='button'; b.textContent=cd;
+      b.onclick=()=>resolveOne(p, cd, box);
+      pick.appendChild(b);
+    });
+
+    // 직접 입력
+    const inp=document.createElement('input');
+    inp.type='text'; inp.placeholder='직접 입력 / ERP 코드';
+    inp.setAttribute('list','prodList');
+    inp.onkeydown=(ev)=>{
+      if(ev.key==='Enter'){
+        let v=inp.value.trim();
+        if(PRODBYCODE[v]) v=PRODBYCODE[v];
+        if(v) resolveOne(p, v, box);
+      }
+    };
+    pick.appendChild(inp);
+
+    const sk=document.createElement('button'); sk.type='button'; sk.className='skip';
+    sk.textContent='나중에';
+    sk.onclick=()=>skipOne(p, box);
+    pick.appendChild(sk);
+
+    box.appendChild(pick);
+    wrap.appendChild(box);
+  });
+}
+
+async function resolveOne(p, item, box){
+  box.classList.add('done');
+  try{
+    await gsCall('resolvePending',{client:p.client||'', katok:p.katok, item:item, skip:'false'});
+    // 로컬 사전에도 즉시 반영
+    const c=p.client||'';
+    if(c){
+      if(!LEARNED.perCustomer[c]) LEARNED.perCustomer[c]={};
+      LEARNED.perCustomer[c][p.katok]=item;
+      LEARNED.perCustomer[c][learnKey(p.katok)]=item;
+    } else {
+      LEARNED.global[p.katok]=item;
+      LEARNED.global[learnKey(p.katok)]=item;
+    }
+    PENDING=PENDING.filter(x=>!(x.client===p.client && x.katok===p.katok));
+    updateLearnBadge();
+    setMsg('inMsg','📚 '+p.katok+' → '+item+' 학습됨',true);
+    setTimeout(()=>{ renderPending(); }, 250);
+  }catch(e){
+    box.classList.remove('done');
+    alert('저장 실패: '+e.message);
+  }
+}
+
+async function skipOne(p, box){
+  box.classList.add('done');
+  try{
+    await gsCall('resolvePending',{client:p.client||'', katok:p.katok, item:'', skip:'true'});
+    PENDING=PENDING.filter(x=>!(x.client===p.client && x.katok===p.katok));
+    updateLearnBadge();
+    setTimeout(()=>{ renderPending(); }, 200);
+  }catch(e){ box.classList.remove('done'); }
+}
 
 /* ---------- 날짜 확인 ---------- */
 let DATE_TOUCHED=[];
@@ -2073,6 +2251,7 @@ function tab(name){
   document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
   document.querySelectorAll('.tabpage').forEach(p=>p.style.display=(p.dataset.page===name?'':'none'));
   if(name==='setup' && IS_ADMIN) loadAccessForm();
+  if(name==='learn') renderPending();
 }
 document.querySelectorAll('nav.tabs button').forEach(b=>b.onclick=()=>tab(b.dataset.tab));
 
