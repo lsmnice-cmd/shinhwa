@@ -1401,7 +1401,7 @@ function openGapDialog(GAPS){
   const sb=document.getElementById('gapSpecBody');
   vb.innerHTML=''; sb.innerHTML='';
 
-  const VEHS=['0966','6506','1982','4232','택배','사무실','마포','방문'];
+  const VEHS=['0966','6506','1982','4232','택배/사무실','온라인'];
 
   // 자주 나온 순 → 먼저 채우는 게 이득
   const vList=[...GAPS.vehicles.entries()].sort((a,b)=>b[1].n-a[1].n || a[0].localeCompare(b[0]));
@@ -1633,7 +1633,14 @@ function addGapSpecRow(){
 }
 
 /* ---------- 렌더링 ---------- */
-const VORDER=['0966','6506','1982','4232','사무실','택배','마포','미지정'];
+const VORDER=['0966','6506','1982','4232','택배/사무실','온라인','미지정'];
+
+/* 네이버 스마트스토어 등 온라인 판매 거래처 — 별도 페이지로 뺍니다.
+   인터넷 주문은 추가/취소가 잦아 배송 차량과 섞이면 헷갈립니다. */
+function isOnline(client){
+  const c=String(client||'');
+  return /네이버|스마트스토어|쿠팡|온라인|인터넷/.test(c);
+}
 let PRODBYCODE={};   // 상품코드 → 상품명 (ERP 코드로 바로 고칠 수 있게)
 let LEARNED={perCustomer:{},global:{}};   // 카톡 은어 → ERP 정식 상품명 (학습사전 시트)
 let RECENT={};    // 거래처 → [{item,cnt,last}]  ERP 최근 구매이력 (드라이브 스냅샷)
@@ -1720,11 +1727,18 @@ function refreshProdList(){
 }
 
 // 차량번호 정규화: 966 → 0966, 앞의 0이 날아간 경우 복원
+/* 차량 정규화.
+   - 966 → 0966 (엑셀이 앞의 0을 날리는 문제)
+   - 택배·사무실·방문 → '택배/사무실' 로 통합 (한 장에 인쇄)
+   - 마포 → 사용 안 함 (택배/사무실로 흡수)
+   기존 시트 데이터를 안 고쳐도 화면·인쇄가 정리됩니다. */
+const VEH_MERGE = { '사무실':'택배/사무실', '방문':'택배/사무실', '택배':'택배/사무실', '마포':'택배/사무실' };
+
 function normVeh(v){
   v=String(v||'').trim();
   if(!v) return '미지정';
-  // 순수 숫자 3~4자리면 4자리로 zero-pad (0966, 6506 등)
-  if(/^\d{3,4}$/.test(v)) return v.padStart(4,'0');
+  if(/^\d{3,4}$/.test(v)) return v.padStart(4,'0');   // 966 → 0966
+  if(VEH_MERGE[v]) return VEH_MERGE[v];
   return v;
 }
 const STATUSES=['','작업','원물/박스','원물/팩','원물','작업/네이버','원물/네이버'];
@@ -1753,7 +1767,12 @@ function buildNoteTable(date, workMode){
   const by=ordersByDate();const list=(by[date]||[]);
   // 차량 -> 거래처 -> [orders]
   const g={};
-  list.forEach(o=>{const v=normVeh(o.vehicle||'미지정');(g[v]=g[v]||{});(g[v][o.client]=g[v][o.client]||[]).push(o);});
+  // 네이버·온라인 주문은 별도 페이지로 (인터넷 판매 추가/취소가 섞여 있어 따로 봐야 함)
+  list.forEach(o=>{
+    const v = isOnline(o.client) ? '온라인' : normVeh(o.vehicle||'미지정');
+    (g[v]=g[v]||{});
+    (g[v][o.client]=g[v][o.client]||[]).push(o);
+  });
   const vehicles=Object.keys(g).sort(vsort);
   if(!vehicles.length) return '<div class="empty">이 날짜의 주문이 없습니다.</div>';
 
@@ -1902,7 +1921,7 @@ function openOrderEditor(oids){
 
   // 차량 버튼
   const vp=document.getElementById('edVeh'); vp.innerHTML='';
-  ['0966','6506','1982','4232','택배','사무실','마포','방문','미지정'].forEach(v=>{
+  ['0966','6506','1982','4232','택배/사무실','온라인','미지정'].forEach(v=>{
     const b=document.createElement('button');
     b.type='button'; b.textContent=v;
     if((first.vehicle||'미지정')===v) b.classList.add('sel');
