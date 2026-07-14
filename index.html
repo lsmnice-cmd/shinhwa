@@ -361,6 +361,7 @@
 △△가게
 돼지고기 3킬로 2봉지
 감사합니다~"></textarea>
+  <div id="pasteRange" style="display:none;margin-top:12px;padding:10px 14px;background:#fff8e1;border:1px solid #ffd54f;border-radius:6px;font-size:14px;line-height:1.7"></div>
   <div class="row" style="margin-top:12px">
     <button class="btn accent" id="analyzeBtn" onclick="analyze()">✦ AI 분석 후 누적</button>
     <button class="btn ghost" id="cancelBtn" onclick="cancelAnalyze()" style="display:none">■ 중단</button>
@@ -1095,9 +1096,32 @@ function splitByDay(raw){
 let CANCEL=false;
 function cancelAnalyze(){ CANCEL=true; setMsg('inMsg','중단 요청됨… 현재 날짜까지만 저장합니다.',false); }
 
+/* ---------- 붙여넣은 카톡의 처음/마지막 표시 ---------- */
+// 카톡 내보내기 줄 "[이름] [오전/오후 h:mm] 내용" 에서 타임스탬프 있는 줄만 뽑아
+// 처음·마지막 메시지의 시간+내용을 배너로 보여줍니다. 어디까지 붙여넣었는지 체크용.
+function showPasteRange(raw){
+  const box=document.getElementById('pasteRange');
+  if(!box) return;
+  const RE=/\[([^\]]+)\]\s*\[(오전|오후)\s*(\d{1,2}:\d{2})\]\s*(.*)$/;
+  const msgs=[];
+  for(const ln of String(raw||'').split(/\r?\n/)){
+    const m=ln.match(RE);
+    if(m) msgs.push({time:m[2]+' '+m[3], text:(m[4]||'').trim()});
+  }
+  if(msgs.length===0){ box.style.display='none'; return; }
+  const first=msgs[0], last=msgs[msgs.length-1];
+  const cut=s=> !s ? '(내용 없음)' : (s.length>34 ? s.slice(0,34)+'…' : s);
+  box.style.display='block';
+  box.innerHTML=
+    '<div style="font-weight:700;margin-bottom:4px">📋 이번에 붙여넣은 카톡 범위 (타임스탬프 '+msgs.length+'건)</div>'+
+    '<div>├ <b>처음</b> ['+first.time+'] '+esc(cut(first.text))+'</div>'+
+    '<div>└ <b>마지막</b> ['+last.time+'] '+esc(cut(last.text))+'</div>';
+}
+
 async function analyze(){
   const raw=kakaoText.value.trim();
   if(!raw){setMsg('inMsg','카톡 내용을 입력해주세요.',false);return;}
+  showPasteRange(raw);
   if(!cfg.gsUrl||!cfg.token){setMsg('inMsg','⚙ 설정에서 Apps Script URL과 APP_TOKEN을 먼저 입력하세요.',false);tab('setup');return;}
   if(!ME){setMsg('inMsg','로그인이 필요합니다.',false);showGate();return;}
 
