@@ -97,6 +97,14 @@
   .dgrp-b .c{display:inline-block;margin-right:10px}
   .badge{display:inline-block;min-width:16px;padding:0 5px;border-radius:8px;background:var(--accent);
          color:#fff;font-size:10px;font-weight:800;line-height:16px;text-align:center;margin-left:4px}
+  .rreq{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);
+        border-radius:6px;margin-bottom:6px;background:#fff}
+  .rreq .who{flex:1;font-size:12.5px}
+  .rreq .who b{font-size:13px}
+  .rreq .who .uid{font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+  .rreq button{padding:5px 12px;font-size:12px;border-radius:4px;cursor:pointer;border:1px solid var(--line);background:#fff}
+  .rreq button.ok{background:var(--ok);color:#fff;border-color:var(--ok)}
+  .rreq button.no{background:#fff;color:var(--accent);border-color:var(--accent)}
   .crow{border:1px solid var(--line);border-radius:6px;margin-bottom:8px;padding:9px 11px;background:#fff}
   .crow .ctxt{font-size:12.5px;margin-bottom:6px}
   .crow .ctxt b{color:var(--accent)}
@@ -298,6 +306,11 @@
   <div id="accessMgr" style="display:none;margin-top:24px;padding:16px;background:#f5f2ea;border-radius:8px">
     <h2 style="margin:0 0 4px">👥 직원 접근 관리</h2>
     <div class="sub">여기서 등록한 이메일만 로그인할 수 있고, ①②③ 탭만 보입니다. ④·⚙는 관리자(대표님)만 보입니다.</div>
+    <div id="reqWrap" style="margin-bottom:14px;display:none">
+      <div style="font-size:13px;font-weight:800;margin-bottom:6px">🔔 접속 신청 <span id="reqCount" class="badge"></span></div>
+      <div id="reqList"></div>
+    </div>
+
     <div class="row" style="margin-bottom:10px">
       <label style="width:160px">관리자 UID (대표님)</label>
       <input type="text" id="acAdminUid" placeholder="로그인 화면에 뜨는 내 UID" style="flex:1;min-width:260px">
@@ -317,15 +330,16 @@
 
   <details class="help" open>
     <summary>Firebase 실시간DB 규칙 — 허용된 직원만 접속</summary>
-    <p>Firebase 콘솔 → 빌드 → Realtime Database → <b>규칙</b> 탭에 붙여넣고 <b>게시</b>. 직원마다 한 번씩 로그인하면 UID가 표시되니, 그 UID들을 아래에 나열하세요.</p>
-    <pre class="k" style="background:#f5f2ea;padding:10px;border-radius:5px;overflow:auto">{
-  "rules": {
-    ".read":  "auth != null && (auth.uid === '대표UID' || auth.uid === '직원1UID' || auth.uid === '직원2UID')",
-    ".write": "auth != null && (auth.uid === '대표UID' || auth.uid === '직원1UID' || auth.uid === '직원2UID')"
-  }
-}</pre>
-    <p>위 "👥 직원 접근 관리"의 이메일 명단은 <b>화면 노출</b>을 제어하고, 이 Firebase 규칙은 <b>실제 데이터 접근</b>을 제어합니다. 둘 다 등록해야 직원이 정상적으로 씁니다.</p>
-    <p>Firebase 콘솔 → 빌드 → <b>Authentication</b> → 로그인 방법에서 <b>Google</b>을 사용 설정하고, Settings → 승인된 도메인에 <code class="k">lsmnice-cmd.github.io</code>를 추가하세요.</p>
+    <p><b>승인만으로는 부족합니다.</b> 아래 규칙을 Firebase 콘솔에 넣어야 실제 데이터가 보입니다.<br>
+       (화면의 탭 숨김은 편의용이고, 진짜 차단은 이 규칙이 합니다)</p>
+    <div class="row" style="margin:8px 0">
+      <button class="btn accent" onclick="copyRules()">📋 규칙 자동 생성 + 복사</button>
+      <span class="mini" id="ruleMsg">승인된 직원 UID가 자동으로 들어갑니다.</span>
+    </div>
+    <pre class="k" id="rulePre" style="background:#f5f2ea;padding:10px;border-radius:5px;overflow:auto;font-size:11.5px">(위 버튼을 누르면 여기에 나옵니다)</pre>
+    <p>Firebase 콘솔 → 빌드 → Realtime Database → <b>규칙</b> 탭에 붙여넣고 <b>게시</b>하세요.</p>
+    <p>Firebase 콘솔 → 빌드 → <b>Authentication</b> → 로그인 방법에서 <b>Google</b>을 사용 설정하고,
+       Settings → 승인된 도메인에 <code class="k">lsmnice-cmd.github.io</code>를 추가하세요.</p>
   </details>
 </section>
 
@@ -734,49 +748,110 @@ function onSignedIn(u){
 let IS_ADMIN=false;
 
 async function applyRole(u){
-  // 관리자 UID / 허용 이메일 명단을 시트(Apps Script)에서 가져옴
-  let access={adminUid:'',emails:[]};
+  let access={adminUid:'',emails:[],uids:[]};
   try{ const j=await gsCall('getAccess'); access=j.access||access; }
   catch(e){ console.error('getAccess',e); }
 
   const email=(u.email||'').toLowerCase();
-  const noConfig = !access.adminUid && (!access.emails||!access.emails.length);
 
-  // 관리자: UID 일치. 명단이 아예 없으면(초기 설정 전) 최초 로그인자를 관리자로 간주
-  IS_ADMIN = noConfig || (access.adminUid && u.uid===access.adminUid);
+  // ★ 관리자는 UID가 정확히 일치할 때만. (예전엔 "설정이 없으면 첫 로그인자가 관리자"였는데
+  //    그러면 아무나 관리자가 되어버립니다. 제거했습니다.)
+  IS_ADMIN = !!(access.adminUid && u.uid===access.adminUid);
 
-  // 직원 허용 여부: 관리자이거나, 이메일이 명단에 있으면 허용
   const allowed = IS_ADMIN || (access.emails && access.emails.indexOf(email)>=0);
 
   if(!allowed){
-    // 허용되지 않은 계정 → 접근 차단
+    // 미허용 → 자동으로 접속 신청을 넣고 대기 화면
     fbReady=false;
-    document.getElementById('orders')&&0;
     showGate();
-    gateMsgSet('접근이 허용되지 않은 계정입니다. 대표님께 이메일('+esc(email)+') 등록을 요청하세요.',false);
-    setStat(false,'미허용 계정');
-    // 탭 다 숨김
-    setTabVisible('note',false);setTabVisible('work',false);
-    setTabVisible('master',false);setTabVisible('setup',false);
+    setStat(false,'승인 대기');
+    setTabVisible('note',false); setTabVisible('work',false);
+    setTabVisible('learn',false); setTabVisible('master',false); setTabVisible('setup',false);
+
+    let msg='';
+    if(!access.adminUid){
+      // 아직 관리자가 없는 상태 — 대표님이 직접 UID를 등록해야 합니다
+      msg='아직 관리자가 지정되지 않았습니다.\n'
+        + 'Apps Script → 프로젝트 설정 → 스크립트 속성에서\n'
+        + 'ADMIN_UID 에 아래 UID를 넣어주세요.';
+      showUid(u.uid);
+    } else {
+      try{
+        const r=await gsCall('requestAccess',{email:email, uid:u.uid, name:(u.displayName||'')});
+        msg = (r.status==='pending')
+          ? '접속 신청이 접수되었습니다.\n대표님이 승인하면 바로 사용할 수 있습니다.'
+          : '접속 권한이 없습니다. 대표님께 문의하세요.';
+      }catch(e){
+        msg='접속 신청에 실패했습니다. 잠시 후 다시 시도해 주세요.';
+      }
+      showUid(u.uid);
+    }
+    gateMsgSet(msg, false);
     return;
   }
 
   // ④ 마스터·⚙ 설정은 관리자만
+  setTabVisible('note',true); setTabVisible('work',true); setTabVisible('learn',true);
   setTabVisible('master', IS_ADMIN);
   setTabVisible('setup',  IS_ADMIN);
-  // 직원이 숨겨진 탭에 있으면 ①로 이동
   if(!IS_ADMIN){
     const cur=document.querySelector('nav.tabs button.active')?.dataset.tab;
     if(cur==='master'||cur==='setup') tab('input');
   }
-  // 관리자용 접근관리 UI 표시
   const am=document.getElementById('accessMgr');
   if(am) am.style.display = IS_ADMIN ? '' : 'none';
+  if(IS_ADMIN) loadRequests();
 }
 
 function setTabVisible(tabName, show){
   const btn=document.querySelector('nav.tabs button[data-tab="'+tabName+'"]');
   if(btn) btn.style.display = show ? '' : 'none';
+}
+
+/* 접속 신청 목록 불러오기 (관리자만) */
+async function loadRequests(){
+  const wrap=document.getElementById('reqWrap');
+  const list=document.getElementById('reqList');
+  if(!wrap||!list) return;
+  let reqs=[];
+  try{ const j=await gsCall('getRequests'); reqs=j.requests||[]; }
+  catch(e){ console.warn('getRequests',e); }
+
+  list.innerHTML='';
+  if(!reqs.length){ wrap.style.display='none'; return; }
+  wrap.style.display='';
+  document.getElementById('reqCount').textContent=reqs.length;
+
+  reqs.forEach(r=>{
+    const box=document.createElement('div'); box.className='rreq';
+    const who=document.createElement('div'); who.className='who';
+    who.innerHTML='<b>'+esc(r.name||r.email)+'</b> <span class="mini">'+esc(r.email)+'</span>'
+                 +'<div class="uid">'+esc(r.uid||'')+'</div>'
+                 +(r.at?'<div class="mini">'+esc(r.at)+'</div>':'');
+    const ok=document.createElement('button'); ok.className='ok'; ok.textContent='승인';
+    ok.onclick=()=>decideUser(r, true, box);
+    const no=document.createElement('button'); no.className='no'; no.textContent='거절';
+    no.onclick=()=>decideUser(r, false, box);
+    box.append(who, ok, no);
+    list.appendChild(box);
+  });
+}
+
+async function decideUser(r, yes, box){
+  box.style.opacity='.4';
+  try{
+    await gsCall('approveUser',{email:r.email, uid:r.uid, approve: yes?'true':'false'});
+    box.remove();
+    await loadAccessForm();
+    await loadRequests();
+    const m=document.getElementById('acMsg');
+    if(m) m.textContent = yes
+      ? '✓ 승인됨 — 아래 Firebase 규칙에도 이 UID를 넣어야 데이터가 보입니다: '+r.uid
+      : '거절되었습니다.';
+  }catch(e){
+    box.style.opacity='1';
+    alert('처리 실패: '+e.message);
+  }
 }
 
 function fillMyUid(){
@@ -790,6 +865,35 @@ async function loadAccessForm(){
     document.getElementById('acAdminUid').value=a.adminUid||'';
     document.getElementById('acEmails').value=(a.emails||[]).join('\n');
   }catch(e){ console.error(e); }
+}
+
+/* 승인된 UID로 Firebase 규칙을 만들어 복사합니다. */
+async function copyRules(){
+  let access={adminUid:'',emails:[],uids:[]};
+  try{ const j=await gsCall('getAccess'); access=j.access||access; }catch(e){}
+  const uids=[];
+  if(access.adminUid) uids.push(access.adminUid);
+  (access.uids||[]).forEach(u=>{ if(u && uids.indexOf(u)<0) uids.push(u); });
+
+  const pre=document.getElementById('rulePre');
+  const msg=document.getElementById('ruleMsg');
+  if(!uids.length){
+    pre.textContent='(승인된 사람이 없습니다. 관리자 UID를 먼저 등록하세요)';
+    if(msg) msg.textContent='';
+    return;
+  }
+  const cond=uids.map(u=>"auth.uid === '"+u+"'").join(' || ');
+  const rules='{\n  "rules": {\n'
+            + '    ".read":  "auth != null && ('+cond+')",\n'
+            + '    ".write": "auth != null && ('+cond+')"\n'
+            + '  }\n}';
+  pre.textContent=rules;
+  try{
+    await navigator.clipboard.writeText(rules);
+    if(msg) msg.textContent='✓ 복사됨 — Firebase 규칙 탭에 붙여넣고 게시하세요 ('+uids.length+'명)';
+  }catch(e){
+    if(msg) msg.textContent='아래 내용을 복사해 Firebase 규칙에 붙여넣으세요 ('+uids.length+'명)';
+  }
 }
 
 async function saveAccess(){
