@@ -334,7 +334,8 @@
        (화면의 탭 숨김은 편의용이고, 진짜 차단은 이 규칙이 합니다)</p>
     <div class="row" style="margin:8px 0">
       <button class="btn accent" onclick="copyRules()">📋 규칙 자동 생성 + 복사</button>
-      <span class="mini" id="ruleMsg">승인된 직원 UID가 자동으로 들어갑니다.</span>
+      <button class="btn ghost" onclick="openFbRules()">🔗 Firebase 규칙 열기</button>
+      <span class="mini" id="ruleMsg">① 복사 → ② 규칙 페이지 열기 → 붙여넣고 <b>게시</b></span>
     </div>
     <pre class="k" id="rulePre" style="background:#f5f2ea;padding:10px;border-radius:5px;overflow:auto;font-size:11.5px">(위 버튼을 누르면 여기에 나옵니다)</pre>
     <p>Firebase 콘솔 → 빌드 → Realtime Database → <b>규칙</b> 탭에 붙여넣고 <b>게시</b>하세요.</p>
@@ -865,6 +866,22 @@ async function loadAccessForm(){
     document.getElementById('acAdminUid').value=a.adminUid||'';
     document.getElementById('acEmails').value=(a.emails||[]).join('\n');
   }catch(e){ console.error(e); }
+}
+
+/* Firebase 콘솔의 규칙 페이지를 새 탭으로 엽니다.
+   설정값(projectId, databaseURL)에서 주소를 만들어, 프로젝트가 바뀌어도 따라갑니다. */
+function openFbRules(){
+  const proj=(cfg.fbProj||'').trim();
+  if(!proj){ alert('⚙ 설정의 Firebase projectId 를 먼저 저장하세요.'); return; }
+  // databaseURL 에서 DB 인스턴스 이름을 뽑습니다
+  //   https://shinwha-note-default-rtdb.asia-southeast1.firebasedatabase.app
+  //           └────────── 이 부분 ──────────┘
+  let inst=proj+'-default-rtdb';
+  const m=/^https?:\/\/([^.]+)\./.exec((cfg.fbUrl||'').trim());
+  if(m && m[1]) inst=m[1];
+  const url='https://console.firebase.google.com/project/'+encodeURIComponent(proj)
+          + '/database/'+encodeURIComponent(inst)+'/rules';
+  window.open(url,'_blank','noopener');
 }
 
 /* 승인된 UID로 Firebase 규칙을 만들어 복사합니다. */
