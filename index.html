@@ -353,7 +353,7 @@
     <input type="date" id="baseDate">
     <span class="mini">메시지에 날짜(7.7, 06.30 등)가 있으면 그 날짜가 우선 적용됩니다.</span>
   </div>
-  <textarea id="kakaoText" placeholder="예)
+  <textarea id="kakaoText" oninput="showPasteRange(this.value)" placeholder="예)
 안녕하세요! 내일 도착분 발주 드립니다.
 ○○식당
 스페4박스 엑셀2박스 셀레2박스
@@ -362,10 +362,11 @@
 돼지고기 3킬로 2봉지
 감사합니다~"></textarea>
   <div id="pasteRange" style="display:none;margin-top:12px;padding:10px 14px;background:#fff8e1;border:1px solid #ffd54f;border-radius:6px;font-size:14px;line-height:1.7"></div>
+  <div id="pasteHint" class="mini" style="margin-top:8px;color:#8a8577">💡 카톡을 붙여넣으면 여기에 <b>처음·마지막 메시지의 날짜·시간·내용</b>이 표시됩니다 — 어디까지 넣었는지 확인하고 다음 분량을 이어 붙이세요.</div>
   <div class="row" style="margin-top:12px">
     <button class="btn accent" id="analyzeBtn" onclick="analyze()">✦ AI 분석 후 누적</button>
     <button class="btn ghost" id="cancelBtn" onclick="cancelAnalyze()" style="display:none">■ 중단</button>
-    <button class="btn ghost" onclick="document.getElementById('kakaoText').value=''">지우기</button>
+    <button class="btn ghost" onclick="document.getElementById('kakaoText').value='';showPasteRange('')">지우기</button>
     <div class="flexspacer"></div>
     <span class="mini">카톡 전체를 붙여넣어도 됩니다 — 날짜별로 자동 분리 처리합니다.</span>
   </div>
@@ -1157,6 +1158,7 @@ function cancelAnalyze(){ CANCEL=true; setMsg('inMsg','중단 요청됨… 현�
 // 어디까지 붙여넣었는지 카톡방에서 체크하기 위한 용도.
 function showPasteRange(raw){
   const box=document.getElementById('pasteRange');
+  const hint=document.getElementById('pasteHint');
   if(!box) return;
   const RE=/^\s*\[([^\]]+)\]\s*\[(오전|오후)\s*(\d{1,2}:\d{2})\]\s*(.*)$/;
   const DIV=/^[-‐–—\s]*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일/;   // 카톡 날짜 구분선
@@ -1176,7 +1178,24 @@ function showPasteRange(raw){
     }
     msgs.push({date:curDate, ampm:m[2], time:m[3], name:m[1].trim(), text:body});
   }
-  if(msgs.length===0){ box.style.display='none'; return; }
+  if(msgs.length===0){
+    // 타임스탬프가 없는 경우(손으로 직접 친 주문 등) — 첫 줄/끝 줄이라도 보여줌
+    const raws=String(raw||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+    if(raws.length===0){ box.style.display='none'; if(hint) hint.style.display=''; return; }
+    const cutR=s=> s.length>80 ? s.slice(0,80)+'…' : s;
+    if(hint) hint.style.display='none';
+    box.style.display='block';
+    box.innerHTML=
+      '<div style="font-weight:700;margin-bottom:8px">📋 붙여넣은 범위 (총 '+raws.length+'줄 · 카톡 시간표시 없음)</div>'+
+      '<div style="display:flex;gap:16px;align-items:flex-start">'+
+        '<div style="flex:1;min-width:0"><div style="font-weight:700;margin-bottom:3px">⏱ 첫 줄</div>'+
+          '<div style="white-space:pre-wrap;word-break:break-all">'+esc(cutR(raws[0]))+'</div></div>'+
+        '<div style="width:1px;align-self:stretch;background:#ffd54f"></div>'+
+        '<div style="flex:1;min-width:0"><div style="font-weight:700;margin-bottom:3px">🏁 끝 줄</div>'+
+          '<div style="white-space:pre-wrap;word-break:break-all">'+esc(cutR(raws[raws.length-1]))+'</div></div>'+
+      '</div>';
+    return;
+  }
   const first=msgs[0], last=msgs[msgs.length-1];
   const cut=s=> !s ? '(내용 없음)' : (s.length>80 ? s.slice(0,80)+'…' : s);
   const cell=(label,mm)=>
@@ -1186,6 +1205,7 @@ function showPasteRange(raw){
         (mm.date?esc(mm.date)+' · ':'')+mm.ampm+' '+mm.time+'</div>'+
       '<div style="white-space:pre-wrap;word-break:break-all">'+esc(cut(mm.text))+'</div>'+
     '</div>';
+  if(hint) hint.style.display='none';
   box.style.display='block';
   box.innerHTML=
     '<div style="font-weight:700;margin-bottom:8px">📋 이번에 붙여넣은 카톡 범위 (타임스탬프 '+msgs.length+'건)</div>'+
@@ -2111,6 +2131,8 @@ function ordersByDate(){
   for(const id in ORDERS){const o=ORDERS[id];(by[o.date]=by[o.date]||[]).push(o);}
   return by;
 }
+function dateExists(d){ if(!d) return false; const by=ordersByDate(); return !!by[d]; }
+function firstDate(){ const by=ordersByDate(); const ds=Object.keys(by).sort().reverse(); return ds[0]||null; }
 function renderDateBar(elId,active,onPick){
   const by=ordersByDate();
   const dates=Object.keys(by).sort().reverse();
@@ -2288,8 +2310,16 @@ function fmtDate(d){
 }
 
 let noteDate=null, workDate=null;
+// 날짜 선택을 명시적으로 분리 — 클릭한 날짜를 확정한 뒤 다시 그립니다.
+// (예전엔 renderDateBar 리턴값을 noteDate에 되대입해서, 리스너가 끼어들 때
+//  이전 날짜로 되돌아가는 버그가 있었습니다.)
+function setNoteDate(d){ noteDate=d; renderNote(); }
+function setWorkDate(d){ workDate=d; renderWork(); }
 function renderNote(){
-  noteDate=renderDateBar('noteDates',noteDate,d=>{noteDate=d;renderNote();});
+  // 유효한 날짜만 보정(주문이 아예 없거나 그 날짜가 사라졌을 때만 첫 날짜로).
+  const valid=dateExists(noteDate);
+  renderDateBar('noteDates', valid?noteDate:null, setNoteDate);
+  if(!valid) noteDate=firstDate();
   if(!noteDate){noteWrap.innerHTML='';return;}
   const meta=Object.values(ORDERS).filter(o=>o.date===noteDate);
   const doneN=new Set(meta.filter(o=>o.done).map(o=>o.client)).size;
@@ -2308,7 +2338,9 @@ function renderNote(){
   fillBlankRows(document.getElementById('noteWrap'));
 }
 function renderWork(){
-  workDate=renderDateBar('workDates',workDate,d=>{workDate=d;renderWork();});
+  const valid=dateExists(workDate);
+  renderDateBar('workDates', valid?workDate:null, setWorkDate);
+  if(!valid) workDate=firstDate();
   if(!workDate){workWrap.innerHTML='';return;}
   workWrap.innerHTML=
     '<div class="note-head"><span class="d">'+workDate.replace(/-/g,'.')+' <span class="meta">작업용</span></span>'+
