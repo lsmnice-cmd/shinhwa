@@ -796,12 +796,13 @@ function onSignedIn(u){
     if(broken) console.warn('손상 주문 '+broken+'건 정규화됨 (품목 없음 — 주문노트에서 확인/삭제하세요)');
     seenHashes=new Set(Object.values(ORDERS).map(o=>o.hash).filter(Boolean));
     renderAll();
-    // 지난번 마지막 처리 지점 (접속 시 1회 로드)
+    // 지난번 마지막 처리 지점 (접속 시 1회 로드, 없으면 주문 데이터로 추정 표시)
     db.ref('meta/lastKatok').once('value').then(ss=>{
       let v=ss.val();
       if(v && !v.last && v.time) v={first:null, last:v};   // 구버전 형식 호환
-      if(v){ LAST_KATOK=v; showLastProcessed(); }
-    }).catch(()=>{});
+      if(v) LAST_KATOK=v;
+      showLastProcessed();   // 저장 기록이 없어도 폴백(추정)으로 표시
+    }).catch(()=>{ showLastProcessed(); });
   },err=>{
     fbReady=false;
     showGate();
@@ -1251,11 +1252,29 @@ function bannerCell(label,mm){
 /* 지난번에 마지막으로 '분석 완료'한 카톡의 처음~끝 범위를 보여줍니다.
    접속하면(붙여넣기와 무관하게) 항상 떠서, 카톡방에서 끝 지점 다음부터 복사하면 됩니다. */
 let LAST_KATOK=null;   // {first:{date,ampm,time,text}, last:{...}}  Firebase meta/lastKatok
+/* 저장된 기록이 없으면(새 기능 도입 전 데이터) 기존 주문에서 범위를 추정합니다:
+   저장 시각(ts)이 가장 최근인 분석 배치 = 마지막으로 넣은 카톡 분량으로 보고,
+   그 배치의 첫 주문·마지막 주문을 보여줍니다. */
+function fallbackLastFromOrders(){
+  const all=Object.values(ORDERS).filter(o=>o&&o.ts);
+  if(!all.length) return null;
+  all.sort((a,b)=>a.ts-b.ts);
+  const newest=all[all.length-1].ts;
+  // 마지막 분석 배치: 최신 ts에서 10분 이내에 저장된 주문들
+  const batch=all.filter(o=>newest-o.ts<10*60*1000);
+  const pick=o=>{
+    const r=(o.raw||'').trim();
+    const t=r || (o.items||[]).map(x=>x.text||x.product).join(' / ');
+    return {date:(o.date||'').replace(/-/g,'.'), ampm:'', time:o.client||'', text:t};
+  };
+  return {first:pick(batch[0]), last:pick(batch[batch.length-1]), estimated:true};
+}
 function showLastProcessed(){
   const box=document.getElementById('lastRange');
   if(!box) return;
-  const L=LAST_KATOK;
-  if(!L || !(L.last&&L.last.time) ){ box.style.display='none'; return; }
+  let L=LAST_KATOK;
+  if(!L || !(L.last&&(L.last.time||L.last.text))) L=fallbackLastFromOrders();
+  if(!L || !L.last){ box.style.display='none'; return; }
   const f=L.first||{}, l=L.last||{};
   const cellG=(label,mm)=>
     '<div style="flex:1;min-width:0">'+
@@ -1266,10 +1285,12 @@ function showLastProcessed(){
     '</div>';
   box.style.display='block';
   box.innerHTML=
-    '<div style="font-weight:700;margin-bottom:8px">✅ 지난번 처리한 카톡 범위 — 카톡방에서 <u>끝 지점 다음부터</u> 복사하세요</div>'+
+    '<div style="font-weight:700;margin-bottom:8px">✅ 지난번 분석한 카톡 범위'+
+      (L.estimated?' <span class="mini" style="font-weight:400">(추정 — 마지막 분석 배치의 첫·끝 주문)</span>':'')+
+      ' — 카톡방에서 <u>끝 지점 다음부터</u> 복사하세요</div>'+
     '<div style="display:flex;gap:16px;align-items:flex-start">'+
-      (f.time?cellG('⏱ 처음', f):'')+
-      (f.time?'<div style="width:1px;align-self:stretch;background:#a5d6a7"></div>':'')+
+      cellG('⏱ 처음', f)+
+      '<div style="width:1px;align-self:stretch;background:#a5d6a7"></div>'+
       cellG('🏁 끝 (여기까지 처리됨)', l)+
     '</div>';
 }
