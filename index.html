@@ -265,6 +265,7 @@
 </header>
 <nav class="tabs">
   <button data-tab="input" class="active">① 카톡 입력</button>
+  <button onclick="reopenGaps()" title="마지막으로 분석한 주문들의 빠진 정보를 다시 확인·채웁니다">①-1 빠진정보 채우기</button>
   <button data-tab="note">② 주문노트</button>
   <button data-tab="work">③ 작업용 노트</button>
   <button data-tab="learn">📚 학습 <span id="learnBadge" class="badge" style="display:none">0</span></button>
@@ -509,7 +510,7 @@
       </div>
 
       <div id="gapSpecWrap" style="margin-top:18px">
-        <h3 class="gaph">✂ 작업스펙이 없는 상품</h3>
+        <h3 class="gaph">✂ 작업스펙이 없는 상품 <span class="mini" style="font-weight:400">(위 주문확인 박스에 없는 항목 — 거래처 미지정 등)</span></h3>
         <div class="mini" style="margin-bottom:6px">
           어떻게 세절·절단하는지 적어주세요. 비워두면 저장하지 않습니다.<br>
           <b>상품명이 틀렸으면 고치세요</b> — 아래 후보 버튼(최근 구매 이력)을 누르거나 직접 입력·ERP 코드 입력. 고친 건 학습됩니다.
@@ -1862,6 +1863,119 @@ function closeDateReview(){
   } else { PENDING_GAPS=null; tab('note'); }
 }
 
+/* 스펙-빈칸 한 줄(tr) 생성 — 빠진정보 테이블과 주문확인 박스 양쪽에서 재사용.
+   includeClient=false면 거래처 칸을 뺍니다(박스 헤더에 이미 있으므로). */
+function buildSpecRow(g, includeClient){
+  const key=g.client+'||'+g.product;
+  const S=()=>GAPSTATE&&GAPSTATE.specs?GAPSTATE.specs.get(key):null;
+  const tr=document.createElement('tr');
+
+  if(includeClient){
+    const td1=document.createElement('td'); td1.className='mini';
+    const cliName=(g.client&&g.client!=='미지정')?g.client:'(거래처 미지정)';
+    td1.innerHTML='<div>'+esc(cliName)+'</div>'+
+      (g.text?'<div style="margin-top:3px;padding:3px 6px;background:#eef3ff;border-radius:4px;color:#3a5;font-size:12px;white-space:pre-wrap;word-break:break-all">📩 '+esc(g.text)+'</div>':'');
+    tr.appendChild(td1);
+  }
+
+  const td2=document.createElement('td');
+  const pin=document.createElement('input');
+  pin.type='text'; pin.className='specin'; pin.value=g.product||'';
+  pin.setAttribute('list','prodList');
+  pin.title='ERP 상품명 또는 코드. 고치면 그 이름으로 저장됩니다.';
+  pin.onchange=()=>{
+    let v=pin.value.trim();
+    if(PRODBYCODE[v]){ v=PRODBYCODE[v]; pin.value=v; }   // 코드 → 이름
+    const row=S(); if(row){ if(row.orig===undefined) row.orig=g.product; row.product=v; }
+  };
+  pin.oninput=()=>{ const row=S(); if(row){ if(row.orig===undefined) row.orig=g.product; row.product=pin.value.trim(); } };
+  td2.appendChild(pin);
+  const cnt=document.createElement('span'); cnt.className='mini'; cnt.textContent=' '+g.n+'건';
+  td2.appendChild(cnt);
+  const cands=recentCandidates(g.client, g.product);
+  if(cands.length){
+    const pick=document.createElement('div'); pick.className='cands';
+    cands.slice(0,4).forEach(cd=>{
+      const b=document.createElement('button'); b.type='button'; b.textContent=cd.item;
+      b.title='최근 '+cd.last+' · '+cd.cnt+'회';
+      if(cd.item===g.product) b.classList.add('sel');
+      b.onclick=()=>{
+        pin.value=cd.item;
+        const row=S(); if(row){ if(row.orig===undefined) row.orig=g.product; row.product=cd.item; }
+        pick.querySelectorAll('button').forEach(x=>x.classList.remove('sel'));
+        b.classList.add('sel');
+      };
+      pick.appendChild(b);
+    });
+    td2.appendChild(pick);
+  }
+  tr.appendChild(td2);
+
+  const td3=document.createElement('td');
+  const sel=document.createElement('select');
+  const opts=STATUSES.includes(g.status)?STATUSES:STATUSES.concat([g.status]);
+  opts.forEach(v=>{
+    const op=document.createElement('option'); op.value=v; op.textContent=v||'-';
+    if(g.status===v) op.selected=true; sel.appendChild(op);
+  });
+  sel.onchange=()=>{ const row=S(); if(row) row.status=sel.value; };
+  td3.appendChild(sel);
+  tr.appendChild(td3);
+
+  const td4=document.createElement('td');
+  const inp=document.createElement('input');
+  inp.type='text'; inp.className='specin';
+  inp.placeholder='예) 2.5mm 세절 / 8등분 커팅 / 1kg씩 소분 진공';
+  inp.value=g.spec||'';
+  inp.oninput=()=>{ const row=S(); if(row) row.spec=inp.value; };
+  td4.appendChild(inp);
+  tr.appendChild(td4);
+  return tr;
+}
+
+/* ---------- ①-1 빠진정보 다시 열기 (분석 직후가 아니어도) ----------
+   마지막 분석 배치(또는 이번 세션에 붙여넣은 주문들)를 기준으로
+   빈칸(차량·작업스펙·거래처)을 다시 계산해 같은 창을 엽니다. */
+function lastBatchIds(){
+  const all=Object.keys(ORDERS).map(id=>ORDERS[id]).filter(o=>o&&o.ts);
+  if(!all.length) return [];
+  all.sort((a,b)=>a.ts-b.ts);
+  const newest=all[all.length-1].ts;
+  return all.filter(o=>newest-o.ts<10*60*1000).map(o=>o.id);
+}
+
+function computeGapsFor(ids){
+  const GAPS={vehicles:new Map(), specs:new Map()};
+  for(const id of ids){
+    const o=ORDERS[id]; if(!o) continue;
+    const sk=o.client; if(!sk||o.needClient) continue;
+    if(MASTER[sk] && !MASTER[sk].vehicle){
+      const g=GAPS.vehicles.get(sk);
+      if(g) g.n++; else GAPS.vehicles.set(sk,{veh:(o.vehicle&&o.vehicle!=='미지정')?o.vehicle:'', n:1});
+    }
+    for(const it of (o.items||[])){
+      if(!it.product) continue;
+      const row=(MASTER[sk]&&MASTER[sk].specs||[]).find(s=>s.product===it.product)
+             || specForItem(sk, it.product, it.text);
+      if(row && row.spec) continue;                      // 스펙 있음 → 빈칸 아님
+      const key=sk+'||'+it.product;
+      const g=GAPS.specs.get(key);
+      if(g){ g.n++; if(!g.text && it.text) g.text=it.text; }
+      else GAPS.specs.set(key,{client:sk,product:it.product,text:it.text||'',
+                               spec:'',status:(row&&row.status)||'',n:1,raw:false});
+    }
+  }
+  return GAPS;
+}
+
+function reopenGaps(){
+  let ids=(DATE_TOUCHED||[]).filter(id=>ORDERS[id]);
+  if(!ids.length) ids=lastBatchIds();
+  if(!ids.length){ setMsg('inMsg','분석한 주문이 없습니다. ①에서 카톡을 먼저 붙여넣으세요.',false); tab('input'); return; }
+  DATE_TOUCHED=ids;
+  openGapDialog(computeGapsFor(ids));
+}
+
 /* ---------- 이번에 들어간 주문 확인 (빠진정보 창 상단) ----------
    거래처별로 묶어서: 원본 카톡 → 날짜 · 거래처명을 바로 고칠 수 있습니다.
    거래처명을 고치면 그 거래처의 이번 주문이 모두 바뀌고, 별칭으로 학습됩니다. */
@@ -1870,6 +1984,7 @@ function renderGapOrders(){
   const sec=document.getElementById('gapOrderWrap');
   if(!wrap||!sec) return;
   wrap.innerHTML='';
+  if(GAPSTATE) GAPSTATE._shownSpec=new Set();
   const ids=(DATE_TOUCHED||[]).filter(id=>ORDERS[id]);
   if(!ids.length){ sec.style.display='none'; return; }
   sec.style.display='';
@@ -1883,57 +1998,86 @@ function renderGapOrders(){
     (byCli[k]=byCli[k]||[]).push(o);
   });
 
+  // ── 하나의 표: [날짜|거래처(병합)] + [상품명|작업여부|작업스펙] ──
+  const tbl=document.createElement('table');
+  tbl.className='gaps';
+  tbl.innerHTML='<thead><tr><th style="width:24%">카톡 내용</th><th style="width:104px">날짜</th><th style="width:15%">거래처</th><th style="width:22%">상품명 (고칠 수 있음)</th><th style="width:12%">작업여부</th><th>작업스펙</th></tr></thead>';
+  const tb=document.createElement('tbody');
+
+  if(!GAPSTATE) GAPSTATE={vehicles:new Map(),specs:new Map()};
+  if(!GAPSTATE._shownSpec) GAPSTATE._shownSpec=new Set();
+
   Object.keys(byCli).sort().forEach(cli=>{
     const list=byCli[cli];
-    const box=document.createElement('div');
-    box.style.cssText='border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:8px;background:#fffdf7';
+    const specRows=GAPSTATE.specs?[...GAPSTATE.specs.values()].filter(g=>g.client===cli):[];
+    const rows=Math.max(1, specRows.length);
+    const multi=new Set(list.map(o=>o.date)).size>1;
 
-    // ── 헤더: 거래처명 + 날짜 + 건수 (여기서 고치면 이 거래처의 이번 주문 전체 변경) ──
-    const row=document.createElement('div');
-    row.style.cssText='display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px';
+    // ── 카톡 원문 셀 (맨 앞, 세로 병합) — 이걸 보고 아래 값들이 맞는지 확인 ──
+    const tdRaw=document.createElement('td');
+    tdRaw.rowSpan=rows; tdRaw.style.verticalAlign='top';
+    list.forEach(o=>{
+      const r=(o.raw||'').trim() || (o.items||[]).map(x=>x.text||x.product).join(' / ');
+      const cut=r.length>140?r.slice(0,140)+'…':r;
+      const line=document.createElement('div');
+      line.style.cssText='margin-bottom:4px;padding:3px 6px;background:#eef3ff;border-radius:4px;font-size:12px;white-space:pre-wrap;word-break:break-all';
+      line.textContent='📩 '+(multi?(o.date||'').slice(5).replace('-','.')+' · ':'')+cut;
+      tdRaw.appendChild(line);
+    });
 
+    // ── 날짜 셀 (세로 병합) — 바꾸면 이 거래처의 이번 주문 전체 이동 ──
+    const tdDate=document.createElement('td');
+    tdDate.rowSpan=rows; tdDate.style.verticalAlign='top';
+    const dinp=document.createElement('input');
+    dinp.type='date'; dinp.value=list[0].date||''; dinp.style.width='100%';
+    dinp.title=multi?'이 거래처의 주문 날짜가 여러 개 — 바꾸면 전부 이 날짜로':'바꾸면 이 거래처의 이번 주문이 모두 이 날짜로 옮겨집니다';
+    dinp.onchange=async()=>{ await moveDateSilent(list.map(o=>o.id), dinp.value); renderGapOrders(); };
+    tdDate.appendChild(dinp);
+    if(multi){ const w=document.createElement('div'); w.className='mini'; w.textContent='⚠ 날짜 여러 개'; tdDate.appendChild(w); }
+
+    // ── 거래처 셀 (세로 병합) — 고치면 전체 변경+학습 ──
+    const tdCli=document.createElement('td');
+    tdCli.rowSpan=rows; tdCli.style.verticalAlign='top';
     const cinp=document.createElement('input');
     cinp.type='text'; cinp.value=cli; cinp.setAttribute('list','cliList');
-    cinp.style.cssText='min-width:160px;font-weight:700';
+    cinp.style.cssText='width:100%;font-weight:700';
     cinp.title='거래처명을 고치면 이 거래처의 이번 주문이 모두 바뀌고, 학습되어 다음부터 자동 인식됩니다';
-    cinp.onkeydown=ev=>{ if(ev.key==='Enter'){ cinp.blur(); } };
+    cinp.onkeydown=ev=>{ if(ev.key==='Enter') cinp.blur(); };
     cinp.onchange=async()=>{
       const v=cinp.value.trim();
-      if(!v||v===cli) { cinp.value=cli; return; }
+      if(!v||v===cli){ cinp.value=cli; return; }
       await changeClientBulk(cli, v, list.map(o=>o.id));
       renderGapOrders();
     };
+    tdCli.appendChild(cinp);
+    const nEl=document.createElement('div'); nEl.className='mini'; nEl.textContent=list.length+'건';
+    tdCli.appendChild(nEl);
 
-    const dinp=document.createElement('input');
-    dinp.type='date';
-    dinp.value=list[0].date||'';
-    const multi=new Set(list.map(o=>o.date)).size>1;
-    dinp.title=multi?'이 거래처의 주문 날짜가 여러 개입니다 — 바꾸면 전부 이 날짜로':'날짜를 바꾸면 이 거래처의 이번 주문이 옮겨집니다';
-    dinp.onchange=async()=>{
-      await moveDateSilent(list.map(o=>o.id), dinp.value);
-      renderGapOrders();
-    };
+    // ── 첫 행: 병합 셀 3개 + 첫 스펙 행 (스펙 없으면 안내 셀) ──
+    let firstTr;
+    if(specRows.length){
+      firstTr=buildSpecRow(specRows[0], false);
+      GAPSTATE._shownSpec.add(specRows[0].client+'||'+specRows[0].product);
+    }else{
+      firstTr=document.createElement('tr');
+      const td=document.createElement('td'); td.colSpan=3; td.className='mini';
+      td.textContent='채울 작업스펙 없음 — 거래처·날짜만 확인하세요';
+      firstTr.appendChild(td);
+    }
+    firstTr.prepend(tdCli);
+    firstTr.prepend(tdDate);
+    firstTr.prepend(tdRaw);
+    tb.appendChild(firstTr);
 
-    const n=document.createElement('span'); n.className='mini';
-    n.textContent=list.length+'건'+(multi?' · 날짜 여러 개':'');
-
-    row.append(cinp,dinp,n);
-    box.appendChild(row);
-
-    // ── 원본 카톡: 각 주문의 원문 + 그 주문의 날짜를 나란히 (헤더 바로 아래 붙어서) ──
-    list.forEach(o=>{
-      const r=(o.raw||'').trim() || (o.items||[]).map(x=>x.text||x.product).join(' / ');
-      const cut=r.length>160?r.slice(0,160)+'…':r;
-      const line=document.createElement('div');
-      line.style.cssText='display:flex;gap:8px;align-items:flex-start;margin-bottom:4px';
-      line.innerHTML=
-        '<span class="mini" style="flex:0 0 auto;padding:3px 6px;background:#f3efe4;border-radius:4px">'+esc((o.date||'').slice(5).replace('-','.'))+'</span>'+
-        '<span style="flex:1;min-width:0;padding:3px 8px;background:#eef3ff;border-radius:4px;font-size:12px;white-space:pre-wrap;word-break:break-all">📩 '+esc(cut)+'</span>';
-      box.appendChild(line);
+    // ── 나머지 스펙 행 (카톡·날짜·거래처 셀은 위에서 병합됨) ──
+    specRows.slice(1).forEach(g=>{
+      tb.appendChild(buildSpecRow(g, false));
+      GAPSTATE._shownSpec.add(g.client+'||'+g.product);
     });
-
-    wrap.appendChild(box);
   });
+
+  tbl.appendChild(tb);
+  wrap.appendChild(tbl);
 
   if(!wrap.children.length){ sec.style.display='none'; }
 }
@@ -2019,80 +2163,17 @@ function openGapDialog(GAPS){
   }
 
   const sList=[...GAPS.specs.values()].sort((a,b)=>b.n-a.n || a.client.localeCompare(b.client));
-  sList.slice(0,CAP).forEach(g=>{
-    const key=g.client+'||'+g.product;
-    const tr=document.createElement('tr');
-
-    const td1=document.createElement('td'); td1.className='mini';
-    const cliName = (g.client && g.client!=='미지정') ? g.client : '(거래처 미지정)';
-    // AI가 분석한 원본 카톡 내용을 함께 보여줍니다 — 어느 주문인지 알아야 판단 가능
-    td1.innerHTML='<div>'+esc(cliName)+'</div>'+
-      (g.text ? '<div style="margin-top:3px;padding:3px 6px;background:#eef3ff;border-radius:4px;color:#3a5;font-size:12px;white-space:pre-wrap;word-break:break-all">📩 '+esc(g.text)+'</div>' : '');
-
-    // 상품명: 고칠 수 있게 (파싱이 틀렸거나 ERP 정식명으로 바꿔야 할 때)
-    const td2=document.createElement('td');
-    const pin=document.createElement('input');
-    pin.type='text'; pin.className='specin'; pin.value=g.product||'';
-    pin.setAttribute('list','prodList');
-    pin.title='ERP 상품명 또는 코드. 고치면 그 이름으로 저장됩니다.';
-    pin.onchange=()=>{
-      let v=pin.value.trim();
-      if(PRODBYCODE[v]){ v=PRODBYCODE[v]; pin.value=v; }   // 코드 → 이름
-      const row=GAPS.specs.get(key);
-      if(row){ if(row.orig===undefined) row.orig=g.product; row.product=v; }
-    };
-    pin.oninput=()=>{ const row=GAPS.specs.get(key); if(row){ if(row.orig===undefined) row.orig=g.product; row.product=pin.value.trim(); } };
-    td2.appendChild(pin);
-    const cnt=document.createElement('span'); cnt.className='mini'; cnt.textContent=' '+g.n+'건';
-    td2.appendChild(cnt);
-
-    // 최근 구매이력 후보 (있으면) — 클릭해서 바로 교체
-    const cands=recentCandidates(g.client, g.product);
-    if(cands.length){
-      const pick=document.createElement('div'); pick.className='cands';
-      cands.slice(0,4).forEach(cd=>{
-        const b=document.createElement('button'); b.type='button'; b.textContent=cd.item;
-        b.title='최근 '+cd.last+' · '+cd.cnt+'회';
-        if(cd.item===g.product) b.classList.add('sel');
-        b.onclick=()=>{
-          pin.value=cd.item;
-          const row=GAPS.specs.get(key);
-          if(row){ if(row.orig===undefined) row.orig=g.product; row.product=cd.item; }
-          pick.querySelectorAll('button').forEach(x=>x.classList.remove('sel'));
-          b.classList.add('sel');
-        };
-        pick.appendChild(b);
-      });
-      td2.appendChild(pick);
-    }
-
-    const td3=document.createElement('td');
-    const sel=document.createElement('select');
-    const opts = STATUSES.includes(g.status) ? STATUSES : STATUSES.concat([g.status]);
-    opts.forEach(v=>{
-      const op=document.createElement('option'); op.value=v; op.textContent=v||'-';
-      if(g.status===v) op.selected=true; sel.appendChild(op);
-    });
-    sel.onchange=()=>{ GAPS.specs.get(key).status=sel.value; };
-    td3.appendChild(sel);
-
-    const td4=document.createElement('td');
-    const inp=document.createElement('input');
-    inp.type='text'; inp.className='specin';
-    inp.placeholder='예) 2.5mm 세절 / 8등분 커팅 / 1kg씩 소분 진공';
-    inp.value=g.spec||'';
-    inp.oninput=()=>{ GAPS.specs.get(key).spec=inp.value; };
-    td4.appendChild(inp);
-
-    tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tr.appendChild(td4);
-    sb.appendChild(tr);
-  });
-  if(sList.length>CAP){
+  const shown=GAPS._shownSpec||new Set();
+  const rest=sList.filter(g=>!shown.has(g.client+'||'+g.product));
+  rest.slice(0,CAP).forEach(g=>{ sb.appendChild(buildSpecRow(g, true)); });
+  if(rest.length>CAP){
     const tr=document.createElement('tr'); const td=document.createElement('td');
     td.colSpan=4; td.className='mini';
-    td.textContent=`…외 ${sList.length-CAP}건. 나머지는 ④ 마스터 탭이나 스프레드시트에서 채우세요.`;
+    td.textContent=`…외 ${rest.length-CAP}건. 나머지는 ④ 마스터 탭이나 스프레드시트에서 채우세요.`;
     tr.appendChild(td); sb.appendChild(tr);
   }
+  // 주문확인 박스에 표시 안 된(남은) 건수 — 아래 표시/숨김과 카운트에서 사용
+  GAPS._restCount=rest.length;
 
   // ── 거래처를 못 찾은 주문 ──
   const cliBody=document.getElementById('gapCliBody');
@@ -2170,10 +2251,10 @@ function openGapDialog(GAPS){
   document.getElementById('gapSingleWrap').style.display = clientsInPaste.size ? '' : 'none';
 
   document.getElementById('gapVehWrap').style.display  = vList.length ? '' : 'none';
-  document.getElementById('gapSpecWrap').style.display = sList.length ? '' : 'none';
+  document.getElementById('gapSpecWrap').style.display = (GAPS._restCount||0) ? '' : 'none';
   document.getElementById('gapCount').textContent =
     `차량 ${vList.length}곳 · 작업스펙 ${sList.length}건` +
-    ((vList.length>CAP||sList.length>CAP) ? `  (자주 나온 순 ${CAP}개씩 표시)` : '');
+    ((vList.length>CAP||(GAPS._restCount||0)>CAP) ? `  (자주 나온 순 ${CAP}개씩 표시)` : '');
   document.getElementById('gapModal').classList.add('open');
 }
 
