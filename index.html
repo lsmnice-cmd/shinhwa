@@ -348,6 +348,7 @@
 <section class="panel tabpage" data-page="input">
   <h2>카톡 발주방 붙여넣기</h2>
   <div class="sub">단톡방 내용을 그대로 복사해 붙여넣으세요. 인사말·잡담은 AI가 걸러내고, 단가는 그대로 보존합니다. 같은 내용은 중복 저장되지 않습니다.</div>
+  <div id="lastRange" style="display:none;margin-bottom:12px;padding:10px 14px;background:#e8f5e9;border:1px solid #a5d6a7;border-radius:6px;font-size:14px;line-height:1.6;color:#1b5e20"></div>
   <div class="row" style="margin-bottom:10px">
     <label>주문일 기준</label>
     <input type="date" id="baseDate">
@@ -481,6 +482,15 @@
     </div>
 
     <div class="modal-body">
+      <div id="gapOrderWrap" style="margin-bottom:18px">
+        <h3 class="gaph">📅 이번에 들어간 주문 확인 (거래처·날짜)</h3>
+        <div class="mini" style="margin-bottom:6px">
+          AI가 읽은 <b>원본 카톡</b>을 보고 거래처와 날짜가 맞는지 확인하세요.
+          <b>거래처명이나 날짜를 고치면 그 거래처의 이번 주문이 모두 바뀝니다.</b> 고친 거래처명은 학습되어 다음부터 자동 인식됩니다.
+        </div>
+        <div id="gapOrderBody"></div>
+      </div>
+
       <div id="gapCliWrap" style="margin-bottom:18px">
         <h3 class="gaph">❓ 거래처를 못 찾은 주문</h3>
         <div class="mini" style="margin-bottom:6px">
@@ -612,6 +622,7 @@ let seenHashes=new Set();
 // ↓ 이 전역 상태들은 로그인 직후 renderAll/loadMaster가 바로 참조하므로
 //   스크립트 맨 위에서 선언해야 합니다(아래쪽에 두면 TDZ 경합으로 로드 실패가 납니다).
 let LEARNED={perCustomer:{},global:{}};   // 카톡 은어 → ERP 정식 상품명 (학습사전 시트)
+let ALIASES={};     // 카톡 표현 → 정식 거래처명 (거래처별칭 시트 — 거래처명 고치면 학습)
 let RECENT={};      // 거래처 → [{item,cnt,last}]  ERP 최근 구매이력 (드라이브 스냅샷)
 let PRODBYCODE={};  // 상품코드 → 상품명 (ERP 코드로 바로 고칠 수 있게)
 const STATUSES=['','작업','원물/박스','원물/팩','원물','작업/네이버','원물/네이버'];
@@ -645,8 +656,12 @@ function cliNorm(n){
 }
 function matchClient(raw){
   if(!_clientIndex) buildClientIndex();
+  // 0) 학습된 별칭 최우선 (대표님이 고친 거래처명)
+  const rawT=String(raw||'').trim();
+  if(rawT && ALIASES[rawT]) return ALIASES[rawT];
   const k=cliNorm(raw);
   if(!k) return shortName(raw);
+  for(const a in ALIASES){ if(cliNorm(a)===k) return ALIASES[a]; }
   // 1) 정확
   if(_clientIndex[k]) return _clientIndex[k][0];
   // 2) 괄호 안 별칭 (예: 남부수산(할매보쌈) → 할매보쌈)
@@ -746,6 +761,12 @@ function onSignedIn(u){
     ORDERS=s.val()||{};
     seenHashes=new Set(Object.values(ORDERS).map(o=>o.hash));
     renderAll();
+    // 지난번 마지막 처리 지점 (접속 시 1회 로드)
+    db.ref('meta/lastKatok').once('value').then(ss=>{
+      let v=ss.val();
+      if(v && !v.last && v.time) v={first:null, last:v};   // 구버전 형식 호환
+      if(v){ LAST_KATOK=v; showLastProcessed(); }
+    }).catch(()=>{});
   },err=>{
     fbReady=false;
     showGate();
@@ -1113,6 +1134,7 @@ async function loadMasterFromSheet(){
     const j=await gsCall('getMaster');
     MASTER=j.master||{};
     LEARNED=j.learned||{perCustomer:{},global:{}};
+    ALIASES=j.aliases||{};
     _clientIndex=null;
     refreshProdList();
     renderAll();
@@ -1156,10 +1178,8 @@ function cancelAnalyze(){ CANCEL=true; setMsg('inMsg','중단 요청됨… 현�
 // 카톡 내보내기 줄 "[이름] [오전/오후 h:mm] 내용" 에서 타임스탬프 있는 줄을 뽑고,
 // 각 메시지가 속한 날짜(구분선)도 함께 잡아, 처음·마지막을 좌우 2단으로 보여줍니다.
 // 어디까지 붙여넣었는지 카톡방에서 체크하기 위한 용도.
-function showPasteRange(raw){
-  const box=document.getElementById('pasteRange');
-  const hint=document.getElementById('pasteHint');
-  if(!box) return;
+/* 카톡 원문에서 타임스탬프 메시지들을 뽑습니다. (처음/마지막 계산용) */
+function parseKatokRange(raw){
   const RE=/^\s*\[([^\]]+)\]\s*\[(오전|오후)\s*(\d{1,2}:\d{2})\]\s*(.*)$/;
   const DIV=/^[-‐–—\s]*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일/;   // 카톡 날짜 구분선
   const lines=String(raw||'').split(/\r?\n/);
@@ -1169,7 +1189,6 @@ function showPasteRange(raw){
     if(dm){ curDate=dm[1]+'.'+String(dm[2]).padStart(2,'0')+'.'+String(dm[3]).padStart(2,'0'); continue; }
     const m=lines[i].match(RE);
     if(!m) continue;
-    // 이 카톡 헤더 다음 줄부터, 다음 타임스탬프/구분선 전까지가 이 메시지 내용
     let body=(m[4]||'').trim();
     for(let j=i+1;j<lines.length;j++){
       if(RE.test(lines[j])||DIV.test(lines[j])) break;
@@ -1178,6 +1197,50 @@ function showPasteRange(raw){
     }
     msgs.push({date:curDate, ampm:m[2], time:m[3], name:m[1].trim(), text:body});
   }
+  return msgs;
+}
+
+function bannerCut(s){ return !s ? '(내용 없음)' : (s.length>80 ? s.slice(0,80)+'…' : s); }
+function bannerCell(label,mm){
+  return '<div style="flex:1;min-width:0">'+
+    '<div style="font-weight:700;margin-bottom:3px">'+label+'</div>'+
+    '<div style="color:#8a6d00;font-size:13px;margin-bottom:2px">'+
+      (mm.date?esc(mm.date)+' · ':'')+esc(mm.ampm)+' '+esc(mm.time)+'</div>'+
+    '<div style="white-space:pre-wrap;word-break:break-all">'+esc(bannerCut(mm.text))+'</div>'+
+  '</div>';
+}
+
+/* 지난번에 마지막으로 '분석 완료'한 카톡의 처음~끝 범위를 보여줍니다.
+   접속하면(붙여넣기와 무관하게) 항상 떠서, 카톡방에서 끝 지점 다음부터 복사하면 됩니다. */
+let LAST_KATOK=null;   // {first:{date,ampm,time,text}, last:{...}}  Firebase meta/lastKatok
+function showLastProcessed(){
+  const box=document.getElementById('lastRange');
+  if(!box) return;
+  const L=LAST_KATOK;
+  if(!L || !(L.last&&L.last.time) ){ box.style.display='none'; return; }
+  const f=L.first||{}, l=L.last||{};
+  const cellG=(label,mm)=>
+    '<div style="flex:1;min-width:0">'+
+      '<div style="font-weight:700;margin-bottom:3px">'+label+'</div>'+
+      '<div style="font-size:13px;margin-bottom:2px;opacity:.8">'+
+        (mm.date?esc(mm.date)+' · ':'')+esc(mm.ampm||'')+' '+esc(mm.time||'')+'</div>'+
+      '<div style="white-space:pre-wrap;word-break:break-all">'+esc(bannerCut(mm.text))+'</div>'+
+    '</div>';
+  box.style.display='block';
+  box.innerHTML=
+    '<div style="font-weight:700;margin-bottom:8px">✅ 지난번 처리한 카톡 범위 — 카톡방에서 <u>끝 지점 다음부터</u> 복사하세요</div>'+
+    '<div style="display:flex;gap:16px;align-items:flex-start">'+
+      (f.time?cellG('⏱ 처음', f):'')+
+      (f.time?'<div style="width:1px;align-self:stretch;background:#a5d6a7"></div>':'')+
+      cellG('🏁 끝 (여기까지 처리됨)', l)+
+    '</div>';
+}
+
+function showPasteRange(raw){
+  const box=document.getElementById('pasteRange');
+  const hint=document.getElementById('pasteHint');
+  if(!box) return;
+  const msgs=parseKatokRange(raw);
   if(msgs.length===0){
     // 타임스탬프가 없는 경우(손으로 직접 친 주문 등) — 첫 줄/끝 줄이라도 보여줌
     const raws=String(raw||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
@@ -1197,22 +1260,14 @@ function showPasteRange(raw){
     return;
   }
   const first=msgs[0], last=msgs[msgs.length-1];
-  const cut=s=> !s ? '(내용 없음)' : (s.length>80 ? s.slice(0,80)+'…' : s);
-  const cell=(label,mm)=>
-    '<div style="flex:1;min-width:0">'+
-      '<div style="font-weight:700;margin-bottom:3px">'+label+'</div>'+
-      '<div style="color:#8a6d00;font-size:13px;margin-bottom:2px">'+
-        (mm.date?esc(mm.date)+' · ':'')+mm.ampm+' '+mm.time+'</div>'+
-      '<div style="white-space:pre-wrap;word-break:break-all">'+esc(cut(mm.text))+'</div>'+
-    '</div>';
   if(hint) hint.style.display='none';
   box.style.display='block';
   box.innerHTML=
     '<div style="font-weight:700;margin-bottom:8px">📋 이번에 붙여넣은 카톡 범위 (타임스탬프 '+msgs.length+'건)</div>'+
     '<div style="display:flex;gap:16px;align-items:flex-start">'+
-      cell('⏱ 처음 카톡', first)+
+      bannerCell('⏱ 처음 카톡', first)+
       '<div style="width:1px;align-self:stretch;background:#ffd54f"></div>'+
-      cell('🏁 마지막 카톡', last)+
+      bannerCell('🏁 마지막 카톡', last)+
     '</div>';
 }
 
@@ -1273,6 +1328,18 @@ async function analyze(){
     setMsg('inMsg',m,!tot.failed.length);
     if(tot.failed.length) console.warn('실패한 날짜:',tot.failed);
 
+    // 이번에 처리한 카톡의 '처음~끝'을 저장 → 다음 접속 시 어디까지 했는지 표시
+    if(!CANCEL){
+      const rmsgs=parseKatokRange(raw);
+      if(rmsgs.length){
+        const fm=rmsgs[0], lm=rmsgs[rmsgs.length-1];
+        const pk=mm=>({date:mm.date||'', ampm:mm.ampm||'', time:mm.time||'', text:mm.text||''});
+        LAST_KATOK={first:pk(fm), last:pk(lm), savedAt:Date.now()};
+        try{ if(fbReady) await db.ref('meta/lastKatok').set(LAST_KATOK); }catch(e){ console.warn('lastKatok save',e); }
+        showLastProcessed();
+      }
+    }
+
     kakaoText.value='';
 
     // 아직 모르는 표현을 학습 대기목록에 누적 (📚 탭에서 나중에 처리)
@@ -1284,13 +1351,13 @@ async function analyze(){
       }catch(e){ console.warn('addPending',e); }
     }
 
-    // ① 날짜 확인 → ② 빠진정보 순서로
+    // 통합 확인 창: 주문 확인(날짜·거래처) + 빠진정보를 한 창에서
+    DATE_TOUCHED=(tot.touched||[]).filter(id=>ORDERS[id]);
     const hasNoCli = Object.keys(ORDERS).some(id=>ORDERS[id].needClient);
-    PENDING_GAPS = (GAPS.vehicles.size || GAPS.specs.size || hasNoCli) ? GAPS : null;
-    if(!openDateReview(tot.touched)){
-      if(PENDING_GAPS){ const g=PENDING_GAPS; PENDING_GAPS=null; openGapDialog(g); }
-      else tab('note');
-    }
+    if(DATE_TOUCHED.length || GAPS.vehicles.size || GAPS.specs.size || hasNoCli){
+      PENDING_GAPS=null;
+      openGapDialog(GAPS);
+    } else tab('note');
 
   }finally{
     btn.disabled=false; btn.innerHTML='✦ AI 분석 후 누적';
@@ -1490,6 +1557,11 @@ async function assignClient(id, client, box){
   client=String(client||'').trim();
   if(!client) return;
   const sk=matchClient(client) || client;
+  // ★ 학습: 입력한 표현이 마스터 이름과 다르면 별칭으로 저장 → 다음부터 자동 인식
+  if(client!==sk){
+    ALIASES[client]=sk;
+    try{ await gsCall('addAlias',{katok:client, client:sk}); }catch(e){ console.warn('addAlias',e); }
+  }
   if(!MASTER[sk]){
     MASTER[sk]={vehicle:'',single:'',specs:[]};
     _clientIndex=null;
@@ -1730,8 +1802,123 @@ function closeDateReview(){
     openGapDialog(g);
   } else { PENDING_GAPS=null; tab('note'); }
 }
+
+/* ---------- 이번에 들어간 주문 확인 (빠진정보 창 상단) ----------
+   거래처별로 묶어서: 원본 카톡 → 날짜 · 거래처명을 바로 고칠 수 있습니다.
+   거래처명을 고치면 그 거래처의 이번 주문이 모두 바뀌고, 별칭으로 학습됩니다. */
+function renderGapOrders(){
+  const wrap=document.getElementById('gapOrderBody');
+  const sec=document.getElementById('gapOrderWrap');
+  if(!wrap||!sec) return;
+  wrap.innerHTML='';
+  const ids=(DATE_TOUCHED||[]).filter(id=>ORDERS[id]);
+  if(!ids.length){ sec.style.display='none'; return; }
+  sec.style.display='';
+
+  // 거래처별로 묶기 (미지정/빈 거래처는 개별 표시 — 아래 '거래처를 못 찾은 주문'에서 처리)
+  const byCli={};
+  ids.forEach(id=>{
+    const o=ORDERS[id];
+    if(o.needClient) return;                 // 미지정은 이 섹션에서 제외
+    const k=o.client||'(없음)';
+    (byCli[k]=byCli[k]||[]).push(o);
+  });
+
+  Object.keys(byCli).sort().forEach(cli=>{
+    const list=byCli[cli];
+    const box=document.createElement('div');
+    box.style.cssText='border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:8px;background:#fffdf7';
+
+    // 원본 카톡 (여러 주문이면 각각)
+    const rawHtml=list.map(o=>{
+      const r=(o.raw||'').trim() || (o.items||[]).map(x=>x.text||x.product).join(' / ');
+      const cut=r.length>160?r.slice(0,160)+'…':r;
+      return '<div style="margin-bottom:4px;padding:4px 8px;background:#eef3ff;border-radius:4px;font-size:12px;white-space:pre-wrap;word-break:break-all">📩 '+esc(cut)+'</div>';
+    }).join('');
+
+    // 컨트롤 줄: 날짜 + 거래처명 + 건수
+    const row=document.createElement('div');
+    row.style.cssText='display:flex;gap:8px;align-items:center;flex-wrap:wrap';
+
+    const dinp=document.createElement('input');
+    dinp.type='date';
+    // 이 묶음의 날짜(다르면 첫 번째)
+    dinp.value=list[0].date||'';
+    const multi=new Set(list.map(o=>o.date)).size>1;
+    dinp.title=multi?'이 거래처의 주문 날짜가 여러 개입니다 — 바꾸면 전부 이 날짜로':'날짜를 바꾸면 이 거래처의 이번 주문이 옮겨집니다';
+    dinp.onchange=async()=>{
+      await moveDateSilent(list.map(o=>o.id), dinp.value);
+      renderGapOrders();
+    };
+
+    const cinp=document.createElement('input');
+    cinp.type='text'; cinp.value=cli; cinp.setAttribute('list','cliList');
+    cinp.style.cssText='min-width:160px;font-weight:700';
+    cinp.title='거래처명을 고치면 이 거래처의 이번 주문이 모두 바뀌고, 학습되어 다음부터 자동 인식됩니다';
+    cinp.onkeydown=ev=>{ if(ev.key==='Enter'){ cinp.blur(); } };
+    cinp.onchange=async()=>{
+      const v=cinp.value.trim();
+      if(!v||v===cli) { cinp.value=cli; return; }
+      await changeClientBulk(cli, v, list.map(o=>o.id));
+      renderGapOrders();
+    };
+
+    const n=document.createElement('span'); n.className='mini';
+    n.textContent=list.length+'건'+(multi?' · 날짜 여러 개':'');
+
+    row.append(dinp,cinp,n);
+    box.innerHTML=rawHtml;
+    box.appendChild(row);
+    wrap.appendChild(box);
+  });
+
+  if(!wrap.children.length){ sec.style.display='none'; }
+}
+
+/* 날짜 이동 (렌더는 호출자가) */
+async function moveDateSilent(ids, newDate){
+  if(!newDate) return;
+  for(const id of ids){
+    const o=ORDERS[id]; if(!o||o.date===newDate) continue;
+    const oldHash=o.hash;
+    o.date=newDate; o.dateSrc='수정';
+    o.hash=hashOrder(o);
+    if(oldHash!==o.hash){ seenHashes.delete(oldHash); seenHashes.add(o.hash); }
+    if(fbReady) await db.ref('orders/'+id).update({date:o.date, hash:o.hash});
+  }
+  noteDate=newDate;
+  renderAll();
+}
+
+/* 거래처명 일괄 변경 + 별칭 학습 */
+async function changeClientBulk(oldName, newName, ids){
+  const sk=matchClient(newName)||newName.trim();
+  // 마스터에 없으면 신규 등록
+  if(!MASTER[sk]){
+    MASTER[sk]={vehicle:'',single:'',specs:[]};
+    _clientIndex=null;
+    try{ await saveMaster(sk); }catch(e){ console.warn(e); }
+  }
+  for(const id of ids){
+    const o=ORDERS[id]; if(!o) continue;
+    o.client=sk;
+    o.vehicle=normVeh(matchVehicle(sk)||o.vehicle||'미지정');
+    const oldHash=o.hash; o.hash=hashOrder(o);
+    if(oldHash!==o.hash){ seenHashes.delete(oldHash); seenHashes.add(o.hash); }
+    if(fbReady) await db.ref('orders/'+id).update({client:o.client, vehicle:o.vehicle, hash:o.hash});
+  }
+  // ★ 학습: 원래 표현(AI가 붙인 이름) → 고친 거래처. 다음부터 자동 인식
+  if(oldName && oldName!=='(없음)' && oldName!==sk){
+    ALIASES[oldName]=sk;
+    try{ await gsCall('addAlias',{katok:oldName, client:sk}); }
+    catch(e){ console.warn('addAlias',e); }
+  }
+  renderAll();
+  setMsg('inMsg','✓ 거래처 변경: '+oldName+' → '+sk+' ('+ids.length+'건) — 학습됨',true);
+}
 function openGapDialog(GAPS){
   GAPSTATE=GAPS;
+  renderGapOrders();   // 이번에 들어간 주문 확인 (거래처·날짜·원본 카톡)
   const CAP=120;   // 한 번에 너무 많이 띄우지 않습니다
   const vb=document.getElementById('gapVehBody');
   const sb=document.getElementById('gapSpecBody');
