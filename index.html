@@ -265,7 +265,7 @@
 </header>
 <nav class="tabs">
   <button data-tab="input" class="active">① 카톡 입력</button>
-  <button onclick="reopenGaps()" title="마지막으로 분석한 주문들의 빠진 정보를 다시 확인·채웁니다">①-1 빠진정보 채우기</button>
+  <button id="gapTabBtn" onclick="reopenGaps()" title="마지막으로 분석한 주문들의 빠진 정보를 다시 확인·채웁니다">①-1 빠진정보 채우기</button>
   <button data-tab="note">② 주문노트</button>
   <button data-tab="work">③ 작업용 노트</button>
   <button data-tab="learn">📚 학습 <span id="learnBadge" class="badge" style="display:none">0</span></button>
@@ -483,6 +483,8 @@
     </div>
 
     <div class="modal-body">
+      <div id="gapDupWrap" style="display:none;margin-bottom:14px;padding:10px 14px;background:#fff3e0;border:1px solid #ffb74d;border-radius:6px;font-size:13px;line-height:1.6"></div>
+
       <div id="gapOrderWrap" style="margin-bottom:18px">
         <h3 class="gaph">📅 이번에 들어간 주문 확인 (거래처·날짜)</h3>
         <div class="mini" style="margin-bottom:6px">
@@ -1376,7 +1378,8 @@ async function analyze(){
     if(chunks.length>1){progBar.style.width='100%';progText.textContent=`완료 · ${tot.added}건`;}
     if(!fbReady) renderAll();
 
-    let m=`✓ ${tot.added}건 누적`+(tot.dup?` · 중복 ${tot.dup}건 건너뜀`:'');
+    let m=`✓ ${tot.added}건 누적`+(tot.dup?` · ⚠ 중복 ${tot.dup}건 건너뜀`:'');
+    LAST_DUP = tot.dup ? {n:tot.dup, at:Date.now(), items:(tot.dupItems||[]).slice(0,60)} : null;
     if(tot.fixed) m+=` · 🔧 상품명 교정 ${tot.fixed}건`;
     if(tot.guess) m+=` (그중 ${tot.guess}건은 추천 — 확인 필요)`;
     const nc=Object.keys(ORDERS).filter(id=>ORDERS[id].needClient).length;
@@ -1414,7 +1417,7 @@ async function analyze(){
     // 통합 확인 창: 주문 확인(날짜·거래처) + 빠진정보를 한 창에서
     DATE_TOUCHED=(tot.touched||[]).filter(id=>ORDERS[id]);
     const hasNoCli = Object.keys(ORDERS).some(id=>ORDERS[id].needClient);
-    if(DATE_TOUCHED.length || GAPS.vehicles.size || GAPS.specs.size || hasNoCli){
+    if(DATE_TOUCHED.length || GAPS.vehicles.size || GAPS.specs.size || hasNoCli || (LAST_DUP&&LAST_DUP.n)){
       PENDING_GAPS=null;
       openGapDialog(GAPS);
     } else tab('note');
@@ -1971,6 +1974,9 @@ function computeGapsFor(ids){
 function reopenGaps(){
   let ids=(DATE_TOUCHED||[]).filter(id=>ORDERS[id]);
   if(!ids.length) ids=lastBatchIds();
+  // 거래처 미지정(주문노트에 정상 반영 못 된) 주문은 배치가 지나도 항상 포함
+  const noCli=Object.keys(ORDERS).filter(id=>ORDERS[id].needClient);
+  ids=[...new Set(ids.concat(noCli))];
   if(!ids.length){ setMsg('inMsg','분석한 주문이 없습니다. ①에서 카톡을 먼저 붙여넣으세요.',false); tab('input'); return; }
   DATE_TOUCHED=ids;
   openGapDialog(computeGapsFor(ids));
@@ -2123,8 +2129,26 @@ async function changeClientBulk(oldName, newName, ids){
   renderAll();
   setMsg('inMsg','✓ 거래처 변경: '+oldName+' → '+sk+' ('+ids.length+'건) — 학습됨',true);
 }
+let LAST_DUP=null;   // 직전 분석에서 중복으로 건너뛴 품목 {n, at, items:[{client,text}]}
+
+/* 중복 건너뜀 노티 — 같은 내용이 이미 저장돼 있어 다시 넣지 않은 품목들 */
+function renderDupNotice(){
+  const box=document.getElementById('gapDupWrap'); if(!box) return;
+  if(!LAST_DUP || !LAST_DUP.n){ box.style.display='none'; return; }
+  const items=LAST_DUP.items||[];
+  const SHOW=12;
+  const lis=items.slice(0,SHOW).map(d=>'<div style="padding:1px 0">· <b>'+esc(d.client||'')+'</b> — '+esc(d.text||'')+'</div>').join('');
+  box.style.display='block';
+  box.innerHTML=
+    '<div style="font-weight:700;margin-bottom:4px">🔁 중복으로 건너뛴 품목 '+LAST_DUP.n+'건</div>'+
+    '<div class="mini" style="margin-bottom:6px">같은 날짜·거래처에 같은 내용이 이미 저장돼 있어 다시 넣지 않았습니다. (같은 카톡을 두 번 붙여넣은 경우 정상 동작입니다)</div>'+
+    lis+
+    (items.length>SHOW?'<div class="mini">…외 '+(LAST_DUP.n-SHOW)+'건</div>':'');
+}
+
 function openGapDialog(GAPS){
   GAPSTATE=GAPS;
+  renderDupNotice();   // 🔁 직전 분석의 중복 건너뜀 노티
   renderGapOrders();   // 이번에 들어간 주문 확인 (거래처·날짜·원본 카톡)
   const CAP=120;   // 한 번에 너무 많이 띄우지 않습니다
   const vb=document.getElementById('gapVehBody');
@@ -3210,7 +3234,14 @@ async function reMatchVehicles(){
 /* ---------- 공통 ---------- */
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function setMsg(id,t,ok){const e=document.getElementById(id);e.textContent=t;e.className='msg '+(ok?'ok':'err');}
-function renderAll(){renderNote();renderWork();renderMaster();}
+function updateGapBadge(){
+  const b=document.getElementById('gapTabBtn'); if(!b) return;
+  const nc=Object.keys(ORDERS).filter(id=>ORDERS[id].needClient).length;
+  b.textContent='①-1 빠진정보 채우기'+(nc?` ⚠${nc}`:'');
+  b.style.color=nc?'#b71c1c':'';
+  b.style.fontWeight=nc?'700':'';
+}
+function renderAll(){renderNote();renderWork();renderMaster();updateGapBadge();}
 function tab(name){
   document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
   document.querySelectorAll('.tabpage').forEach(p=>p.style.display=(p.dataset.page===name?'':'none'));
