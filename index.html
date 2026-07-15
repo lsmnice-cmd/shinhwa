@@ -214,7 +214,7 @@
 
   @media print{
     @page{ size:A4 portrait; margin:12mm; }
-    header.top,nav.tabs,.no-print,#gate,#orderModal,#gapModal{display:none!important}
+    header.top,nav.tabs,.no-print,#gate,#orderModal,.tabpage[data-page="gaps"]{display:none!important}
     .cli-edit .pen{display:none!important}
     .guess .q{display:none!important}
     .cli-edit{padding:0;background:none!important;color:inherit!important}
@@ -265,7 +265,7 @@
 </header>
 <nav class="tabs">
   <button data-tab="input" class="active">① 카톡 입력</button>
-  <button id="gapTabBtn" onclick="reopenGaps()" title="마지막으로 분석한 주문들의 빠진 정보를 다시 확인·채웁니다">①-1 빠진정보 채우기</button>
+  <button id="gapTabBtn" data-tab="gaps" title="분석한 주문들의 빠진 정보를 확인·채웁니다 (입력하던 내용 유지)">①-1 빠진정보 채우기</button>
   <button data-tab="note">② 주문노트</button>
   <button data-tab="work">③ 작업용 노트</button>
   <button data-tab="learn">📚 학습 <span id="learnBadge" class="badge" style="display:none">0</span></button>
@@ -472,17 +472,18 @@
   </div>
 </div>
 
-<div id="gapModal" class="modal">
-  <div class="modal-card">
-    <div class="modal-head">
+<section class="panel tabpage" data-page="gaps" style="display:none">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
       <div>
-        <h2 style="margin:0;font-size:15px;letter-spacing:1px">빠진 정보 채우기</h2>
+        <h2 style="margin:0">빠진 정보 채우기</h2>
         <div class="mini" id="gapCount"></div>
       </div>
-      <button class="btn ghost" style="padding:5px 10px" onclick="closeGapDialog()">나중에</button>
+      <div class="flexspacer"></div>
+      <button class="btn ghost" style="padding:5px 10px" onclick="reopenGaps()" title="마지막 분석 기준으로 다시 계산합니다 (입력 중이던 값은 초기화)">↻ 다시 불러오기</button>
+      <button class="btn ghost" style="padding:5px 10px" onclick="closeGapDialog()">나중에 (입력 유지)</button>
     </div>
 
-    <div class="modal-body">
+    <div>
       <div id="gapDupWrap" style="display:none;margin-bottom:14px;padding:10px 14px;background:#fff3e0;border:1px solid #ffb74d;border-radius:6px;font-size:13px;line-height:1.6"></div>
 
       <div id="gapOrderWrap" style="margin-bottom:18px">
@@ -541,14 +542,13 @@
       </div>
     </div>
 
-    <div class="modal-foot">
+    <div style="display:flex;align-items:center;gap:10px;margin-top:16px;padding-top:12px;border-top:1px solid var(--line)">
       <span class="mini">입력한 것만 스프레드시트에 저장됩니다. 빈칸은 그대로 둡니다.</span>
       <div class="flexspacer"></div>
       <button class="btn ghost" onclick="closeGapDialog()">건너뛰기</button>
       <button class="btn accent" id="gapSaveBtn" onclick="saveGaps()">저장하고 닫기</button>
     </div>
-  </div>
-</div>
+</section>
 
 <!-- ===== ♻ 휴지통 모달 ===== -->
 <div id="trashModal" class="modal">
@@ -2279,12 +2279,12 @@ function openGapDialog(GAPS){
   document.getElementById('gapCount').textContent =
     `차량 ${vList.length}곳 · 작업스펙 ${sList.length}건` +
     ((vList.length>CAP||(GAPS._restCount||0)>CAP) ? `  (자주 나온 순 ${CAP}개씩 표시)` : '');
-  document.getElementById('gapModal').classList.add('open');
+  document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab==='gaps'));
+  document.querySelectorAll('.tabpage').forEach(p=>p.style.display=(p.dataset.page==='gaps'?'':'none'));
 }
 
-function closeGapDialog(){
-  document.getElementById('gapModal').classList.remove('open');
-  GAPSTATE=null;
+function closeGapDialog(clear){
+  if(clear){ GAPSTATE=null; LAST_DUP=null; }   // 저장 완료 시에만 초기화
   tab('note');
 }
 
@@ -2356,7 +2356,7 @@ async function saveGaps(){
       +(fail?` · 실패 ${fail}`:''), !fail);
     await reMatchVehicles();
     renderAll();
-    closeGapDialog();
+    closeGapDialog(true);   // 저장 완료 → 상태 초기화 후 주문노트로
   }finally{
     btn.disabled=false; btn.textContent='저장하고 닫기';
   }
@@ -3247,6 +3247,8 @@ function tab(name){
   document.querySelectorAll('.tabpage').forEach(p=>p.style.display=(p.dataset.page===name?'':'none'));
   if(name==='setup' && IS_ADMIN) loadAccessForm();
   if(name==='learn') renderPending();
+  // ①-1: 이미 열려있던 내용(입력 중이던 값)은 그대로 두고, 없을 때만 계산
+  if(name==='gaps' && !GAPSTATE) reopenGaps();
 }
 document.querySelectorAll('nav.tabs button').forEach(b=>b.onclick=()=>tab(b.dataset.tab));
 
