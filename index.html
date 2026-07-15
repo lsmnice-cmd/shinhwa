@@ -547,6 +547,31 @@
   </div>
 </div>
 
+<!-- ===== ♻ 휴지통 모달 ===== -->
+<div id="trashModal" class="modal">
+  <div class="modal-card" style="max-width:760px">
+    <div class="modal-head">
+      <div>
+        <h2 style="margin:0;font-size:15px;letter-spacing:1px">♻ 휴지통</h2>
+        <div class="mini" id="trashCount"></div>
+      </div>
+      <button class="btn ghost" style="padding:5px 10px" onclick="closeTrash()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="mini" style="margin-bottom:10px">
+        삭제한 주문이 여기 보관됩니다. <b>[복구]</b>를 누르면 원래 날짜의 주문노트로 돌아갑니다.
+      </div>
+      <div id="trashBody"></div>
+    </div>
+    <div class="modal-foot">
+      <span class="mini" id="trashMsg"></span>
+      <div class="flexspacer"></div>
+      <button class="btn ghost" onclick="purgeTrash()">🗑 휴지통 비우기 (완전 삭제)</button>
+      <button class="btn accent" onclick="closeTrash()">닫기</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== 주문 수정/삭제 모달 ===== -->
 <div id="orderModal" class="modal">
   <div class="modal-card" style="max-width:760px">
@@ -759,7 +784,17 @@ function onSignedIn(u){
   db.ref('orders').on('value',s=>{
     fbReady=true; hideGate(); setStat(true,'실시간 연결됨');
     ORDERS=s.val()||{};
-    seenHashes=new Set(Object.values(ORDERS).map(o=>o.hash));
+    // 손상 주문 정규화 — 분석 중 창을 닫는 등으로 items가 없이 저장된 주문이
+    // 있으면 화면 그리기가 통째로 죽습니다('length' 오류). 빈 배열로 채워 살립니다.
+    let broken=0;
+    for(const id in ORDERS){
+      const o=ORDERS[id];
+      if(!o || typeof o!=='object'){ delete ORDERS[id]; broken++; continue; }
+      if(!Array.isArray(o.items)){ o.items=[]; broken++; }
+      if(!o.id) o.id=id;
+    }
+    if(broken) console.warn('손상 주문 '+broken+'건 정규화됨 (품목 없음 — 주문노트에서 확인/삭제하세요)');
+    seenHashes=new Set(Object.values(ORDERS).map(o=>o.hash).filter(Boolean));
     renderAll();
     // 지난번 마지막 처리 지점 (접속 시 1회 로드)
     db.ref('meta/lastKatok').once('value').then(ss=>{
@@ -1005,7 +1040,7 @@ function dedupKey(it){
 }
 
 function hashOrder(o){
-  const key=(o.date||'')+'|'+(o.client||'')+'|'+o.items.map(i=>i.text).join('~');
+  const key=(o.date||'')+'|'+(o.client||'')+'|'+(o.items||[]).map(i=>i.text).join('~');
   let h=0;for(let i=0;i<key.length;i++){h=(h*31+key.charCodeAt(i))|0;}
   return 'h'+(h>>>0).toString(36);
 }
@@ -1130,18 +1165,21 @@ async function diagMaster(){
 /* ---------- 마스터: 스프레드시트에서 로드 ---------- */
 async function loadMasterFromSheet(){
   if(!cfg.gsUrl||!cfg.token) return;
+  let step='서버 요청';
   try{
     const j=await gsCall('getMaster');
+    step='데이터 반영';
     MASTER=j.master||{};
     LEARNED=j.learned||{perCustomer:{},global:{}};
     ALIASES=j.aliases||{};
     _clientIndex=null;
+    step='화면 그리기';
     refreshProdList();
     renderAll();
     loadPending();          // 📚 학습 대기 목록
   }catch(e){
-    console.error(e);
-    setMsg('inMsg','마스터 로드 실패: '+e.message,false);
+    console.error('[마스터 '+step+' 단계]',e);
+    setMsg('inMsg','마스터 처리 실패 ('+step+' 단계): '+e.message,false);
   }
 }
 /* ---------- 카톡 텍스트 → 날짜별 청크 ---------- */
@@ -1480,7 +1518,7 @@ async function processChunk(ck, tot, GAPS){
         toAdd.push(it); have.add(k);
       }
       if(!toAdd.length){ continue; }
-      existing.items=existing.items.concat(toAdd);
+      existing.items=(existing.items||[]).concat(toAdd);
       existing.hash=hashOrder(existing);
       if(!tot.touched.includes(existing.id)) tot.touched.push(existing.id);
       if(fbReady) await db.ref('orders/'+existing.id).update({items:existing.items, hash:existing.hash});
@@ -2356,7 +2394,7 @@ function buildNoteTable(date, workMode){
     const clients=Object.keys(g[v]);
     // 차량별 거래처/품목 수 (인쇄 머리말용)
     let itemCount=0;
-    clients.forEach(c=>g[v][c].forEach(o=>itemCount+=o.items.length));
+    clients.forEach(c=>g[v][c].forEach(o=>itemCount+=(o.items||[]).length));
 
     let html='<section class="veh-sec'+(workMode?' work-note':'')+'">'+
       '<div class="veh-page-head"><span class="vp-veh">'+esc(v)+'</span>'+
@@ -2368,7 +2406,7 @@ function buildNoteTable(date, workMode){
 
     clients.forEach((c)=>{
       const orders=g[v][c];
-      const allItems=[];orders.forEach(o=>o.items.forEach(it=>allItems.push({...it,oid:o.id})));
+      const allItems=[];orders.forEach(o=>(o.items||[]).forEach(it=>allItems.push({...it,oid:o.id})));
       const done=orders.every(o=>o.done);
       let itemHtml=allItems.map(it=>{
         const rawText=it.text||it.product||'';
@@ -2416,7 +2454,7 @@ function buildNoteTable(date, workMode){
         html+='<td class="cli"><span class="cli-edit" onclick="openOrderEditor(\''+oids+'\')" title="'+tip+'">'
              +esc(c)+(raws.length?'<i class="src" title="'+tip+'">📄</i>':'')+'<i class="pen">✎</i></span></td>';
       }
-      html+='<td class="items">'+itemHtml+'</td>';
+      html+='<td class="items">'+(itemHtml||'<span style="color:#b71c1c;font-size:12px">⚠ 품목 없음 (분석 중단 등으로 손상된 주문) — 거래처명을 클릭해 삭제하세요</span>')+'</td>';
       if(!workMode){
         html+='<td class="work"><span class="worktag '+(done?'done':'wait')+'" onclick="toggleDone(\''+oids+'\')">'+(done?'완료':'대기')+'</span></td>';
       }
@@ -2519,6 +2557,7 @@ function renderNote(){
     '<span class="meta">거래처 '+new Set(meta.map(o=>o.client)).size+'곳 · 완료 '+doneN+'곳</span>'+
     '<span class="actions no-print">'+
       '<button class="btn ghost" onclick="deleteDay(\''+noteDate+'\')" title="이 날짜 주문 전체 삭제">🗑 하루 삭제</button>'+
+      '<button class="btn ghost" onclick="openTrash()" title="삭제한 주문 복구">♻ 휴지통</button>'+
       '<button class="btn ghost" onclick="cleanDups()" title="예전에 쌓인 * 중복 항목을 지웁니다">🧹 중복 정리</button>'+
       '<button class="btn ghost" onclick="window.print()">🖨 차량별 인쇄</button>'+
     '</span></div>'+
@@ -2745,17 +2784,22 @@ async function saveOrderEdit(){
 
 async function deleteOrder(id, silent){
   const o=ORDERS[id]; if(!o) return;
-  if(!silent && !confirm(`${o.client}의 주문을 삭제할까요?\n(${(o.items||[]).length}개 품목)`)) return;
+  if(!silent && !confirm(`${o.client}의 주문을 삭제할까요?\n(${(o.items||[]).length}개 품목)\n\n삭제해도 ♻ 휴지통에서 복구할 수 있습니다.`)) return;
+  // ♻ 휴지통에 보관 후 삭제 — 언제든 복구 가능
+  if(fbReady){
+    try{ await db.ref('trash/'+id).set(Object.assign({}, o, {deletedAt:Date.now()})); }
+    catch(e){ console.warn('trash save',e); }
+  }
   seenHashes.delete(o.hash);
   delete ORDERS[id];
   if(fbReady) await db.ref('orders/'+id).remove();
-  if(!silent){ renderAll(); setMsg('inMsg','✓ 주문 삭제됨',true); }
+  if(!silent){ renderAll(); setMsg('inMsg','✓ 주문 삭제됨 — ♻ 휴지통에서 복구 가능',true); }
 }
 
 async function deleteOrdersInEditor(){
   if(!EDIT_IDS.length) return;
   const names=[...new Set(EDIT_IDS.map(id=>ORDERS[id]&&ORDERS[id].client).filter(Boolean))];
-  if(!confirm(`${names.join(', ')} 의 주문 ${EDIT_IDS.length}건을 완전히 삭제합니다.\n되돌릴 수 없습니다. 계속할까요?`)) return;
+  if(!confirm(`${names.join(', ')} 의 주문 ${EDIT_IDS.length}건을 삭제합니다.\n(♻ 휴지통에서 복구할 수 있습니다) 계속할까요?`)) return;
   for(const id of EDIT_IDS) await deleteOrder(id, true);
   if(!fbReady) renderAll();
   setMsg('inMsg',`✓ 주문 ${EDIT_IDS.length}건 삭제됨`,true);
@@ -2819,11 +2863,85 @@ async function cleanDups(){
 async function deleteDay(date){
   const ids=Object.keys(ORDERS).filter(id=>ORDERS[id].date===date);
   if(!ids.length) return;
-  if(!confirm(`${date} 의 주문 ${ids.length}건을 전부 삭제합니다.\n되돌릴 수 없습니다. 계속할까요?`)) return;
+  if(!confirm(`${date} 의 주문 ${ids.length}건을 전부 삭제합니다.\n(♻ 휴지통에서 복구할 수 있습니다) 계속할까요?`)) return;
   for(const id of ids) await deleteOrder(id, true);
   if(!fbReady) renderAll();
-  setMsg('inMsg',`✓ ${date} 주문 ${ids.length}건 삭제됨`,true);
+  setMsg('inMsg',`✓ ${date} 주문 ${ids.length}건 삭제됨 — ♻ 휴지통에서 복구 가능`,true);
 }
+
+/* ---------- ♻ 휴지통 (삭제 복구) ---------- */
+async function openTrash(){
+  const body=document.getElementById('trashBody');
+  const cnt=document.getElementById('trashCount');
+  document.getElementById('trashMsg').textContent='';
+  body.innerHTML='<div class="mini">불러오는 중…</div>';
+  document.getElementById('trashModal').classList.add('open');
+  if(!fbReady){ body.innerHTML='<div class="empty">Firebase 연결이 필요합니다.</div>'; return; }
+  let data={};
+  try{ const s=await db.ref('trash').once('value'); data=s.val()||{}; }
+  catch(e){ body.innerHTML='<div class="empty">휴지통을 읽지 못했습니다: '+esc(e.message)+'</div>'; return; }
+
+  const list=Object.keys(data).map(id=>Object.assign({_id:id}, data[id]))
+                   .sort((a,b)=>(b.deletedAt||0)-(a.deletedAt||0));
+  cnt.textContent=list.length+'건 보관 중';
+  if(!list.length){ body.innerHTML='<div class="empty">휴지통이 비어 있습니다.</div>'; return; }
+
+  body.innerHTML='';
+  list.forEach(o=>{
+    const box=document.createElement('div');
+    box.style.cssText='border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:8px;background:#fffdf7;display:flex;gap:10px;align-items:flex-start';
+
+    const info=document.createElement('div'); info.style.cssText='flex:1;min-width:0';
+    const items=(o.items||[]).map(x=>x.text||x.product).join(' / ');
+    const when=o.deletedAt? new Date(o.deletedAt).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'numeric',minute:'2-digit'}) : '';
+    info.innerHTML=
+      '<div><b>'+esc(o.client||'(거래처 없음)')+'</b> <span class="mini">'+esc(o.date||'')+' · '+esc(o.vehicle||'')+(when?' · 삭제 '+esc(when):'')+'</span></div>'+
+      '<div class="mini" style="margin-top:3px;white-space:pre-wrap;word-break:break-all">'+esc(items.length>140?items.slice(0,140)+'…':items)+'</div>';
+
+    const btns=document.createElement('div'); btns.style.cssText='display:flex;flex-direction:column;gap:6px';
+    const rb=document.createElement('button'); rb.className='btn accent'; rb.style.padding='5px 12px';
+    rb.textContent='복구';
+    rb.onclick=()=>restoreOrder(o._id, box);
+    const db2=document.createElement('button'); db2.className='btn ghost'; db2.style.padding='5px 12px';
+    db2.textContent='완전 삭제';
+    db2.onclick=async()=>{
+      if(!confirm('이 주문을 완전히 삭제합니다. 이건 정말 되돌릴 수 없습니다.')) return;
+      try{ await db.ref('trash/'+o._id).remove(); box.remove();
+           document.getElementById('trashMsg').textContent='✓ 완전 삭제됨'; }
+      catch(e){ document.getElementById('trashMsg').textContent='실패: '+e.message; }
+    };
+    btns.append(rb,db2);
+    box.append(info,btns);
+    body.appendChild(box);
+  });
+}
+
+async function restoreOrder(id, box){
+  try{
+    const s=await db.ref('trash/'+id).once('value');
+    const o=s.val();
+    if(!o){ document.getElementById('trashMsg').textContent='이미 복구되었거나 없는 항목입니다.'; if(box) box.remove(); return; }
+    delete o.deletedAt; delete o._id;
+    await db.ref('orders/'+id).set(o);
+    await db.ref('trash/'+id).remove();
+    ORDERS[id]=o;
+    if(o.hash) seenHashes.add(o.hash);
+    if(o.date) noteDate=o.date;         // 복구한 날짜로 이동
+    renderAll();
+    if(box) box.remove();
+    document.getElementById('trashMsg').textContent='✓ 복구됨: '+(o.client||'')+' ('+(o.date||'')+')';
+  }catch(e){
+    document.getElementById('trashMsg').textContent='복구 실패: '+e.message;
+  }
+}
+
+async function purgeTrash(){
+  if(!confirm('휴지통을 완전히 비웁니다.\n안의 주문들은 정말 되돌릴 수 없습니다. 계속할까요?')) return;
+  try{ await db.ref('trash').remove(); openTrash(); }
+  catch(e){ document.getElementById('trashMsg').textContent='실패: '+e.message; }
+}
+
+function closeTrash(){ document.getElementById('trashModal').classList.remove('open'); }
 
 /* ---------- 마스터 ---------- */
 function renderMaster(){
