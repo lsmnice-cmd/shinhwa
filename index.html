@@ -1888,27 +1888,9 @@ function renderGapOrders(){
     const box=document.createElement('div');
     box.style.cssText='border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:8px;background:#fffdf7';
 
-    // 원본 카톡 (여러 주문이면 각각)
-    const rawHtml=list.map(o=>{
-      const r=(o.raw||'').trim() || (o.items||[]).map(x=>x.text||x.product).join(' / ');
-      const cut=r.length>160?r.slice(0,160)+'…':r;
-      return '<div style="margin-bottom:4px;padding:4px 8px;background:#eef3ff;border-radius:4px;font-size:12px;white-space:pre-wrap;word-break:break-all">📩 '+esc(cut)+'</div>';
-    }).join('');
-
-    // 컨트롤 줄: 날짜 + 거래처명 + 건수
+    // ── 헤더: 거래처명 + 날짜 + 건수 (여기서 고치면 이 거래처의 이번 주문 전체 변경) ──
     const row=document.createElement('div');
-    row.style.cssText='display:flex;gap:8px;align-items:center;flex-wrap:wrap';
-
-    const dinp=document.createElement('input');
-    dinp.type='date';
-    // 이 묶음의 날짜(다르면 첫 번째)
-    dinp.value=list[0].date||'';
-    const multi=new Set(list.map(o=>o.date)).size>1;
-    dinp.title=multi?'이 거래처의 주문 날짜가 여러 개입니다 — 바꾸면 전부 이 날짜로':'날짜를 바꾸면 이 거래처의 이번 주문이 옮겨집니다';
-    dinp.onchange=async()=>{
-      await moveDateSilent(list.map(o=>o.id), dinp.value);
-      renderGapOrders();
-    };
+    row.style.cssText='display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px';
 
     const cinp=document.createElement('input');
     cinp.type='text'; cinp.value=cli; cinp.setAttribute('list','cliList');
@@ -1922,12 +1904,34 @@ function renderGapOrders(){
       renderGapOrders();
     };
 
+    const dinp=document.createElement('input');
+    dinp.type='date';
+    dinp.value=list[0].date||'';
+    const multi=new Set(list.map(o=>o.date)).size>1;
+    dinp.title=multi?'이 거래처의 주문 날짜가 여러 개입니다 — 바꾸면 전부 이 날짜로':'날짜를 바꾸면 이 거래처의 이번 주문이 옮겨집니다';
+    dinp.onchange=async()=>{
+      await moveDateSilent(list.map(o=>o.id), dinp.value);
+      renderGapOrders();
+    };
+
     const n=document.createElement('span'); n.className='mini';
     n.textContent=list.length+'건'+(multi?' · 날짜 여러 개':'');
 
-    row.append(dinp,cinp,n);
-    box.innerHTML=rawHtml;
+    row.append(cinp,dinp,n);
     box.appendChild(row);
+
+    // ── 원본 카톡: 각 주문의 원문 + 그 주문의 날짜를 나란히 (헤더 바로 아래 붙어서) ──
+    list.forEach(o=>{
+      const r=(o.raw||'').trim() || (o.items||[]).map(x=>x.text||x.product).join(' / ');
+      const cut=r.length>160?r.slice(0,160)+'…':r;
+      const line=document.createElement('div');
+      line.style.cssText='display:flex;gap:8px;align-items:flex-start;margin-bottom:4px';
+      line.innerHTML=
+        '<span class="mini" style="flex:0 0 auto;padding:3px 6px;background:#f3efe4;border-radius:4px">'+esc((o.date||'').slice(5).replace('-','.'))+'</span>'+
+        '<span style="flex:1;min-width:0;padding:3px 8px;background:#eef3ff;border-radius:4px;font-size:12px;white-space:pre-wrap;word-break:break-all">📩 '+esc(cut)+'</span>';
+      box.appendChild(line);
+    });
+
     wrap.appendChild(box);
   });
 
