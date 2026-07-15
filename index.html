@@ -415,8 +415,10 @@
   <div class="row" style="margin-bottom:10px">
     <input type="text" id="masterSearch" placeholder="거래처 검색..." style="flex:1;min-width:200px" oninput="renderMaster()">
     <button class="btn ghost" onclick="loadMasterFromSheet()">↻ 시트에서 새로고침</button>
+    <button class="btn ghost" onclick="diagMaster()">🩺 마스터 로드 진단</button>
     <button class="btn ghost" onclick="addMasterRow()">+ 거래처</button>
   </div>
+  <div id="diagBox" style="display:none;margin-bottom:12px;padding:12px 14px;border-radius:6px;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-all;font-family:var(--mono)"></div>
   <div class="row no-print" style="margin-bottom:12px;gap:8px">
     <span class="mini" style="align-self:center">일괄 변경:</span>
     <button class="btn ghost" onclick="bulkVehicleUI()">차량</button>
@@ -1050,6 +1052,51 @@ async function gsCall(action, params){
   return j;
 }
 
+/* ---------- 마스터 로드 진단 (문제 원인 찾기) ---------- */
+async function diagMaster(){
+  const box=document.getElementById('diagBox');
+  const show=(txt,ok)=>{ box.style.display='block';
+    box.style.background=ok?'#e8f5e9':'#fff3f0';
+    box.style.border='1px solid '+(ok?'#a5d6a7':'#ef9a9a');
+    box.style.color=ok?'#1b5e20':'#b71c1c';
+    box.textContent=txt; };
+  const lines=[];
+  lines.push('① 설정값 확인');
+  lines.push('   Apps Script URL: '+(cfg.gsUrl? (cfg.gsUrl.slice(0,55)+'…') : '❌ 비어있음'));
+  lines.push('   APP_TOKEN: '+(cfg.token? '있음('+cfg.token.length+'자)' : '❌ 비어있음'));
+  if(!cfg.gsUrl||!cfg.token){ show(lines.join('\n')+'\n\n→ ⚙ 설정에서 URL과 APP_TOKEN을 먼저 입력하세요.',false); return; }
+
+  // gsCall을 거치지 않고 직접 호출해 '원본 응답'을 봅니다.
+  show(lines.join('\n')+'\n\n② 서버에 getMaster 요청 중…', true);
+  try{
+    const body=new URLSearchParams({action:'getMaster', token:cfg.token}).toString();
+    const res=await fetch(cfg.gsUrl,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body, redirect:'follow'});
+    lines.push('');
+    lines.push('② HTTP 상태: '+res.status+' '+res.statusText);
+    const raw=await res.text();
+    lines.push('   응답 앞부분: '+raw.slice(0,200));
+    let j=null; try{ j=JSON.parse(raw); }catch(e){
+      show(lines.join('\n')+'\n\n❌ 응답이 JSON이 아닙니다.\n→ 대개 Apps Script 배포가 "모든 사용자"가 아니거나, URL이 /exec가 아니거나, 로그인 페이지(HTML)가 돌아온 경우입니다.', false); return;
+    }
+    lines.push('');
+    lines.push('③ ok = '+j.ok);
+    if(!j.ok){
+      lines.push('   error = '+j.error);
+      show(lines.join('\n')+'\n\n❌ 서버(Apps Script)가 오류를 돌려줬습니다.\n위 error 메시지가 핵심입니다.', false); return;
+    }
+    const mc=j.master?Object.keys(j.master).length:0;
+    const lc=j.learned&&j.learned.perCustomer?Object.keys(j.learned.perCustomer).length:0;
+    const gc=j.learned&&j.learned.global?Object.keys(j.learned.global).length:0;
+    lines.push('   거래처 수: '+mc);
+    lines.push('   학습(거래처별): '+lc+' · 학습(공통): '+gc);
+    show(lines.join('\n')+'\n\n✅ 정상입니다. 마스터를 정상적으로 읽었습니다.\n(여기서 정상인데 로드 실패가 떴다면, 화면을 새로고침 해보세요.)', true);
+  }catch(e){
+    lines.push('');
+    lines.push('❌ 네트워크/요청 예외: '+(e&&e.message||e));
+    show(lines.join('\n')+'\n\n→ URL 오타, 인터넷, 또는 CORS 문제일 수 있습니다.', false);
+  }
+}
+
 /* ---------- 마스터: 스프레드시트에서 로드 ---------- */
 async function loadMasterFromSheet(){
   if(!cfg.gsUrl||!cfg.token) return;
@@ -1097,25 +1144,48 @@ let CANCEL=false;
 function cancelAnalyze(){ CANCEL=true; setMsg('inMsg','중단 요청됨… 현재 날짜까지만 저장합니다.',false); }
 
 /* ---------- 붙여넣은 카톡의 처음/마지막 표시 ---------- */
-// 카톡 내보내기 줄 "[이름] [오전/오후 h:mm] 내용" 에서 타임스탬프 있는 줄만 뽑아
-// 처음·마지막 메시지의 시간+내용을 배너로 보여줍니다. 어디까지 붙여넣었는지 체크용.
+// 카톡 내보내기 줄 "[이름] [오전/오후 h:mm] 내용" 에서 타임스탬프 있는 줄을 뽑고,
+// 각 메시지가 속한 날짜(구분선)도 함께 잡아, 처음·마지막을 좌우 2단으로 보여줍니다.
+// 어디까지 붙여넣었는지 카톡방에서 체크하기 위한 용도.
 function showPasteRange(raw){
   const box=document.getElementById('pasteRange');
   if(!box) return;
-  const RE=/\[([^\]]+)\]\s*\[(오전|오후)\s*(\d{1,2}:\d{2})\]\s*(.*)$/;
-  const msgs=[];
-  for(const ln of String(raw||'').split(/\r?\n/)){
-    const m=ln.match(RE);
-    if(m) msgs.push({time:m[2]+' '+m[3], text:(m[4]||'').trim()});
+  const RE=/^\s*\[([^\]]+)\]\s*\[(오전|오후)\s*(\d{1,2}:\d{2})\]\s*(.*)$/;
+  const DIV=/^[-‐–—\s]*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일/;   // 카톡 날짜 구분선
+  const lines=String(raw||'').split(/\r?\n/);
+  const msgs=[]; let curDate='';
+  for(let i=0;i<lines.length;i++){
+    const dm=lines[i].match(DIV);
+    if(dm){ curDate=dm[1]+'.'+String(dm[2]).padStart(2,'0')+'.'+String(dm[3]).padStart(2,'0'); continue; }
+    const m=lines[i].match(RE);
+    if(!m) continue;
+    // 이 카톡 헤더 다음 줄부터, 다음 타임스탬프/구분선 전까지가 이 메시지 내용
+    let body=(m[4]||'').trim();
+    for(let j=i+1;j<lines.length;j++){
+      if(RE.test(lines[j])||DIV.test(lines[j])) break;
+      const t=lines[j].trim();
+      if(t) body+=(body?' / ':'')+t;
+    }
+    msgs.push({date:curDate, ampm:m[2], time:m[3], name:m[1].trim(), text:body});
   }
   if(msgs.length===0){ box.style.display='none'; return; }
   const first=msgs[0], last=msgs[msgs.length-1];
-  const cut=s=> !s ? '(내용 없음)' : (s.length>34 ? s.slice(0,34)+'…' : s);
+  const cut=s=> !s ? '(내용 없음)' : (s.length>80 ? s.slice(0,80)+'…' : s);
+  const cell=(label,mm)=>
+    '<div style="flex:1;min-width:0">'+
+      '<div style="font-weight:700;margin-bottom:3px">'+label+'</div>'+
+      '<div style="color:#8a6d00;font-size:13px;margin-bottom:2px">'+
+        (mm.date?esc(mm.date)+' · ':'')+mm.ampm+' '+mm.time+'</div>'+
+      '<div style="white-space:pre-wrap;word-break:break-all">'+esc(cut(mm.text))+'</div>'+
+    '</div>';
   box.style.display='block';
   box.innerHTML=
-    '<div style="font-weight:700;margin-bottom:4px">📋 이번에 붙여넣은 카톡 범위 (타임스탬프 '+msgs.length+'건)</div>'+
-    '<div>├ <b>처음</b> ['+first.time+'] '+esc(cut(first.text))+'</div>'+
-    '<div>└ <b>마지막</b> ['+last.time+'] '+esc(cut(last.text))+'</div>';
+    '<div style="font-weight:700;margin-bottom:8px">📋 이번에 붙여넣은 카톡 범위 (타임스탬프 '+msgs.length+'건)</div>'+
+    '<div style="display:flex;gap:16px;align-items:flex-start">'+
+      cell('⏱ 처음 카톡', first)+
+      '<div style="width:1px;align-self:stretch;background:#ffd54f"></div>'+
+      cell('🏁 마지막 카톡', last)+
+    '</div>';
 }
 
 async function analyze(){
