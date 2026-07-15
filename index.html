@@ -1474,8 +1474,8 @@ async function processChunk(ck, tot, GAPS){
       if(!row.spec){
         const key=sk+'||'+row.product;
         const g=GAPS.specs.get(key);
-        if(g) g.n++;
-        else GAPS.specs.set(key,{client:sk,product:row.product,spec:'',status:row.status||'',n:1,raw:!!row._raw});
+        if(g){ g.n++; if(!g.text && it.text) g.text=it.text; }
+        else GAPS.specs.set(key,{client:sk,product:row.product,text:it.text||'',spec:'',status:row.status||'',n:1,raw:!!row._raw});
       }
     }
   }
@@ -1773,7 +1773,11 @@ function openGapDialog(GAPS){
     const key=g.client+'||'+g.product;
     const tr=document.createElement('tr');
 
-    const td1=document.createElement('td'); td1.className='mini'; td1.textContent=g.client;
+    const td1=document.createElement('td'); td1.className='mini';
+    const cliName = (g.client && g.client!=='미지정') ? g.client : '(거래처 미지정)';
+    // AI가 분석한 원본 카톡 내용을 함께 보여줍니다 — 어느 주문인지 알아야 판단 가능
+    td1.innerHTML='<div>'+esc(cliName)+'</div>'+
+      (g.text ? '<div style="margin-top:3px;padding:3px 6px;background:#eef3ff;border-radius:4px;color:#3a5;font-size:12px;white-space:pre-wrap;word-break:break-all">📩 '+esc(g.text)+'</div>' : '');
 
     // 상품명: 고칠 수 있게 (파싱이 틀렸거나 ERP 정식명으로 바꿔야 할 때)
     const td2=document.createElement('td');
