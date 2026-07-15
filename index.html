@@ -608,6 +608,14 @@ let db=null, fbReady=false;
 let ORDERS={};      // pushId -> order {id,date,vehicle,client,items:[{product,text,price}],hash,done,ts}
 let MASTER={};      // shortClient -> {vehicle, specs:[{product,how,manual}]}
 let seenHashes=new Set();
+// ↓ 이 전역 상태들은 로그인 직후 renderAll/loadMaster가 바로 참조하므로
+//   스크립트 맨 위에서 선언해야 합니다(아래쪽에 두면 TDZ 경합으로 로드 실패가 납니다).
+let LEARNED={perCustomer:{},global:{}};   // 카톡 은어 → ERP 정식 상품명 (학습사전 시트)
+let RECENT={};      // 거래처 → [{item,cnt,last}]  ERP 최근 구매이력 (드라이브 스냅샷)
+let PRODBYCODE={};  // 상품코드 → 상품명 (ERP 코드로 바로 고칠 수 있게)
+const STATUSES=['','작업','원물/박스','원물/팩','원물','작업/네이버','원물/네이버'];
+const VORDER=['0966','6506','1982','4232','택배','사무실','온라인','미지정'];
+const VEH_MERGE={'방문':'사무실','마포':'사무실'};   // 방문·마포 → 사무실로 흡수
 
 /* ---------- 마스터는 Firebase에서만 로드 (공개 파일에 거래처 명단 없음) ---------- */
 function shortName(name){
@@ -1993,7 +2001,6 @@ function addGapSpecRow(){
 }
 
 /* ---------- 렌더링 ---------- */
-const VORDER=['0966','6506','1982','4232','택배','사무실','온라인','미지정'];
 
 /* 네이버 스마트스토어 등 온라인 판매 거래처 — 별도 페이지로 뺍니다.
    인터넷 주문은 추가/취소가 잦아 배송 차량과 섞이면 헷갈립니다. */
@@ -2001,9 +2008,6 @@ function isOnline(client){
   const c=String(client||'');
   return /네이버|스마트스토어|쿠팡|온라인|인터넷/.test(c);
 }
-let PRODBYCODE={};   // 상품코드 → 상품명 (ERP 코드로 바로 고칠 수 있게)
-let LEARNED={perCustomer:{},global:{}};   // 카톡 은어 → ERP 정식 상품명 (학습사전 시트)
-let RECENT={};    // 거래처 → [{item,cnt,last}]  ERP 최근 구매이력 (드라이브 스냅샷)
 
 /* 최근 구매이력에서 후보 찾기.
    상품이 바뀌어도(공급사 EXCEL→SWIFT) 최근 산 것이 자동으로 1순위가 됩니다. */
@@ -2092,7 +2096,6 @@ function refreshProdList(){
    - 방문·마포 → '사무실' 로 흡수
    - 택배·사무실은 따로 두되, 인쇄할 땐 한 장에 위아래로 배치 (PAIR_PAGE)
    기존 시트 데이터를 안 고쳐도 화면·인쇄가 정리됩니다. */
-const VEH_MERGE = { '방문':'사무실', '마포':'사무실' };   // 방문·마포 → 사무실로 흡수
 
 function normVeh(v){
   v=String(v||'').trim();
@@ -2101,7 +2104,6 @@ function normVeh(v){
   if(VEH_MERGE[v]) return VEH_MERGE[v];
   return v;
 }
-const STATUSES=['','작업','원물/박스','원물/팩','원물','작업/네이버','원물/네이버'];
 function vsort(a,b){let x=VORDER.indexOf(a),y=VORDER.indexOf(b);if(x<0)x=99;if(y<0)y=99;return x-y||a.localeCompare(b);}
 
 function ordersByDate(){
