@@ -2370,7 +2370,12 @@ async function saveGaps(){
     await reMatchVehicles();
     renderAll();
     closeGapDialog(true);   // 저장 완료 → 상태 초기화 후 주문노트로
-  }finally{
+
+  } catch(err) {
+    // 💡 변경된 부분: 여기에 catch 블록을 추가했습니다.
+    console.error("저장 중 에러 발생:", err);
+    alert("저장 중 문제가 발생했습니다: " + err.message);
+  } finally {
     btn.disabled=false; btn.textContent='저장하고 닫기';
   }
 }
