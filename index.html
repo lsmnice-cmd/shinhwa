@@ -1882,6 +1882,19 @@ function buildSpecRow(g, includeClient){
   }
 
   const td2=document.createElement('td');
+  // ── 원본 → 수정본 구조를 명시 ──
+  // 원본: 카톡에 온 표현(읽기전용). 수정본: 매칭된 정식명 또는 직접 입력.
+  const origTxt=(g.text||'').trim()||g.product||'';
+  const matched=!!( (MASTER[g.client]&&(MASTER[g.client].specs||[]).some(s=>s.product===g.product))
+                 || (RECENT[g.client]||[]).some(d=>d.item===g.product) );
+  const origEl=document.createElement('div');
+  origEl.className='mini';
+  origEl.style.cssText='margin-bottom:2px;color:#8a8577;white-space:pre-wrap;word-break:break-all';
+  origEl.innerHTML='원본: '+esc(origTxt.length>60?origTxt.slice(0,60)+'…':origTxt)+' <b style="color:#555">→</b> '+
+    (matched
+      ? '<span style="color:#1b5e20;background:#e8f5e9;border-radius:3px;padding:0 5px">자동매칭</span>'
+      : '<span style="color:#b26a00;background:#fff3e0;border-radius:3px;padding:0 5px">매칭 없음 — 카톡 그대로, 고쳐주세요</span>');
+  td2.appendChild(origEl);
   const pin=document.createElement('input');
   pin.type='text'; pin.className='specin'; pin.value=g.product||'';
   pin.setAttribute('list','prodList');
