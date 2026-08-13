@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>신화미트 주문노트</title>
-<!-- v3.0: 텔레그램 수집봇 inbox 자동 처리 추가 -->
 <style>
   :root{
     --ink:#1a1a1a; --paper:#fbfaf7; --line:#d9d4c8; --line-strong:#2a2a2a;
@@ -913,7 +912,7 @@ async function applyRole(u){
   const am=document.getElementById('accessMgr');
   if(am) am.style.display = IS_ADMIN ? '' : 'none';
   if(IS_ADMIN) loadRequests();
-  if(IS_ADMIN) startInboxWatch();   // 텔레그램 inbox 자동 처리
+  if(IS_ADMIN) startInboxWatch();   // 📥 텔레그램 자동 유입 감시 (관리자 탭에서만)
 }
 
 function setTabVisible(tabName, show){
@@ -1273,13 +1272,17 @@ function setProg(done,total,txt){
 }
 
 async function analyze(autoText){
-  const auto=(autoText!==undefined);   // 텔레그램 inbox 자동 처리 모드
-  const raw=(auto ? String(autoText) : document.getElementById('kakaoText').value).trim();
-  if(!raw){if(!auto)setMsg('inMsg','내용을 붙여넣어 주세요',false);return;}
-  if(!cfg.gsUrl){setMsg('inMsg','⚙ 설정에서 Apps Script URL을 넣어주세요',false);return;}
+  // v3.0: autoText가 문자열이면 '자동 모드' — 텔레그램 봇이 넣은 텍스트를
+  // 입력칸을 건드리지 않고 그대로 분석합니다. 결과(tot)를 반환합니다.
+  const auto=(typeof autoText==='string');
+  const raw=auto ? autoText.trim()
+                 : document.getElementById('kakaoText').value.trim();
+  if(!raw){ if(!auto) setMsg('inMsg','내용을 붙여넣어 주세요',false); return null; }
+  if(!cfg.gsUrl){ setMsg('inMsg','⚙ 설정에서 Apps Script URL을 넣어주세요',false); return null; }
   const btn=document.getElementById('analyzeBtn');
   const cbtn=document.getElementById('cancelBtn');
-  btn.disabled=true; btn.innerHTML='<span class="spinner"></span>분석 중…';
+  ANALYZING=true;
+  btn.disabled=true; btn.innerHTML='<span class="spinner"></span>'+(auto?'📥 자동 분석 중…':'분석 중…');
   cbtn.style.display=''; CANCEL=false;
 
   const tot={added:0,dup:0,dupItems:[],newClients:[],newProducts:0,failed:[],touched:[]};
@@ -1305,15 +1308,15 @@ async function analyze(autoText){
     renderAll();
     saveLastKatok(raw);
 
-    let m=`✓ ${tot.added}건 누적`+(tot.dup?` · ⚠ 중복 ${tot.dup}건 건너뜀`:'')+(UNPARSED.length?` · 🚨 AI 미인식 ${UNPARSED.length}덩어리 (빠진정보에서 확인)`:'');
+    let m=(auto?'📥 자동: ':'')+`✓ ${tot.added}건 누적`+(tot.dup?` · ⚠ 중복 ${tot.dup}건 건너뜀`:'')+(UNPARSED.length?` · 🚨 AI 미인식 ${UNPARSED.length}덩어리 (빠진정보에서 확인)`:'');
     LAST_DUP = tot.dup ? {n:tot.dup, at:Date.now(), items:(tot.dupItems||[]).slice(0,60)} : null;
     if(tot.trimmed) m+=` · ✂ 잡음 ${tot.trimmed}개 자동 제외`;
     if(tot.fixed) m+=` · 🔧 상품명 ${tot.fixed}개 자동 교정`;
     if(tot.newClients.length) m+=` · 신규 거래처 ${tot.newClients.length}곳`;
     if(tot.failed.length) m+=` · ⚠ 실패 ${tot.failed.length}덩어리`;
     setMsg('inMsg',m,!tot.failed.length);
-    if(!auto && !tot.failed.length && !CANCEL) document.getElementById('kakaoText').value='';
-    showPasteRange('');
+    if(!tot.failed.length && !CANCEL && !auto) document.getElementById('kakaoText').value='';
+    if(!auto) showPasteRange('');
 
     // 학습 대기 등록 (Gemini가 확신 못한 것들)
     if(tot.pending && tot.pending.length){
@@ -1322,58 +1325,17 @@ async function analyze(autoText){
 
     const hasNoCli=Object.values(ORDERS).some(o=>o.needClient);
     if(DATE_TOUCHED.length || GAPS.vehicles.size || GAPS.specs.size || hasNoCli || (LAST_DUP&&LAST_DUP.n) || UNPARSED.length){
-      openGapDialog(GAPS);
+      // 자동 모드에서는 화면을 뺏지 않습니다 — ①-1 탭 뱃지·자동검토 배너로 알립니다
+      if(!auto) openGapDialog(GAPS);
+      else { GAPSTATE=GAPS; runAudit(); }
     }
-    return tot;
   } finally {
+    ANALYZING=false;
     btn.disabled=false; btn.textContent='✦ AI 분석 후 누적';
     cbtn.style.display='none';
     document.getElementById('progWrap').style.display='none';
   }
-}
-
-/* ---------- 텔레그램 inbox 자동 처리 (v3.0) ----------
-   수집봇이 telegram/inbox 에 status:"new" 로 올린 묶음을 감지해
-   기존 analyze() 파이프라인으로 자동 분석합니다. 관리자 탭에서만 동작.
-   여러 탭이 열려 있어도 transaction 선점으로 한 곳만 처리합니다. */
-let INBOX_WATCHING=false;
-function startInboxWatch(){
-  if(INBOX_WATCHING || !IS_ADMIN || !db) return;
-  INBOX_WATCHING=true;
-  db.ref('telegram/inbox').orderByChild('status').equalTo('new').on('child_added', s=>{
-    handleInboxItem(s.key, s.val());
-  }, err=>{ console.warn('inbox 감시 실패(권한/규칙 확인)', err); INBOX_WATCHING=false; });
-  console.log('📨 텔레그램 inbox 자동 처리 대기 중');
-}
-async function handleInboxItem(id, item){
-  if(!item || !item.text) return;
-  // 선점: new → processing (다른 탭과 동시 처리 방지)
-  let tx;
-  try{
-    tx=await db.ref('telegram/inbox/'+id+'/status')
-      .transaction(cur=>{ if(cur==='new') return 'processing'; });
-  }catch(e){ return; }
-  if(!tx || !tx.committed) return;
-
-  // 준비될 때까지 대기: 마스터 로드 전 / 수동 분석 중 / 입력칸에 작성 중이면 양보
-  for(let i=0;i<120;i++){
-    const busy=document.getElementById('analyzeBtn').disabled;
-    const manual=document.getElementById('kakaoText').value.trim();
-    if(!busy && !manual && Object.keys(MASTER).length) break;
-    await new Promise(r=>setTimeout(r,5000));
-  }
-  try{
-    const tot=await analyze(item.text);
-    const failed=(tot&&tot.failed&&tot.failed.length)||0;
-    await db.ref('telegram/inbox/'+id).update({
-      status: failed?'error':'done', doneAt:Date.now(),
-      added:(tot&&tot.added)||0, dup:(tot&&tot.dup)||0, failedN:failed
-    });
-    console.log('📨 inbox 처리 완료', id, tot);
-  }catch(e){
-    await db.ref('telegram/inbox/'+id).update({status:'error', error:String(e&&e.message||e), doneAt:Date.now()}).catch(()=>{});
-    console.error('inbox 처리 실패', id, e);
-  }
+  return tot;
 }
 
 /* ---------- 학습사전 매칭 ---------- */
@@ -1585,7 +1547,8 @@ async function processChunk(ck, tot, GAPS){
       if(!toAdd.length) continue;
       existing.items=(existing.items||[]).concat(toAdd);
       existing.hash=hashOrder(existing);
-      if(fbReady) await db.ref('orders/'+existing.id).update({items:existing.items, hash:existing.hash});
+      existing.gapDone=false;   // 새 품목이 붙었으니 다시 확인 대상으로
+      if(fbReady) await db.ref('orders/'+existing.id).update({items:existing.items, hash:existing.hash, gapDone:false});
       tot.added+=toAdd.length ? 1 : 0;
       tot.touched.push(existing.id);
       DATE_TOUCHED.push(existing.id);
@@ -2012,7 +1975,7 @@ function openGapDialog(GAPS){
    마지막 분석 배치(또는 이번 세션에 붙여넣은 주문들)를 기준으로
    빈칸(차량·작업스펙·거래처)을 다시 계산해 같은 창을 엽니다. */
 function lastBatchIds(){
-  const all=Object.keys(ORDERS).map(id=>ORDERS[id]).filter(o=>o&&o.ts);
+  const all=Object.keys(ORDERS).map(id=>ORDERS[id]).filter(o=>o&&o.ts&&!o.gapDone);
   if(!all.length) return [];
   all.sort((a,b)=>a.ts-b.ts);
   const newest=all[all.length-1].ts;
@@ -2044,12 +2007,19 @@ function computeGapsFor(ids){
 }
 
 function reopenGaps(){
-  let ids=(DATE_TOUCHED||[]).filter(id=>ORDERS[id]);
+  let ids=(DATE_TOUCHED||[]).filter(id=>ORDERS[id] && !ORDERS[id].gapDone);
   if(!ids.length) ids=lastBatchIds();
   // 거래처 미지정(주문노트에 정상 반영 못 된) 주문은 배치가 지나도 항상 포함
   const noCli=Object.keys(ORDERS).filter(id=>ORDERS[id].needClient);
   ids=[...new Set(ids.concat(noCli))];
-  if(!ids.length){ setMsg('inMsg','분석한 주문이 없습니다. ①에서 카톡을 먼저 붙여넣으세요.',false); tab('input'); return; }
+  if(!ids.length && !UNPARSED.length){
+    // 처리할 게 없음 — gaps 페이지에 완료 상태를 보여줍니다
+    DATE_TOUCHED=[];
+    GAPSTATE={vehicles:new Map(), specs:new Map()};
+    openGapDialog(GAPSTATE);
+    document.getElementById('gapCount').innerHTML='<b style="color:#1f6b3a">✅ 처리할 빠진 정보가 없습니다</b> — 새로 분석하면 여기 다시 나타납니다';
+    return;
+  }
   DATE_TOUCHED=ids;
   openGapDialog(computeGapsFor(ids));
 }
@@ -2349,6 +2319,16 @@ async function saveGaps(){
     // 방금 배운 것을 이미 들어간 주문에도 소급 적용
     let refixed=0;
     if(okLearn){ refixed=await reapplyLearned(); }
+
+    // ★ 처리 완료 도장: 이번에 확인·저장한 주문들은 다시 빠진정보에 안 뜨게 합니다
+    //   (거래처 미지정 주문은 제외 — 지정될 때까지 계속 떠야 함)
+    for(const id of new Set(DATE_TOUCHED)){
+      const o=ORDERS[id];
+      if(!o || o.needClient) continue;
+      o.gapDone=true;
+      if(fbReady) await db.ref('orders/'+id).update({gapDone:true}).catch(()=>{});
+    }
+    DATE_TOUCHED=[];
 
     setMsg('inMsg',`✓ 차량 ${okV} · 작업스펙 ${okS} · 단일품목 ${okSingle} 저장`
       +(okLearn?` · 📚 상품명 학습 ${okLearn}건`:'')
@@ -2924,6 +2904,55 @@ async function bulkStatusUI(){
     loadMasterFromSheet();
     alert('완료: '+(j.done||0)+'건');
   }catch(e){ alert(e.message); }
+}
+
+/* ---------- 📥 텔레그램 자동 유입 (v3.0) ----------
+   텔레그램 봇이 telegram/inbox 에 status=new 로 넣은 카톡 형식 텍스트를
+   관리자 탭이 감지해 기존 analyze() 파이프라인으로 자동 분석합니다.
+   - transaction 으로 new→processing 선점: 관리자 탭이 여러 개여도 한 번만 처리
+   - 마스터 로드 전 / 수동 분석 중 / 입력칸 사용 중이면 기다렸다가 처리
+   - 봇은 주문을 직접 만들지 않으므로 주문 스키마가 깨질 일이 없습니다 */
+let INBOX_ON=false, ANALYZING=false;
+function startInboxWatch(){
+  if(INBOX_ON) return;
+  if(!fbReady || !db || !IS_ADMIN){ setTimeout(startInboxWatch, 5000); return; }   // 준비되면 재시도
+  INBOX_ON=true;
+  db.ref('telegram/inbox').orderByChild('status').equalTo('new')
+    .on('child_added', s=>{ handleInboxItem(s.key, s.val()); },
+        err=>{ console.warn('inbox 감시 실패(권한/인덱스)', err); });
+}
+async function handleInboxItem(id, item){
+  if(!item || !item.text) return;
+  // ① 선점: new → processing (관리자 탭이 여러 개 열려 있어도 한 탭만 처리)
+  try{
+    const tr=await db.ref('telegram/inbox/'+id+'/status').transaction(cur=>{
+      if(cur!=='new') return;        // 이미 다른 탭이 가져갔으면 포기
+      return 'processing';
+    });
+    if(!tr.committed) return;
+  }catch(e){ return; }
+  // ② 준비될 때까지 대기: 마스터 로드 전 / 수동 분석 중 / 입력칸에 쓰던 내용이 있으면
+  for(let i=0;i<60;i++){
+    const busy = ANALYZING
+      || !Object.keys(MASTER).length
+      || document.getElementById('kakaoText').value.trim().length>0;
+    if(!busy) break;
+    await new Promise(r=>setTimeout(r,5000));
+  }
+  // ③ 기존 파이프라인으로 자동 분석 → 결과 기록
+  try{
+    const tot=await analyze(item.text);
+    await db.ref('telegram/inbox/'+id).update({
+      status: tot ? 'done' : 'error',
+      doneAt: Date.now(),
+      added: tot ? (tot.added||0) : 0,
+      dup:   tot ? (tot.dup||0)   : 0
+    });
+    if(tot) setMsg('inMsg','📥 텔레그램 자동 유입 처리 완료: '+(tot.added||0)+'건 누적'
+      +(tot.dup?' · 중복 '+tot.dup+'건':''), true);
+  }catch(e){
+    await db.ref('telegram/inbox/'+id).update({status:'error', error:String(e.message||e), doneAt:Date.now()}).catch(()=>{});
+  }
 }
 
 /* ---------- 🕐 자동 검토 (중복·누락 감시) ----------
