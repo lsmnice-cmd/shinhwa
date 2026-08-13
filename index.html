@@ -843,6 +843,11 @@ async function onSignedIn(u){
       if(v) LAST_KATOK=v;
       showLastProcessed();   // 저장 기록이 없어도 폴백(추정)으로 표시
     }).catch(()=>{ showLastProcessed(); });
+    // 빠진정보 "여기까지 확인함" 시각 — 이 시각 이전 주문은 ①-1에 다시 안 뜹니다
+    db.ref('meta/gapSeen').once('value').then(ss=>{
+      GAP_SEEN=Number(ss.val())||0;
+      updateGapBadge();
+    }).catch(()=>{});
   },err=>{
     fbReady=false;
     showGate();
@@ -1547,8 +1552,9 @@ async function processChunk(ck, tot, GAPS){
       if(!toAdd.length) continue;
       existing.items=(existing.items||[]).concat(toAdd);
       existing.hash=hashOrder(existing);
-      existing.gapDone=false;   // 새 품목이 붙었으니 다시 확인 대상으로
-      if(fbReady) await db.ref('orders/'+existing.id).update({items:existing.items, hash:existing.hash, gapDone:false});
+      existing.gapDone=false;         // 새 품목이 붙었으니 다시 확인 대상으로
+      existing.ts=Date.now();         // 확인완료 시각(GAP_SEEN) 이후로 갱신
+      if(fbReady) await db.ref('orders/'+existing.id).update({items:existing.items, hash:existing.hash, gapDone:false, ts:existing.ts});
       tot.added+=toAdd.length ? 1 : 0;
       tot.touched.push(existing.id);
       DATE_TOUCHED.push(existing.id);
@@ -1860,6 +1866,7 @@ function renderDupNotice(){
 /* ---------- 빈칸 채우기 창 ---------- */
 let GAPSTATE=null;
 let DATE_TOUCHED=[];
+let GAP_SEEN=0;   // "여기까지 확인 완료" 시각(meta/gapSeen) — 이전 주문은 ①-1 대상에서 제외
 
 function openGapDialog(GAPS){
   GAPSTATE=GAPS;
@@ -1975,7 +1982,8 @@ function openGapDialog(GAPS){
    마지막 분석 배치(또는 이번 세션에 붙여넣은 주문들)를 기준으로
    빈칸(차량·작업스펙·거래처)을 다시 계산해 같은 창을 엽니다. */
 function lastBatchIds(){
-  const all=Object.keys(ORDERS).map(id=>ORDERS[id]).filter(o=>o&&o.ts&&!o.gapDone);
+  // GAP_SEEN(확인 완료 시각) 이후에 들어온 주문만 대상 — 과거 배치가 다시 뜨지 않게
+  const all=Object.keys(ORDERS).map(id=>ORDERS[id]).filter(o=>o&&o.ts&&!o.gapDone&&o.ts>GAP_SEEN);
   if(!all.length) return [];
   all.sort((a,b)=>a.ts-b.ts);
   const newest=all[all.length-1].ts;
@@ -2329,6 +2337,10 @@ async function saveGaps(){
       if(fbReady) await db.ref('orders/'+id).update({gapDone:true}).catch(()=>{});
     }
     DATE_TOUCHED=[];
+    // ★ "여기까지 확인 완료" 시각 — 과거에 쌓인(도장 없는) 주문들이
+    //   마지막 배치로 다시 파여 올라오는 것을 막습니다
+    GAP_SEEN=Date.now();
+    if(fbReady) db.ref('meta/gapSeen').set(GAP_SEEN).catch(()=>{});
 
     setMsg('inMsg',`✓ 차량 ${okV} · 작업스펙 ${okS} · 단일품목 ${okSingle} 저장`
       +(okLearn?` · 📚 상품명 학습 ${okLearn}건`:'')
