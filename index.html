@@ -654,7 +654,17 @@
    신화미트 주문노트  ·  GitHub Pages + Firebase + Gemini
    ============================================================ */
 const LS='shinwha_note_cfg';
+/* ★ 회사 고정 Firebase 설정 — 아래 세 값을 채워서 배포하면, 쿠키·캐시를
+   지우거나 새 컴퓨터에서 접속해도 로그인 버튼이 항상 살아있습니다.
+   로그인하면 나머지(Apps Script URL·토큰)는 서버에서 자동 수신됩니다.
+   (apiKey 등은 원래 공개되는 값 — 실제 접근 차단은 Firebase 규칙이 합니다) */
+const DEFAULT_FB={
+  fbUrl:'https://shinwha-note-default-rtdb.asia-southeast1.firebasedatabase.app',
+  fbKey:'AIzaSyD4rYh_bfHjL5ajCf6_IKbA7gRb0CU3MJU',
+  fbProj:'shinwha-note'
+};
 let cfg=JSON.parse(localStorage.getItem(LS)||'{}');
+if(!cfg.fbUrl && DEFAULT_FB.fbUrl){ cfg=Object.assign({}, DEFAULT_FB, cfg); }
 let db=null, fbReady=false;
 let ORDERS={};      // pushId -> order {id,date,vehicle,client,items:[{product,text,price}],hash,done,ts}
 let MASTER={};      // shortClient -> {vehicle, specs:[{product,how,manual}]}
