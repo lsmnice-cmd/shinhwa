@@ -5,7 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>신화미트 주문방</title>
 <!--
-  신화미트 주문방 (chat.html) v1.6 — 2026-08-31
+  신화미트 주문방 (chat.html) v1.7 — 2026-08-31
+  · v1.7: '추가/수정' 메시지 오분리 방지 — "탐나 추가 / 난곡것도2키"에서 난곡을
+    새 거래처로 만들지 않고, 아는 거래처(또는 답장 원본 거래처)의 품목으로 접어
+    넣습니다. 접힌 품목은 그 거래처의 학습사전으로 정상 교정됩니다.
   · v1.6: 🌙 매너타임 — 주말·공휴일 종일, 평일 18:00~다음날 07:00에는
     소리·진동·시스템 알림을 울리지 않습니다 (탭 제목의 안 읽은 수만 표시).
     매너타임 중에는 알림 버튼이 🌙로 표시됩니다. 공휴일 목록은 HOLIDAYS 배열 수정.
@@ -896,8 +899,54 @@ async function createOrders(text, forced, msgId, senderName){
   const baseDate = forced ? forced.date : todayStr();
   const tot={ids:[], lines:[], dup:0, fixed:0, trimmed:0, needClient:0, newClients:[], pending:[], dates:[]};
   const j=await gsCall('parse',{text, baseDate});
-  const parsed=j.orders||[];
+  let parsed=j.orders||[];
   if(!parsed.length) return tot;
+
+  // ── '추가/수정' 메시지 보정 (v1.7) ──
+  // "탐나 추가 / 난곡것도2키" 같은 메시지에서 Gemini가 난곡을 새 거래처로
+  // 분리하는 일이 있습니다. 추가/수정류 메시지에서는:
+  //   · 마스터에 있는(아는) 거래처를 기준 주문으로 잡고
+  //   · 모르는 이름의 "거래처"들은 새 거래처 등록 대신 기준 주문의 품목으로 접습니다
+  //   · 접힌 품목(난곡 2키)은 그 거래처의 학습사전이 정상 교정합니다
+  const isAddMsg = !!forced || /추가|수정|변경|바꿔|빼\s*주|빼줘/.test(text);
+  if(isAddMsg){
+    const known=[], unknown=[];
+    parsed.forEach(o=>{
+      const sk=matchClient(o.client);
+      const exists = !!(sk && MASTER[sk]!==undefined && String(o.client||'').trim());
+      (exists?known:unknown).push(o);
+    });
+    let primary = known[0] || null;
+    if(!primary && forced){
+      // 답장인데 아는 거래처가 하나도 안 잡힘 → 원본 주문의 거래처를 기준으로 생성
+      primary={client:forced.client, date:forced.date, vehicle:'',
+               items:[], raw:parsed.map(o=>o.raw||'').filter(Boolean).join('\n')};
+      known.unshift(primary);
+    }
+    if(primary && unknown.length){
+      let folded=0;
+      unknown.forEach(o=>{
+        const nm=String(o.client||'').trim();
+        const its=(o.items||[]);
+        if(its.length){
+          its.forEach(it=>{
+            const t=String(it.text||'').trim();
+            const merged=(nm && t.indexOf(nm)!==0) ? (nm+' '+t).trim() : (t||nm);
+            if(!merged) return;
+            primary.items.push({product:(nm||it.product||''), text:merged, price:it.price||''});
+            folded++;
+          });
+        }else if(nm){
+          primary.items.push({product:nm, text:nm, price:''});
+          folded++;
+        }
+      });
+      if(folded){
+        parsed=known;
+        tot.lines.push('↩ 새 이름 '+unknown.length+'개를 '+String(primary.client||forced&&forced.client||'')+' 품목으로 합침 (새 거래처 아님)');
+      }
+    }
+  }
 
   // 이 메시지에 나온 거래처들의 ERP 최근구매를 한 번에
   const need=[...new Set(parsed.map(o=>matchClient(o.client)).filter(c=>c && !(c in RECENT)))];
