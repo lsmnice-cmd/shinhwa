@@ -5,7 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>신화미트 주문방</title>
 <!--
-  신화미트 주문방 (chat.html) v1.4 — 2026-08-31
+  신화미트 주문방 (chat.html) v1.6 — 2026-08-31
+  · v1.6: 🌙 매너타임 — 주말·공휴일 종일, 평일 18:00~다음날 07:00에는
+    소리·진동·시스템 알림을 울리지 않습니다 (탭 제목의 안 읽은 수만 표시).
+    매너타임 중에는 알림 버튼이 🌙로 표시됩니다. 공휴일 목록은 HOLIDAYS 배열 수정.
+  · v1.5: 🔔 새 메시지 알림 — 접속 중(백그라운드 탭 포함) 다른 사람 메시지가 오면
+    소리 + 진동(안드로이드) + 시스템 알림(권한 허용 시) + 탭 제목 (N) 표시.
+    접속바의 🔔 버튼으로 켜고 끄며, 설정은 기기별로 저장됩니다.
   · v1.4: 모바일 화면 깨짐 수정 — 200vw 슬라이드 필름이 브라우저 '전체 축소'를
     유발하던 문제를 클리퍼(#clip) 구조 + minimum-scale=1 로 해결.
     이제 폰에서는 채팅이 꽉 찬 메인, 스와이프하면 미처리 패널.
@@ -299,6 +305,9 @@ let CHAT={};             // msgId -> message
 let PRINTED={};          // 날짜 -> 인쇄 시각 (meta/printed) — 이후 접수분만 미처리 표시
 let PRESENCE={};         // uid -> {name, at} 접속 중인 사람 (presence 노드)
 let PRES_ON=false;
+const BOOT_TS=Date.now();                 // 접속 이후 도착한 메시지에만 알림
+let ALERT_ON=localStorage.getItem('shinwha_chat_alert')==='1';
+let AC=null, UNREAD=0;                    // 오디오 컨텍스트, 안 읽은 수(탭 제목용)
 let SHOW_ALL=false;      // [전체 보기] 토글
 const VORDER=['0966','6506','1982','4232','택배','사무실','온라인','미지정'];
 const VEH_MERGE={'방문':'사무실','마포':'사무실'};
@@ -553,6 +562,7 @@ function renderPresence(){
   const uniq=[...new Set(list)];
   bar.innerHTML='<span>👥</span>'
     +'<span class="names"><b>'+uniq.length+'명 접속</b>'+(uniq.length?' — '+esc(uniq.join(', ')):'')+'</span>'
+    +'<button onclick="toggleAlert()" title="새 메시지 소리·진동·알림 (주말·공휴일·평일 18~07시는 매너타임으로 조용)">'+(ALERT_ON?(isQuiet()?'🌙 매너타임':'🔔 알림'):'🔕 알림')+'</button>'
     +'<button onclick="changeName()">✏ 내 이름: '+esc(MYNAME)+'</button>';
 }
 async function changeName(){
@@ -568,6 +578,95 @@ async function changeName(){
   renderPresence();
 }
 
+/* ---------- 🌙 매너타임 ----------
+   주말(토·일)·공휴일 종일 + 평일 18:00~다음날 07:00 에는 알림을 울리지 않습니다.
+   공휴일이 바뀌면 아래 HOLIDAYS 목록만 고치면 됩니다 (yyyy-mm-dd). */
+const HOLIDAYS=[
+  // 2026
+  '2026-01-01',                                        // 신정
+  '2026-02-16','2026-02-17','2026-02-18',              // 설 연휴
+  '2026-03-02',                                        // 삼일절 대체
+  '2026-05-05',                                        // 어린이날
+  '2026-05-25',                                        // 부처님오신날 대체
+  '2026-08-17',                                        // 광복절 대체
+  '2026-09-24','2026-09-25','2026-09-26',              // 추석 연휴
+  '2026-10-05',                                        // 개천절 대체
+  '2026-10-09',                                        // 한글날
+  '2026-12-25',                                        // 성탄절
+  // 2027
+  '2027-01-01',
+  '2027-02-06','2027-02-07','2027-02-08','2027-02-09', // 설 연휴+대체
+  '2027-03-01','2027-05-05','2027-05-13',
+  '2027-06-07','2027-08-16',                           // 현충일·광복절 대체
+  '2027-09-14','2027-09-15','2027-09-16',              // 추석 연휴
+  '2027-10-04','2027-10-11','2027-12-27'               // 개천절·한글날·성탄 대체
+];
+function isQuiet(){
+  const d=new Date();
+  const day=d.getDay();
+  if(day===0 || day===6) return true;                  // 주말
+  if(HOLIDAYS.indexOf(todayStr())>=0) return true;     // 공휴일
+  const h=d.getHours();
+  return (h>=18 || h<7);                               // 평일 18시~다음날 07시
+}
+
+/* ---------- 🔔 새 메시지 알림 (소리·진동·시스템 알림) ---------- */
+function toggleAlert(){
+  ALERT_ON=!ALERT_ON;
+  localStorage.setItem('shinwha_chat_alert', ALERT_ON?'1':'0');
+  if(ALERT_ON){
+    // 사용자 터치 시점에 오디오 준비 (브라우저 정책상 여기서만 가능)
+    try{ if(!AC) AC=new (window.AudioContext||window.webkitAudioContext)(); if(AC.state==='suspended') AC.resume(); }catch(e){}
+    if(window.Notification && Notification.permission==='default'){
+      Notification.requestPermission().catch(()=>{});
+    }
+    beep(); if(navigator.vibrate) navigator.vibrate(120);
+  }
+  renderPresence();
+}
+function beep(){
+  try{
+    if(!AC) return;
+    const t=AC.currentTime;
+    [[880,0],[1245,.13]].forEach(([f,dt])=>{
+      const o=AC.createOscillator(), g=AC.createGain();
+      o.type='sine'; o.frequency.value=f;
+      g.gain.setValueAtTime(0.0001,t+dt);
+      g.gain.exponentialRampToValueAtTime(0.25,t+dt+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001,t+dt+0.14);
+      o.connect(g); g.connect(AC.destination);
+      o.start(t+dt); o.stop(t+dt+0.16);
+    });
+  }catch(e){}
+}
+function notifyNew(m){
+  if(!ALERT_ON || !m || m.sys) return;
+  if((m.ts||0)<=BOOT_TS) return;                 // 접속 전에 온 과거 메시지 제외
+  if(ME && m.uid===ME.uid) return;               // 내가 보낸 건 제외
+  const quiet=isQuiet();                          // 🌙 매너타임: 소리·진동·알림 없이 조용히
+  if(!quiet){
+    beep();
+    if(navigator.vibrate) navigator.vibrate([170,80,170]);   // 안드로이드만 동작 (아이폰 미지원)
+  }
+  if(document.hidden){
+    UNREAD++;
+    document.title='('+UNREAD+') 신화미트 주문방';
+    if(!quiet && window.Notification && Notification.permission==='granted'){
+      try{
+        const n=new Notification('주문방 · '+(m.name||''), {
+          body:(m.text||'📷 사진').slice(0,90), tag:'shinwha-chat'
+        });
+        n.onclick=()=>{ try{window.focus();}catch(e){} n.close(); };
+      }catch(e){}
+    }
+  }
+}
+document.addEventListener('visibilitychange', ()=>{
+  if(!document.hidden){ UNREAD=0; document.title='신화미트 주문방'; }
+});
+window.addEventListener('focus', ()=>{ UNREAD=0; document.title='신화미트 주문방'; });
+setInterval(()=>{ if(document.getElementById('presenceBar') && PRES_ON) renderPresence(); }, 60000);
+
 /* ============================================================
    채팅
    ============================================================ */
@@ -576,7 +675,7 @@ function startChat(){
   if(CHAT_STARTED || !db) return;
   CHAT_STARTED=true;
   const ref=db.ref('chat').limitToLast(200);
-  ref.on('child_added', s=>{ CHAT[s.key]=s.val(); appendMsg(s.key, s.val()); rescueIfStale(s.key, s.val()); });
+  ref.on('child_added', s=>{ CHAT[s.key]=s.val(); appendMsg(s.key, s.val()); rescueIfStale(s.key, s.val()); notifyNew(s.val()); });
   ref.on('child_changed', s=>{ CHAT[s.key]=s.val(); updateMsg(s.key, s.val()); });
 }
 
