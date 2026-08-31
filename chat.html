@@ -5,7 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>신화미트 주문방</title>
 <!--
-  신화미트 주문방 (chat.html) v1.8 — 2026-08-31
+  신화미트 주문방 (chat.html) v1.9 — 2026-08-31
+  · v1.9: 로그인 반복 문제 수정 — 모바일은 팝업 대신 전체화면(redirect)
+    로그인으로 변경(폰 브라우저의 팝업 차단·인증 끊김 대응), 로그인 유지를
+    LOCAL로 명시, 로그인 진행 상태 표시(중복 클릭 방지).
   · v1.8: 입력 방식 변경 — Enter는 줄바꿈, 전송은 [전송] 버튼으로만.
     (여러 줄 주문을 쓰다가 실수로 전송되는 것 방지)
   · v1.7: '추가/수정' 메시지 오분리 방지 — "탐나 추가 / 난곡것도2키"에서 난곡을
@@ -449,17 +452,38 @@ function initFirebase(){
     }
     db=firebase.database();
     auth=firebase.auth();
+    // 로그인 유지(LOCAL) 명시 — 브라우저를 닫아도 로그인이 남습니다
+    try{ auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{}); }catch(e){}
+    // 모바일 redirect 로그인 복귀 결과 수신 (실패 사유 표시)
+    try{ auth.getRedirectResult().catch(e=>{
+      if(e && e.code!=='auth/no-auth-event') gateMsgSet('로그인 실패: '+e.message,false);
+    }); }catch(e){}
     auth.onAuthStateChanged(u=>{
-      if(u){ ME=u; onSignedIn(u); }
+      if(u){ ME=u; gateMsgSet('✓ '+(u.email||'')+' 로그인됨 — 서버 연결 중…',true); onSignedIn(u); }
       else { ME=null; fbReady=false; showGate(); setStat(false,'로그아웃됨'); }
     });
     setStat(false,'로그인 필요');
+    gateMsgSet('로그인 상태 확인 중…',true);
+    setTimeout(()=>{ if(!ME) gateMsgSet('',true); }, 2500);   // 미로그인 확정 시 안내 지움
   }catch(e){setStat(false,'연결 오류');gateMsgSet('연결 오류: '+e.message,false);console.error(e);}
 }
 function signIn(){
   if(!auth){ gateMsgSet('연결 설정이 없습니다.',false); return; }
   const p=new firebase.auth.GoogleAuthProvider();
-  auth.signInWithPopup(p).catch(e=>gateMsgSet('로그인 실패: '+e.message,false));
+  p.setCustomParameters({prompt:'select_account'});
+  gateMsgSet('구글 로그인으로 이동합니다…',true);
+  const mobile = window.matchMedia && matchMedia('(pointer:coarse)').matches;
+  if(mobile){
+    // 폰은 팝업이 자주 막히므로 전체화면 이동 방식 — 로그인 후 자동 복귀
+    auth.signInWithRedirect(p).catch(e=>gateMsgSet('로그인 실패: '+e.message,false));
+  }else{
+    auth.signInWithPopup(p).catch(e=>{
+      // 팝업 차단이면 전체화면 방식으로 자동 재시도
+      if(e && (e.code==='auth/popup-blocked' || e.code==='auth/popup-closed-by-user' || e.code==='auth/cancelled-popup-request')){
+        auth.signInWithRedirect(p).catch(e2=>gateMsgSet('로그인 실패: '+e2.message,false));
+      }else gateMsgSet('로그인 실패: '+e.message,false);
+    });
+  }
 }
 function signOut(){ if(auth) auth.signOut(); }
 
