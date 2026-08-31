@@ -5,7 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>신화미트 주문방</title>
 <!--
-  신화미트 주문방 (chat.html) v1.13 — 2026-08-31
+  신화미트 주문방 (chat.html) v1.15 — 2026-08-31
+  · v1.15: 아이폰 로그인 멈춤 대응 — 로그인 버튼을 눌렀는데 몇 초 안에
+    구글 창이 안 뜨면(사파리 기본 팝업 차단이 소리 없이 막는 증상) 해결
+    방법을 화면에 자동 안내 + [전체화면 로그인 시도] 예비 버튼 표시.
+  · v1.14: 확인방 ⚠ 카드에 [✔ 이대로 통과] 추가 — 전산대조 v1.3의 품목 단위
+    대조에서 명칭 차이로 못 찾았을 뿐 실제로는 맞는 경우 사람이 통과 처리.
+    (코드 입력칸과 나란히: 코드 문제면 매칭, 품목 명칭 문제면 통과)
   · v1.13: 답장(댓글) 쓰기 쉽게 — 말풍선을 누르면 바로 답장 모드가 됩니다
     (카톡처럼). 사진은 누르면 크게 보기(답장 아님), ↩ 버튼도 유지·확대.
   · v1.12: 안드로이드 로그인 증발 수정 — 최신 크롬은 redirect 로그인의 저장을
@@ -475,7 +481,7 @@ function initFirebase(){
       if(e && e.code!=='auth/no-auth-event') gateMsgSet('로그인 실패: '+e.message,false);
     }); }catch(e){}
     auth.onAuthStateChanged(u=>{
-      if(u){ ME=u; try{localStorage.setItem('shinwha_had_login','1');}catch(e){} gateMsgSet('✓ '+(u.email||'')+' 로그인됨 — 서버 연결 중…',true); onSignedIn(u); }
+      if(u){ ME=u; clearTimeout(LOGIN_WATCH); try{localStorage.setItem('shinwha_had_login','1');}catch(e){} gateMsgSet('✓ '+(u.email||'')+' 로그인됨 — 서버 연결 중…',true); onSignedIn(u); }
       else { ME=null; fbReady=false; showGate(); setStat(false,'로그아웃됨'); }
     });
     setStat(false,'로그인 필요');
@@ -493,14 +499,49 @@ function isIOS(){
   const ua=navigator.userAgent||'';
   return /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints>1);
 }
+let LOGIN_WATCH=null;
+function loginWatchdog(){
+  clearTimeout(LOGIN_WATCH);
+  LOGIN_WATCH=setTimeout(()=>{
+    if(ME) return;
+    // 몇 초가 지나도 로그인이 안 됨 = 팝업이 소리 없이 차단된 것 (아이폰 사파리 기본값)
+    let msg='로그인 창이 뜨지 않았다면 팝업이 차단된 것입니다.\n';
+    if(isIOS()){
+      msg+='아이폰: 설정 앱 → Safari → \'팝업 차단\' 끄기\n'
+          +'(또는 주소창 왼쪽 aA → 웹사이트 설정 → 팝업 허용)\n'
+          +'끈 뒤 아래 버튼을 다시 눌러주세요.';
+      showIosAltBtn();
+    }else{
+      msg+='주소창의 팝업 차단 아이콘을 눌러 허용한 뒤 다시 시도해 주세요.';
+    }
+    gateMsgSet(msg,false);
+  }, 6000);
+}
+function showIosAltBtn(){
+  if(document.getElementById('iosAlt')) return;
+  const card=document.querySelector('.gate-card');
+  const b=document.createElement('button');
+  b.id='iosAlt'; b.className='gbtn';
+  b.style.cssText='margin-top:8px;background:#4a4a42';
+  b.textContent='그래도 안 되면: 전체화면 로그인 시도';
+  b.onclick=()=>{
+    const p=new firebase.auth.GoogleAuthProvider();
+    p.setCustomParameters({prompt:'select_account'});
+    gateMsgSet('전체화면 로그인으로 이동합니다…',true);
+    auth.signInWithRedirect(p).catch(e=>gateMsgSet('로그인 실패: '+e.message,false));
+  };
+  card.appendChild(b);
+}
 function signIn(){
   if(!auth){ gateMsgSet('연결 설정이 없습니다.',false); return; }
   const p=new firebase.auth.GoogleAuthProvider();
   p.setCustomParameters({prompt:'select_account'});
   gateMsgSet('구글 로그인 창을 엽니다…',true);
+  loginWatchdog();
   // ★ 전 기기 팝업 우선 — 최신 크롬·사파리 모두 redirect 방식은
   //   로그인 저장이 차단되어(서드파티 저장소 정책) 증발합니다.
   auth.signInWithPopup(p).catch(e=>{
+    clearTimeout(LOGIN_WATCH);
     const code=e && e.code;
     if(code==='auth/popup-closed-by-user'){
       gateMsgSet('로그인 창이 닫혔습니다. 다시 눌러주세요.',false);
@@ -1397,7 +1438,12 @@ function renderConf(conf){
         btn.style.cssText='border:none;background:var(--accent);color:#fff;border-radius:5px;padding:6px 14px;font-weight:800;font-size:12px;cursor:pointer';
         btn.onclick=()=>mapErpCode(o.id, inp.value.trim(), btn);
         inp.onkeydown=ev=>{ if(ev.key==='Enter') mapErpCode(o.id, inp.value.trim(), btn); };
-        fix.append(lb,inp,btn);
+        const pass=document.createElement('button');
+        pass.textContent='✔ 이대로 통과';
+        pass.title='명칭 차이일 뿐 전산 입력이 맞다면, 대조 없이 통과 처리합니다';
+        pass.style.cssText='border:1px solid #bcd8c5;background:var(--ok-soft);color:var(--ok);border-radius:5px;padding:6px 10px;font-weight:800;font-size:12px;cursor:pointer;white-space:nowrap';
+        pass.onclick=()=>passRecon(o.id);
+        fix.append(lb,inp,btn,pass);
         card.appendChild(fix);
       }
       const meta=document.createElement('div');
@@ -1425,6 +1471,18 @@ async function mapErpCode(id, code, btn){
     renderSide();
   }catch(e){ alert('저장 실패: '+e.message); }
   finally{ if(btn){ btn.disabled=false; btn.textContent='매칭'; } }
+}
+
+/* ✔ 이대로 통과 — 품목 명칭 차이 등으로 대조가 못 찾았지만 사람이 확인했을 때.
+   수동 통과로 표시하고 확인방에서 내립니다. */
+async function passRecon(id){
+  const o=ORDERS[id]; if(!o) return;
+  if(!confirm(o.client+' 주문을 확인 완료(수동 통과)로 처리할까요?')) return;
+  const rec=Object.assign({}, o.recon||{}, {status:'ok', via:'수동통과', by:MYNAME, at:Date.now()});
+  o.recon=rec; o.confirm='done';
+  await db.ref('orders/'+id).update({recon:rec, confirm:'done', reconAt:Date.now()})
+    .catch(e=>alert('실패: '+e.message));
+  renderSide();
 }
 
 async function undoConfirm(id){
