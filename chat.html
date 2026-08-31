@@ -5,7 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>신화미트 주문방</title>
 <!--
-  신화미트 주문방 (chat.html) v1.10 — 2026-08-31
+  신화미트 주문방 (chat.html) v1.11 — 2026-08-31
+  · v1.11: 교정 결과 표시 강화 — 시스템 답장이 봇처럼 '교정본'을 보여줍니다
+    (정식 거래처명·날짜·차량 + 학습사전으로 바뀐 상품명 🔧 표시).
+    차량 미지정이면 ⚠ 경고하고, 미처리 블록에 차량 선택 버튼이 붙습니다 —
+    선택하면 마스터에 저장되어 그 거래처는 다음부터 자동으로 붙습니다.
   · v1.10: 아이폰 로그인 불가 수정 — iOS(사파리 엔진)는 redirect 로그인의
     저장이 차단되어 로그인이 안 되므로, 기기별로 방식을 분리:
     아이폰/아이패드 = 팝업, 안드로이드 = 전체화면(redirect), PC = 팝업(차단 시 redirect).
@@ -917,6 +921,7 @@ async function processMessage(msgId, m){
     if(tot.fixed) lines.push('🔧 상품명 '+tot.fixed+'개 자동 교정');
     if(tot.trimmed) lines.push('✂ 잡음 '+tot.trimmed+'개 제외');
     if(tot.needClient) lines.push('⚠ 거래처 미확인 '+tot.needClient+'건 — 주문노트 ①-1에서 지정하세요');
+    if(tot.noVeh) lines.push('🚚 차량 미지정 '+tot.noVeh+'건 — 미처리 블록에서 차량을 선택하세요 (선택하면 학습됨)');
     if(tot.newClients.length) lines.push('🆕 신규 거래처: '+tot.newClients.join(', '));
     if(!tot.ids.length && !tot.dup) lines.push('🚨 주문으로 인식하지 못했습니다 — 형식을 확인하거나 관리자에게 문의하세요');
     const kind = (!tot.ids.length && !tot.dup) ? 'err' : (tot.needClient?'warn':'');
@@ -1077,7 +1082,13 @@ async function createOrders(text, forced, msgId, senderName){
     seenHashes.add(o.hash);
     tot.ids.push(o.id);
     tot.dates.push(o.date);
-    tot.lines.push('✅ '+(sk||'(거래처 미확인)')+' · '+mmdd(o.date)+' · '+(o.items||[]).length+'품목 → '+o.vehicle);
+    tot.lines.push('✅ '+(sk||'(거래처 미확인)')+' · '+mmdd(o.date)+' · '+(o.items||[]).length+'품목 → '
+      +(o.vehicle==='미지정'?'🚚차량? ':o.vehicle));
+    // 🔧 학습사전이 바꾼 상품명을 봇처럼 교정본으로 보여줍니다
+    (o.items||[]).filter(it=>it.fixed).slice(0,4).forEach(it=>{
+      tot.lines.push('   🔧 '+(it.wasProduct||it.text)+' → '+it.product);
+    });
+    if(o.vehicle==='미지정' && !o.needClient) tot.noVeh=(tot.noVeh||0)+1;
   }
   return tot;
 }
@@ -1249,6 +1260,26 @@ function buildOrderCard(o){
     w.textContent='⚠ 거래처가 지정되어야 처리할 수 있습니다 — 주문노트 ①-1에서 지정하세요';
     card.appendChild(w);
   }
+  // 🚚 차량 미지정 → 그 자리에서 선택. 선택하면 마스터에 저장되어 다음부터 자동.
+  if(!o.needClient && normVeh(o.vehicle)==='미지정'){
+    const vw=document.createElement('div');
+    vw.style.cssText='margin-bottom:7px;padding:6px 8px;background:#fff6e6;border:1px solid #e8c979;border-radius:6px';
+    const lb=document.createElement('div');
+    lb.style.cssText='font-size:11px;color:#7a5a00;font-weight:800;margin-bottom:4px';
+    lb.textContent='🚚 차량 미지정 — 선택하면 이 거래처에 학습됩니다';
+    vw.appendChild(lb);
+    const row=document.createElement('div');
+    row.style.cssText='display:flex;gap:4px;flex-wrap:wrap';
+    VORDER.filter(v=>v!=='미지정').forEach(v=>{
+      const b=document.createElement('button');
+      b.textContent=v;
+      b.style.cssText='padding:5px 10px;border:1px solid var(--line);background:#fff;border-radius:5px;cursor:pointer;font-family:var(--mono);font-weight:800;font-size:12px';
+      b.onclick=()=>setVehicleFor(o.id, v);
+      row.appendChild(b);
+    });
+    vw.appendChild(row);
+    card.appendChild(vw);
+  }
   const row=document.createElement('div'); row.className='oc-checks';
   CHK_DEF.forEach(([key,label])=>{
     const c=o.chk&&o.chk[key];
@@ -1261,6 +1292,27 @@ function buildOrderCard(o){
   });
   card.appendChild(row);
   return card;
+}
+
+/* 🚚 미처리 블록에서 차량 지정 — 주문 반영 + 마스터 학습(setVehicle)
+   같은 거래처의 다른 미지정 주문에도 함께 적용합니다. */
+async function setVehicleFor(id, veh){
+  const o=ORDERS[id]; if(!o) return;
+  const sk=o.client;
+  veh=normVeh(veh);
+  try{
+    // 같은 거래처의 미지정 주문 전부 적용
+    const targets=Object.values(ORDERS).filter(x=>x && cliNorm(x.client)===cliNorm(sk) && normVeh(x.vehicle)==='미지정');
+    for(const t of targets){
+      t.vehicle=veh;
+      await db.ref('orders/'+t.id).update({vehicle:veh});
+    }
+    // 마스터에 학습 → 다음 주문부터 자동
+    MASTER[sk]=MASTER[sk]||{vehicle:'',single:'',specs:[]};
+    MASTER[sk].vehicle=veh;
+    gsCall('setVehicle',{client:sk, vehicle:veh}).catch(e=>console.warn('setVehicle',e));
+    renderSide();
+  }catch(e){ alert('저장 실패: '+e.message); }
 }
 
 async function toggleChk(id, key, on){
