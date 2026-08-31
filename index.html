@@ -654,6 +654,9 @@
 /* ============================================================
    신화미트 주문노트  ·  GitHub Pages + Firebase + Gemini
    v3.1 (2026-08-27): 💬 주문방(chat.html) 바로가기 추가
+   v3.2 (2026-08-31): ①-1 빠진정보 채우기에 주문 삭제(🗑) 추가
+     — 주문확인 표의 카톡 원문 줄마다 개별 삭제, 거래처 못 찾은 주문 카드에도 삭제.
+       삭제는 휴지통으로 이동하므로 ♻ 휴지통에서 복구할 수 있습니다.
    ============================================================ */
 const LS='shinwha_note_cfg';
 /* ★ 회사 고정 Firebase 설정 — 아래 세 값을 채워서 배포하면, 쿠키·캐시를
@@ -1912,6 +1915,19 @@ function openGapDialog(GAPS){
     inp.type='text'; inp.placeholder='직접 입력'; inp.setAttribute('list','cliList');
     inp.onkeydown=ev=>{ if(ev.key==='Enter'&&inp.value.trim()) assignClient(o.id, inp.value.trim(), box); };
     pick.appendChild(inp);
+    const delb=document.createElement('button');
+    delb.textContent='🗑 삭제';
+    delb.title='주문이 아닌 잡담 등이 잘못 잡혔으면 삭제하세요 (휴지통으로 이동 — 복구 가능)';
+    delb.style.cssText='border:1px solid var(--accent);color:var(--accent);background:#fff;border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer';
+    delb.onclick=async()=>{
+      if(!confirm('이 주문을 삭제할까요?\n(휴지통으로 이동 — ♻ 휴지통에서 복구할 수 있습니다)')) return;
+      await deleteOrder(o.id, true);
+      DATE_TOUCHED=DATE_TOUCHED.filter(x=>x!==o.id);
+      box.remove();
+      renderAll();
+      setMsg('inMsg','🗑 삭제됨 — ♻ 휴지통에서 복구 가능',true);
+    };
+    pick.appendChild(delb);
     box.appendChild(pick);
     cb.appendChild(box);
   });
@@ -2084,8 +2100,22 @@ function renderGapOrders(){
       const r=(o.raw||'').trim() || (o.items||[]).map(x=>x.text||x.product).join(' / ');
       const cut=r.length>140?r.slice(0,140)+'…':r;
       const line=document.createElement('div');
-      line.style.cssText='margin-bottom:4px;padding:3px 6px;background:#eef3ff;border-radius:4px;font-size:12px;white-space:pre-wrap;word-break:break-all';
-      line.textContent='📩 '+(multi?(o.date||'').slice(5).replace('-','.')+' · ':'')+cut;
+      line.style.cssText='display:flex;gap:6px;align-items:flex-start;margin-bottom:4px;padding:3px 6px;background:#eef3ff;border-radius:4px;font-size:12px';
+      const txt=document.createElement('span');
+      txt.style.cssText='flex:1;white-space:pre-wrap;word-break:break-all';
+      txt.textContent='📩 '+(multi?(o.date||'').slice(5).replace('-','.')+' · ':'')+cut;
+      const del=document.createElement('button');
+      del.textContent='🗑'; del.title='이 주문만 삭제 (휴지통으로 이동 — 복구 가능)';
+      del.style.cssText='border:none;background:none;cursor:pointer;font-size:14px;padding:0 2px;line-height:1;flex:0 0 auto';
+      del.onclick=async()=>{
+        if(!confirm(esc(o.client||'(미지정)')+' · '+(o.date||'')+' 주문을 삭제할까요?\n(휴지통으로 이동 — ♻ 휴지통에서 복구할 수 있습니다)')) return;
+        await deleteOrder(o.id, true);
+        DATE_TOUCHED=DATE_TOUCHED.filter(x=>x!==o.id);
+        renderAll();
+        renderGapOrders();
+        setMsg('inMsg','🗑 삭제됨: '+(o.client||'(미지정)')+' — ♻ 휴지통에서 복구 가능',true);
+      };
+      line.append(txt, del);
       tdRaw.appendChild(line);
     });
 
