@@ -5,7 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>신화미트 주문방</title>
 <!--
-  신화미트 주문방 (chat.html) v1.7 — 2026-08-31
+  신화미트 주문방 (chat.html) v1.8 — 2026-08-31
+  · v1.8: 입력 방식 변경 — Enter는 줄바꿈, 전송은 [전송] 버튼으로만.
+    (여러 줄 주문을 쓰다가 실수로 전송되는 것 방지)
   · v1.7: '추가/수정' 메시지 오분리 방지 — "탐나 추가 / 난곡것도2키"에서 난곡을
     새 거래처로 만들지 않고, 아는 거래처(또는 답장 원본 거래처)의 품목으로 접어
     넣습니다. 접힌 품목은 그 거래처의 학습사전으로 정상 교정됩니다.
@@ -259,7 +261,7 @@
         <textarea id="chatInput" placeholder="주문을 카톡에 쓰듯 그대로 입력하세요&#10;예) 0828  /  소들녘  /  삼겹살 3키로 2봉지"></textarea>
         <button class="ibtn" id="sendBtn" onclick="sendMsg()">전송</button>
       </div>
-      <div class="in-hint">Enter 전송 · Shift+Enter 줄바꿈 · 메시지의 ↩로 답장(추가 주문)</div>
+      <div class="in-hint">Enter 줄바꿈 · [전송] 버튼으로 전송 · 메시지의 ↩로 답장(추가 주문)</div>
     </div>
   </section>
 
@@ -786,11 +788,8 @@ function clearReply(){
 
 /* ---------- 전송 ---------- */
 const inputEl=document.getElementById('chatInput');
-inputEl.addEventListener('keydown', ev=>{
-  if(ev.key==='Enter' && !ev.shiftKey && !ev.isComposing){
-    ev.preventDefault(); sendMsg();
-  }
-});
+// v1.8: Enter는 줄바꿈(기본 동작). 전송은 [전송] 버튼으로만 합니다.
+//       여러 줄 주문(날짜/차량/거래처/품목…)을 쓰다가 실수로 나가는 것 방지.
 inputEl.addEventListener('input', ()=>{
   inputEl.style.height='auto';
   inputEl.style.height=Math.min(inputEl.scrollHeight,130)+'px';
