@@ -276,6 +276,7 @@
   <button data-tab="learn">📚 학습 <span id="learnBadge" class="badge" style="display:none">0</span></button>
   <button data-tab="master">④ 차량·작업스펙 마스터</button>
   <button data-tab="setup">⚙ 설정</button>
+  <button onclick="window.open('chat.html','_blank')" style="margin-left:auto;color:#ffd54f" title="직원 주문방 채팅 (별도 사이트)">💬 주문방</button>
 </nav>
 <main>
 
@@ -652,6 +653,7 @@
 <script>
 /* ============================================================
    신화미트 주문노트  ·  GitHub Pages + Firebase + Gemini
+   v3.1 (2026-08-27): 💬 주문방(chat.html) 바로가기 추가
    ============================================================ */
 const LS='shinwha_note_cfg';
 /* ★ 회사 고정 Firebase 설정 — 아래 세 값을 채워서 배포하면, 쿠키·캐시를
@@ -3058,7 +3060,7 @@ function tab(name){
   if(name==='gaps' && !GAPSTATE) reopenGaps();
   if(name==='note') runAudit();   // 노트 열 때마다 즉시 점검
 }
-document.querySelectorAll('nav.tabs button').forEach(b=>b.onclick=()=>tab(b.dataset.tab));
+document.querySelectorAll('nav.tabs button[data-tab]').forEach(b=>b.onclick=()=>tab(b.dataset.tab));
 
 /* ---------- 부팅 ---------- */
 loadConfigUI();
