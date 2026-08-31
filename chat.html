@@ -5,7 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>신화미트 주문방</title>
 <!--
-  신화미트 주문방 (chat.html) v1.11 — 2026-08-31
+  신화미트 주문방 (chat.html) v1.13 — 2026-08-31
+  · v1.13: 답장(댓글) 쓰기 쉽게 — 말풍선을 누르면 바로 답장 모드가 됩니다
+    (카톡처럼). 사진은 누르면 크게 보기(답장 아님), ↩ 버튼도 유지·확대.
+  · v1.12: 안드로이드 로그인 증발 수정 — 최신 크롬은 redirect 로그인의 저장을
+    차단하므로 모든 기기 팝업 우선으로 통일 (Firebase 공식 권장 우회).
+    팝업 차단 시에만 안내/redirect 폴백. 로그인 저장이 지워지는 브라우저
+    설정(종료 시 데이터 삭제 등)을 감지해 안내 문구 표시.
   · v1.11: 교정 결과 표시 강화 — 시스템 답장이 봇처럼 '교정본'을 보여줍니다
     (정식 거래처명·날짜·차량 + 학습사전으로 바뀐 상품명 🔧 표시).
     차량 미지정이면 ⚠ 경고하고, 미처리 블록에 차량 선택 버튼이 붙습니다 —
@@ -125,10 +131,12 @@
   .m-time{font-size:10px;color:var(--muted);white-space:nowrap;padding-bottom:2px}
   .m-state{font-size:10px;padding-bottom:2px;white-space:nowrap}
   .m-state.parsing{color:var(--wait)} .m-state.error{color:var(--accent)} .m-state.done{color:var(--ok)}
-  .rbtn{background:none;border:none;color:#b5b0a4;font-size:13px;cursor:pointer;padding:2px 4px;
+  .bubble{cursor:pointer}
+  .bubble:active{filter:brightness(.96)}
+  .rbtn{background:none;border:none;color:#b5b0a4;font-size:16px;cursor:pointer;padding:4px 6px;
         opacity:0;transition:opacity .15s;align-self:center}
   .msg-row:hover .rbtn{opacity:.9}
-  @media (hover:none){ .rbtn{opacity:.55} }
+  @media (hover:none){ .rbtn{opacity:.7} }
   .quote{border-left:3px solid var(--accent);background:rgba(138,28,28,.06);border-radius:4px;
          padding:4px 8px;font-size:11.5px;color:#6a5c5c;margin-bottom:5px;cursor:pointer;
          white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
@@ -272,7 +280,7 @@
         <textarea id="chatInput" placeholder="주문을 카톡에 쓰듯 그대로 입력하세요&#10;예) 0828  /  소들녘  /  삼겹살 3키로 2봉지"></textarea>
         <button class="ibtn" id="sendBtn" onclick="sendMsg()">전송</button>
       </div>
-      <div class="in-hint">Enter 줄바꿈 · [전송] 버튼으로 전송 · 메시지의 ↩로 답장(추가 주문)</div>
+      <div class="in-hint">Enter 줄바꿈 · [전송] 버튼으로 전송 · <b>말풍선을 누르면 답장(추가 주문)</b></div>
     </div>
   </section>
 
@@ -467,45 +475,45 @@ function initFirebase(){
       if(e && e.code!=='auth/no-auth-event') gateMsgSet('로그인 실패: '+e.message,false);
     }); }catch(e){}
     auth.onAuthStateChanged(u=>{
-      if(u){ ME=u; gateMsgSet('✓ '+(u.email||'')+' 로그인됨 — 서버 연결 중…',true); onSignedIn(u); }
+      if(u){ ME=u; try{localStorage.setItem('shinwha_had_login','1');}catch(e){} gateMsgSet('✓ '+(u.email||'')+' 로그인됨 — 서버 연결 중…',true); onSignedIn(u); }
       else { ME=null; fbReady=false; showGate(); setStat(false,'로그아웃됨'); }
     });
     setStat(false,'로그인 필요');
     gateMsgSet('로그인 상태 확인 중…',true);
-    setTimeout(()=>{ if(!ME) gateMsgSet('',true); }, 2500);   // 미로그인 확정 시 안내 지움
+    setTimeout(()=>{
+      if(ME) return;
+      // 전에 로그인한 적이 있는데 지금 없다 = 브라우저가 로그인 저장을 지운 것
+      if(localStorage.getItem('shinwha_had_login')==='1'){
+        gateMsgSet('이전 로그인이 저장되지 않았습니다.\n· 크롬 설정 → 개인정보 보호에 "종료 시 인터넷 사용 기록/쿠키 삭제"가 켜져 있으면 꺼주세요\n· 시크릿 모드에서는 로그인이 유지되지 않습니다\n· 사이트 설정에서 이 사이트의 쿠키가 차단되어 있지 않은지 확인하세요',false);
+      }else gateMsgSet('',true);
+    }, 2500);
   }catch(e){setStat(false,'연결 오류');gateMsgSet('연결 오류: '+e.message,false);console.error(e);}
 }
 function isIOS(){
   const ua=navigator.userAgent||'';
-  // 아이패드가 'Mac'으로 위장하는 경우까지 포함 (Mac + 터치스크린 = iPadOS)
   return /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints>1);
 }
 function signIn(){
   if(!auth){ gateMsgSet('연결 설정이 없습니다.',false); return; }
   const p=new firebase.auth.GoogleAuthProvider();
   p.setCustomParameters({prompt:'select_account'});
-  gateMsgSet('구글 로그인으로 이동합니다…',true);
-  const ios=isIOS();
-  const mobile=window.matchMedia && matchMedia('(pointer:coarse)').matches;
-  if(ios){
-    // ★ 아이폰/아이패드: 사파리 엔진이 redirect 로그인 저장을 차단하므로 팝업만 사용
-    auth.signInWithPopup(p).catch(e=>{
-      if(e && (e.code==='auth/popup-blocked' || e.code==='auth/cancelled-popup-request')){
-        gateMsgSet('팝업이 차단되었습니다.\n사파리: 설정 앱 → Safari → 팝업 차단 끄기\n크롬: 주소창의 팝업 차단 아이콘 → 허용\n그 다음 로그인 버튼을 다시 눌러주세요.',false);
-      }else if(e && e.code==='auth/popup-closed-by-user'){
-        gateMsgSet('로그인 창이 닫혔습니다. 다시 눌러주세요.',false);
-      }else gateMsgSet('로그인 실패: '+((e&&e.message)||e),false);
-    });
-  }else if(mobile){
-    // 안드로이드: 전체화면 이동 방식 — 로그인 후 자동 복귀
-    auth.signInWithRedirect(p).catch(e=>gateMsgSet('로그인 실패: '+e.message,false));
-  }else{
-    auth.signInWithPopup(p).catch(e=>{
-      if(e && (e.code==='auth/popup-blocked' || e.code==='auth/popup-closed-by-user' || e.code==='auth/cancelled-popup-request')){
+  gateMsgSet('구글 로그인 창을 엽니다…',true);
+  // ★ 전 기기 팝업 우선 — 최신 크롬·사파리 모두 redirect 방식은
+  //   로그인 저장이 차단되어(서드파티 저장소 정책) 증발합니다.
+  auth.signInWithPopup(p).catch(e=>{
+    const code=e && e.code;
+    if(code==='auth/popup-closed-by-user'){
+      gateMsgSet('로그인 창이 닫혔습니다. 다시 눌러주세요.',false);
+    }else if(code==='auth/popup-blocked' || code==='auth/cancelled-popup-request'){
+      if(isIOS()){
+        gateMsgSet('팝업이 차단되었습니다.\n설정 앱 → Safari → 팝업 차단 끄기 후 다시 눌러주세요.',false);
+      }else{
+        // 안드로이드/PC: 차단 시에만 전체화면 방식으로 마지막 시도
+        gateMsgSet('팝업이 차단되어 전체화면 로그인으로 전환합니다…\n(로그인이 유지되지 않으면 브라우저의 팝업 차단을 허용해 주세요)',true);
         auth.signInWithRedirect(p).catch(e2=>gateMsgSet('로그인 실패: '+e2.message,false));
-      }else gateMsgSet('로그인 실패: '+e.message,false);
-    });
-  }
+      }
+    }else gateMsgSet('로그인 실패: '+((e&&e.message)||e),false);
+  });
 }
 function signOut(){ if(auth) auth.signOut(); }
 
@@ -793,18 +801,18 @@ function bubbleHtml(id,m){
   if(m.replyTo && CHAT[m.replyTo]){
     const om=CHAT[m.replyTo];
     const t=(om.text||(om.photo?'📷 사진':'')).split(/\n/)[0].slice(0,40);
-    quote='<div class="quote" onclick="jumpTo(\''+esc(m.replyTo)+'\')"><b>'+esc(om.name||'')+'</b> '+esc(t)+'</div>';
+    quote='<div class="quote" onclick="event.stopPropagation();jumpTo(\''+esc(m.replyTo)+'\')"><b>'+esc(om.name||'')+'</b> '+esc(t)+'</div>';
   }
   let body='';
   if(m.photo && m.photo.id){
     body+='<img class="ph" src="https://drive.google.com/thumbnail?id='+esc(m.photo.id)+'&sz=w480" '
-        +'onclick="window.open(\'https://drive.google.com/file/d/'+esc(m.photo.id)+'/view\',\'_blank\')" '
+        +'onclick="event.stopPropagation();window.open(\'https://drive.google.com/file/d/'+esc(m.photo.id)+'/view\',\'_blank\')" '
         +'onerror="this.replaceWith(Object.assign(document.createElement(\'a\'),{href:\'https://drive.google.com/file/d/'+esc(m.photo.id)+'/view\',target:\'_blank\',textContent:\'📷 사진 열기\'}))">';
   }
   if(m.text) body+=esc(m.text);
   return '<div class="bubble-wrap">'
     +'<div class="m-name">'+esc(m.name||'')+'</div>'
-    +'<div class="bubble">'+quote+body+'</div>'
+    +'<div class="bubble" onclick="setReply(\''+esc(id)+'\')" title="누르면 이 메시지에 답장(추가 주문)">'+quote+body+'</div>'
     +'</div>'
     +'<span>'+stateHtml(m)+'<span class="m-time">'+hhmm(m.ts||Date.now())+'</span></span>'
     +'<button class="rbtn" title="이 메시지에 답장 (추가 주문)" onclick="setReply(\''+esc(id)+'\')">↩</button>';
