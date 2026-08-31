@@ -11,7 +11,14 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v2.1 — 2026-09-01
+  신화미트 주문방 (chat.html) v2.4 — 2026-09-01
+  · v2.4: 실패 자동 재시도 — 분석 실패 메시지를 30초→2분→5분 간격으로
+    최대 3회 자동 재분석 (여러 명이 열어도 1번만 실행, 3회 실패 시 수동 안내).
+    ✓ 완료 체크 표시 크게.
+  · v2.3: ① 분석 실패 메시지 [⚠ 실패·재시도] 클릭으로 그 자리에서 재분석
+    ② 답장 미리보기 개선 — 날짜·차량 줄은 건너뛰고 거래처·내용 표시,
+       답장 대상 말풍선에 빨간 테두리 표시
+    ③ 말풍선 꾹 누르기(PC 우클릭) → 카톡식 메뉴: 답장·복사·다시 분석
   · v2.1: 확인방 품목 짝짓기 — "품목 짝짓기 필요" 카드에서 미매칭 채팅 품목마다
     그날 ERP 매출 품목 드롭다운으로 짝을 지어 [학습·적용]:
       ① 학습사전에 등록 → 다음부터 채팅 입력 즉시 정식 품목으로 자동 교정(실시간)
@@ -142,6 +149,21 @@
     #chatPane{border-right:1px solid var(--line)}
   }
 
+  /* 답장 대상 강조 */
+  .msg-row.replying .bubble{outline:2px solid var(--accent);outline-offset:2px}
+  /* 꾹 누르기 메뉴 (카톡식) */
+  #msgMenuBg{display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.35)}
+  #msgMenuBg.on{display:block}
+  #msgMenu{position:fixed;left:50%;bottom:0;transform:translateX(-50%);width:min(420px,100%);
+           background:var(--panel);border-radius:14px 14px 0 0;padding:10px 14px calc(14px + env(safe-area-inset-bottom));
+           box-shadow:0 -4px 24px rgba(0,0,0,.25)}
+  #msgMenu .mm-prev{font-size:12px;color:var(--muted);padding:6px 4px 10px;border-bottom:1px solid var(--line);
+                    margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #msgMenu button{display:block;width:100%;text-align:left;background:none;border:none;padding:13px 8px;
+                  font-size:15px;font-weight:700;cursor:pointer;font-family:var(--sans);border-radius:8px}
+  #msgMenu button:active{background:#f0ece1}
+  #msgMenu .mm-x{color:var(--muted);text-align:center;border-top:1px solid var(--line);margin-top:4px}
+
   /* ===== 👥 접속인원 바 ===== */
   #presenceBar{display:flex;align-items:center;gap:7px;padding:5px 12px;background:#eae6da;
                border-bottom:1px solid var(--line);font-size:11.5px;color:#5b564a;min-height:29px}
@@ -164,8 +186,10 @@
           box-shadow:0 1px 0 rgba(0,0,0,.04)}
   .msg-row.mine .bubble{background:var(--mine);color:var(--mine-txt);border-color:var(--mine)}
   .m-time{font-size:10px;color:var(--muted);white-space:nowrap;padding-bottom:2px}
-  .m-state{font-size:10px;padding-bottom:2px;white-space:nowrap}
-  .m-state.parsing{color:var(--wait)} .m-state.error{color:var(--accent)} .m-state.done{color:var(--ok)}
+  .m-state{font-size:12px;padding-bottom:2px;white-space:nowrap}
+  .m-state.parsing{color:var(--wait)}
+  .m-state.error{color:var(--accent);font-weight:800}
+  .m-state.done{color:var(--ok);font-size:17px;font-weight:800;line-height:1}
   .bubble{cursor:pointer}
   .bubble:active{filter:brightness(.96)}
   .rbtn{background:none;border:none;color:#b5b0a4;font-size:16px;cursor:pointer;padding:4px 6px;
@@ -274,6 +298,8 @@
 </style>
 </head>
 <body>
+
+<div id="msgMenuBg" onclick="closeMsgMenu()"><div id="msgMenu" onclick="event.stopPropagation()"></div></div>
 
 <div id="gate" class="gate">
   <div class="gate-card">
@@ -904,8 +930,8 @@ function startChat(){
   if(CHAT_STARTED || !db) return;
   CHAT_STARTED=true;
   const ref=db.ref('chat').limitToLast(200);
-  ref.on('child_added', s=>{ CHAT[s.key]=s.val(); appendMsg(s.key, s.val()); rescueIfStale(s.key, s.val()); notifyNew(s.val()); });
-  ref.on('child_changed', s=>{ CHAT[s.key]=s.val(); updateMsg(s.key, s.val()); });
+  ref.on('child_added', s=>{ CHAT[s.key]=s.val(); appendMsg(s.key, s.val()); rescueIfStale(s.key, s.val()); notifyNew(s.val()); scheduleAutoRetry(s.key, s.val()); });
+  ref.on('child_changed', s=>{ CHAT[s.key]=s.val(); updateMsg(s.key, s.val()); scheduleAutoRetry(s.key, s.val()); });
 }
 
 function chatScrollBottom(){
@@ -960,18 +986,64 @@ function updateMsg(id, m){
   }
 }
 function sysHtml(m){ return '<span class="tag">🤖</span> '+esc(m.text||''); }
-function stateHtml(m){
-  if(m.status==='parsing') return '<span class="m-state parsing">분석중…</span>';
-  if(m.status==='error')   return '<span class="m-state error">⚠ 실패</span>';
+function stateHtml(id,m){
+  if(m.status==='parsing'||m.status==='retrying') return '<span class="m-state parsing">분석중…</span>';
+  if(m.status==='error')   return '<span class="m-state error" style="cursor:pointer;text-decoration:underline" '
+    +'onclick="event.stopPropagation();retryMsg(\''+esc(id)+'\')" title="눌러서 다시 분석">⚠ 실패·재시도</span>';
   if(m.status==='done')    return '<span class="m-state done">✓</span>';
   return '';
+}
+
+/* 🔁 실패 자동 재시도 — 30초→2분→5분 간격 최대 3회.
+   transaction으로 여러 화면이 동시에 열려 있어도 1번만 실행됩니다.
+   3회 모두 실패하면 수동([⚠ 실패·재시도])으로 넘어갑니다. */
+const AUTO_RETRY_DELAYS=[30000, 120000, 300000];
+const RETRY_SCHED={};
+function scheduleAutoRetry(id, m){
+  if(!m || m.sys || !m.text) return;
+  if(m.status!=='error'){
+    if(RETRY_SCHED[id]){ clearTimeout(RETRY_SCHED[id]); delete RETRY_SCHED[id]; }
+    return;
+  }
+  const r=m.retries||0;
+  if(r>=3) return;                                   // 자동은 3회까지
+  if(Date.now()-(m.ts||0) > 12*3600*1000) return;    // 12시간 지난 건 수동만
+  if(RETRY_SCHED[id]) return;
+  RETRY_SCHED[id]=setTimeout(async()=>{
+    delete RETRY_SCHED[id];
+    const cur=CHAT[id];
+    if(!cur || cur.status!=='error') return;
+    try{
+      const tr=await db.ref('chat/'+id).transaction(c=>{
+        if(!c || c.status!=='error') return;         // 다른 화면이 먼저 잡음
+        c.status='parsing'; c.retries=(c.retries||0)+1;
+        return c;
+      });
+      if(tr.committed && tr.snapshot && tr.snapshot.val()){
+        await processMessage(id, tr.snapshot.val());
+      }
+    }catch(e){ console.warn('autoRetry', e); }
+  }, AUTO_RETRY_DELAYS[Math.min(r,2)]);
+}
+
+/* 🔄 실패 메시지 재분석 — 누구든 누를 수 있고, 중복 실행은 transaction으로 방지 */
+async function retryMsg(id){
+  const m=CHAT[id];
+  if(!m || m.sys || !m.text) return;
+  try{
+    const tr=await db.ref('chat/'+id+'/status').transaction(cur=>{
+      if(cur!=='error') return;      // 이미 누가 재시도 중
+      return 'parsing';
+    });
+    if(!tr.committed) return;
+    await processMessage(id, m);
+  }catch(e){ alert('재시도 실패: '+e.message); }
 }
 function bubbleHtml(id,m){
   let quote='';
   if(m.replyTo && CHAT[m.replyTo]){
     const om=CHAT[m.replyTo];
-    const t=(om.text||(om.photo?'📷 사진':'')).split(/\n/)[0].slice(0,40);
-    quote='<div class="quote" onclick="event.stopPropagation();jumpTo(\''+esc(m.replyTo)+'\')"><b>'+esc(om.name||'')+'</b> '+esc(t)+'</div>';
+    quote='<div class="quote" onclick="event.stopPropagation();jumpTo(\''+esc(m.replyTo)+'\')"><b>'+esc(om.name||'')+'</b> '+esc(replyPreview(om))+'</div>';
   }
   let body='';
   if(m.photo && m.photo.id){
@@ -982,11 +1054,59 @@ function bubbleHtml(id,m){
   if(m.text) body+=esc(m.text);
   return '<div class="bubble-wrap">'
     +'<div class="m-name">'+esc(m.name||'')+'</div>'
-    +'<div class="bubble" onclick="setReply(\''+esc(id)+'\')" title="누르면 이 메시지에 답장(추가 주문)">'+quote+body+'</div>'
+    +'<div class="bubble" onclick="bubbleTap(\''+esc(id)+'\')" oncontextmenu="event.preventDefault();openMsgMenu(\''+esc(id)+'\')" title="누르면 답장 · 꾹 누르면 메뉴(복사/답장)">'+quote+body+'</div>'
     +'</div>'
-    +'<span>'+stateHtml(m)+'<span class="m-time">'+hhmm(m.ts||Date.now())+'</span></span>'
+    +'<span>'+stateHtml(id,m)+'<span class="m-time">'+hhmm(m.ts||Date.now())+'</span></span>'
     +'<button class="rbtn" title="이 메시지에 답장 (추가 주문)" onclick="setReply(\''+esc(id)+'\')">↩</button>';
 }
+/* ---------- 꾹 누르기(길게) → 카톡식 메뉴 ---------- */
+let LP_T=null, LP_FIRED=false;
+function bubbleTap(id){
+  if(LP_FIRED){ LP_FIRED=false; return; }   // 꾹 누르기 직후의 탭은 무시
+  setReply(id);
+}
+(function(){
+  const box=document.getElementById('chatScroll');
+  let sx=0, sy=0;
+  box.addEventListener('touchstart',e=>{
+    const b=e.target.closest('.bubble'); if(!b) return;
+    const row=b.closest('.msg-row'); if(!row) return;
+    const id=row.id.slice(2);
+    sx=e.touches[0].clientX; sy=e.touches[0].clientY;
+    LP_FIRED=false;
+    clearTimeout(LP_T);
+    LP_T=setTimeout(()=>{ LP_FIRED=true; if(navigator.vibrate)navigator.vibrate(30); openMsgMenu(id); }, 480);
+  },{passive:true});
+  box.addEventListener('touchmove',e=>{
+    if(Math.abs(e.touches[0].clientX-sx)>10 || Math.abs(e.touches[0].clientY-sy)>10) clearTimeout(LP_T);
+  },{passive:true});
+  ['touchend','touchcancel'].forEach(ev=>box.addEventListener(ev,()=>clearTimeout(LP_T)));
+})();
+function openMsgMenu(id){
+  const m=CHAT[id]; if(!m||m.sys) return;
+  const menu=document.getElementById('msgMenu');
+  let h='<div class="mm-prev"><b>'+esc(m.name||'')+'</b> · '+esc(replyPreview(m))+'</div>';
+  h+='<button onclick="closeMsgMenu();setReply(\''+esc(id)+'\')">↩ 답장 (추가 주문)</button>';
+  if(m.text) h+='<button id="mmCopy" onclick="copyMsg(\''+esc(id)+'\')">📋 복사</button>';
+  if(m.status==='error') h+='<button onclick="closeMsgMenu();retryMsg(\''+esc(id)+'\')" style="color:var(--accent)">🔄 다시 분석</button>';
+  h+='<button class="mm-x" onclick="closeMsgMenu()">닫기</button>';
+  menu.innerHTML=h;
+  document.getElementById('msgMenuBg').classList.add('on');
+}
+function closeMsgMenu(){ document.getElementById('msgMenuBg').classList.remove('on'); }
+async function copyMsg(id){
+  const m=CHAT[id]; if(!m) return;
+  try{
+    await navigator.clipboard.writeText(m.text||'');
+    const b=document.getElementById('mmCopy'); if(b) b.textContent='📋 복사됨 ✓';
+    setTimeout(closeMsgMenu, 500);
+  }catch(e){
+    // 클립보드 권한이 없으면 선택 복사 창으로
+    prompt('길게 눌러 복사하세요', m.text||'');
+    closeMsgMenu();
+  }
+}
+
 function jumpTo(id){
   const el=document.getElementById('m_'+id);
   if(el){ el.scrollIntoView({behavior:'smooth',block:'center'});
@@ -996,17 +1116,30 @@ function jumpTo(id){
 
 /* ---------- 답장 ---------- */
 let REPLY_TO=null;
+const HDR_VEH=['0966','6506','1982','4232','택배','사무실','마포','방문','온라인'];
+/* 미리보기: 날짜(0901/9.1)·차량 머리말 줄은 건너뛰고 거래처·내용 줄을 보여줍니다 */
+function replyPreview(m){
+  if(m.photo && !m.text) return '📷 사진';
+  const lines=String(m.text||'').split(/\n/).map(x=>x.trim()).filter(Boolean);
+  const body=lines.filter(x=>!(/^\d{3,4}$/.test(x) || /^\d{1,2}[.\/]\d{1,2}\.?$/.test(x) || HDR_VEH.indexOf(x)>=0));
+  const src=body.length?body:lines;
+  return src.slice(0,2).join(' · ').slice(0,60);
+}
 function setReply(id){
   const m=CHAT[id];
   if(!m||m.sys) return;
+  // 이전 강조 해제 → 새 대상 강조
+  document.querySelectorAll('.msg-row.replying').forEach(e=>e.classList.remove('replying'));
+  const row=document.getElementById('m_'+id);
+  if(row) row.classList.add('replying');
   REPLY_TO=id;
-  const t=(m.text||(m.photo?'📷 사진':'')).split(/\n/)[0].slice(0,50);
-  document.getElementById('replyTxt').innerHTML='<b>'+esc(m.name||'')+'</b>에게 답장: '+esc(t);
+  document.getElementById('replyTxt').innerHTML='<b>'+esc(m.name||'')+'</b>에게 답장: '+esc(replyPreview(m));
   document.getElementById('replyBar').classList.add('on');
   document.getElementById('chatInput').focus();
 }
 function clearReply(){
   REPLY_TO=null;
+  document.querySelectorAll('.msg-row.replying').forEach(e=>e.classList.remove('replying'));
   document.getElementById('replyBar').classList.remove('on');
 }
 
@@ -1116,8 +1249,14 @@ async function processMessage(msgId, m){
   }catch(e){
     console.error('processMessage',e);
     await mref.update({status:'error'}).catch(()=>{});
-    await db.ref('chat').push().set({sys:1, kind:'err', ref:msgId, ts:Date.now(),
-      text:'⚠ 분석 실패: '+String(e.message||e)+'\n잠시 후 메시지를 다시 보내거나 관리자에게 문의하세요.'}).catch(()=>{});
+    const r=(CHAT[msgId]&&CHAT[msgId].retries)||0;
+    if(r===0){
+      await db.ref('chat').push().set({sys:1, kind:'err', ref:msgId, ts:Date.now(),
+        text:'⚠ 분석 실패: '+String(e.message||e)+'\n30초 후 자동으로 다시 시도합니다.'}).catch(()=>{});
+    }else if(r>=3){
+      await db.ref('chat').push().set({sys:1, kind:'err', ref:msgId, ts:Date.now(),
+        text:'🚨 자동 재시도 3회 모두 실패했습니다.\n서버 상태를 확인하거나, 메시지의 [⚠ 실패·재시도]를 눌러 수동으로 시도하세요.'}).catch(()=>{});
+    }
   }
 }
 
