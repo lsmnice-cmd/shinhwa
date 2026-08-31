@@ -5,7 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>신화미트 주문방</title>
 <!--
-  신화미트 주문방 (chat.html) v1.9 — 2026-08-31
+  신화미트 주문방 (chat.html) v1.10 — 2026-08-31
+  · v1.10: 아이폰 로그인 불가 수정 — iOS(사파리 엔진)는 redirect 로그인의
+    저장이 차단되어 로그인이 안 되므로, 기기별로 방식을 분리:
+    아이폰/아이패드 = 팝업, 안드로이드 = 전체화면(redirect), PC = 팝업(차단 시 redirect).
+    아이폰에서 팝업이 막히면 허용 방법 안내 문구 표시.
   · v1.9: 로그인 반복 문제 수정 — 모바일은 팝업 대신 전체화면(redirect)
     로그인으로 변경(폰 브라우저의 팝업 차단·인증 끊김 대응), 로그인 유지를
     LOCAL로 명시, 로그인 진행 상태 표시(중복 클릭 방지).
@@ -467,18 +471,32 @@ function initFirebase(){
     setTimeout(()=>{ if(!ME) gateMsgSet('',true); }, 2500);   // 미로그인 확정 시 안내 지움
   }catch(e){setStat(false,'연결 오류');gateMsgSet('연결 오류: '+e.message,false);console.error(e);}
 }
+function isIOS(){
+  const ua=navigator.userAgent||'';
+  // 아이패드가 'Mac'으로 위장하는 경우까지 포함 (Mac + 터치스크린 = iPadOS)
+  return /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints>1);
+}
 function signIn(){
   if(!auth){ gateMsgSet('연결 설정이 없습니다.',false); return; }
   const p=new firebase.auth.GoogleAuthProvider();
   p.setCustomParameters({prompt:'select_account'});
   gateMsgSet('구글 로그인으로 이동합니다…',true);
-  const mobile = window.matchMedia && matchMedia('(pointer:coarse)').matches;
-  if(mobile){
-    // 폰은 팝업이 자주 막히므로 전체화면 이동 방식 — 로그인 후 자동 복귀
+  const ios=isIOS();
+  const mobile=window.matchMedia && matchMedia('(pointer:coarse)').matches;
+  if(ios){
+    // ★ 아이폰/아이패드: 사파리 엔진이 redirect 로그인 저장을 차단하므로 팝업만 사용
+    auth.signInWithPopup(p).catch(e=>{
+      if(e && (e.code==='auth/popup-blocked' || e.code==='auth/cancelled-popup-request')){
+        gateMsgSet('팝업이 차단되었습니다.\n사파리: 설정 앱 → Safari → 팝업 차단 끄기\n크롬: 주소창의 팝업 차단 아이콘 → 허용\n그 다음 로그인 버튼을 다시 눌러주세요.',false);
+      }else if(e && e.code==='auth/popup-closed-by-user'){
+        gateMsgSet('로그인 창이 닫혔습니다. 다시 눌러주세요.',false);
+      }else gateMsgSet('로그인 실패: '+((e&&e.message)||e),false);
+    });
+  }else if(mobile){
+    // 안드로이드: 전체화면 이동 방식 — 로그인 후 자동 복귀
     auth.signInWithRedirect(p).catch(e=>gateMsgSet('로그인 실패: '+e.message,false));
   }else{
     auth.signInWithPopup(p).catch(e=>{
-      // 팝업 차단이면 전체화면 방식으로 자동 재시도
       if(e && (e.code==='auth/popup-blocked' || e.code==='auth/popup-closed-by-user' || e.code==='auth/cancelled-popup-request')){
         auth.signInWithRedirect(p).catch(e2=>gateMsgSet('로그인 실패: '+e2.message,false));
       }else gateMsgSet('로그인 실패: '+e.message,false);
