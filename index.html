@@ -657,6 +657,9 @@
    v3.2 (2026-08-31): ①-1 빠진정보 채우기에 주문 삭제(🗑) 추가
      — 주문확인 표의 카톡 원문 줄마다 개별 삭제, 거래처 못 찾은 주문 카드에도 삭제.
        삭제는 휴지통으로 이동하므로 ♻ 휴지통에서 복구할 수 있습니다.
+   v3.3 (2026-08-31): 🖨 인쇄 도장 — 노트 인쇄 시(버튼·Ctrl+P) meta/printed/{날짜}에
+     인쇄 시각을 기록. 주문방(chat.html v1.1)의 미처리 패널은 이 시각 이후
+     접수분만 표시합니다. 노트 머리말에 마지막 인쇄 시각도 표시.
    ============================================================ */
 const LS='shinwha_note_cfg';
 /* ★ 회사 고정 Firebase 설정 — 아래 세 값을 채워서 배포하면, 쿠키·캐시를
@@ -2509,6 +2512,7 @@ function buildNoteTable(wrap, date, workMode){
   let head='<div class="note-head"><span class="d">'+date.replace(/-/g,'.')+'</span>'
     +'<span class="meta">거래처 '+orders0.reduce((s,o)=>s+1,0)+'곳 · 완료 '
     +orders0.filter(o=>o.done).length+'곳</span>'
+    +'<span class="print-stamp mini no-print" style="color:#1f6b3a;font-weight:700"></span>'
     +'<span class="actions no-print">'
     +'<button class="btn ghost" onclick="deleteDay(\''+date+'\')">🗑 하루 삭제</button>'
     +'<button class="btn ghost" onclick="openTrash()">♻ 휴지통</button>'
@@ -2585,7 +2589,30 @@ function buildNoteTable(wrap, date, workMode){
       +'<span>거래처명을 클릭하면 수정·삭제할 수 있습니다</span></div>';
   wrap.innerHTML=html;
   if(!workMode) fillBlankRows(wrap);
+  // 🖨 마지막 인쇄 시각 표시 — 이 시각 이후 접수분만 주문방 '미처리'에 남습니다
+  if(fbReady){
+    db.ref('meta/printed/'+date).once('value').then(s=>{
+      const at=Number(s.val())||0;
+      if(!at) return;
+      const el=wrap.querySelector('.print-stamp');
+      if(el) el.textContent='🖨 마지막 인쇄 '+new Date(at).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})+' — 이후 접수분은 주문방 미처리에 표시됩니다';
+    }).catch(()=>{});
+  }
 }
+
+/* ---------- 🖨 인쇄 도장 (v3.3) ----------
+   노트를 인쇄하는 순간(버튼·Ctrl+P 모두) 그 날짜의 인쇄 시각을 Firebase에 기록합니다.
+   출력된 분량은 종이로 주문확인→생산→전산처리가 진행되므로,
+   주문방(chat.html)의 미처리 패널에는 이 시각 이후에 들어온 추가 주문만 남습니다. */
+function stampPrinted(date){
+  if(!date || !fbReady) return;
+  db.ref('meta/printed/'+date).set(Date.now()).catch(()=>{});
+}
+window.addEventListener('beforeprint', ()=>{
+  const cur=document.querySelector('nav.tabs button.active')?.dataset.tab;
+  if(cur==='note' && noteDate) stampPrinted(noteDate);
+  else if(cur==='work' && workDate) stampPrinted(workDate);
+});
 
 /* 택배(+사무실) 페이지 아래에, A4 한 장을 채울 만큼 빈 줄을 그립니다.
    ▶ 화면에서는 숨기고 인쇄할 때만 보입니다 — 손으로 적는 자리라 화면에선 공간 낭비. */
