@@ -11,7 +11,14 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v2.4 — 2026-09-01
+  신화미트 주문방 (chat.html) v2.6 — 2026-09-01
+  · v2.6: 미처리 카드에서 직접 수정 + 학습
+    - 거래처명 클릭 → 수정 (마스터 자동완성, 잘못 잡힌 이름은 별칭으로 학습되어
+      다음부터 그 표현이 오면 자동으로 올바른 거래처에 붙습니다)
+    - 품목 줄마다 ✏ 수정(바꾼 표현을 학습사전에 등록 여부 선택) · ✕ 삭제
+    - 카드 우상단 🗑 주문 삭제(휴지통 이동 — 주문노트 ♻에서 복구 가능)
+  · v2.5: AI 한도 초과 안내 개선 — 긴 영문 오류 대신 "⏳ AI 사용량 몰림,
+    자동 재시도" 짧은 안내로 표시 (자동 재시도는 v2.4 그대로 동작)
   · v2.4: 실패 자동 재시도 — 분석 실패 메시지를 30초→2분→5분 간격으로
     최대 3회 자동 재분석 (여러 명이 열어도 1번만 실행, 3회 실패 시 수동 안내).
     ✓ 완료 체크 표시 크게.
@@ -299,6 +306,7 @@
 </head>
 <body>
 
+<datalist id="cliList"></datalist>
 <div id="msgMenuBg" onclick="closeMsgMenu()"><div id="msgMenu" onclick="event.stopPropagation()"></div></div>
 
 <div id="gate" class="gate">
@@ -747,6 +755,8 @@ async function loadMaster(){
     _clientIndex=null;
     PRODBYCODE={};
     for(const c in MASTER) (MASTER[c].specs||[]).forEach(s=>{ if(s.code) PRODBYCODE[s.code]=s.product; });
+    const dl=document.getElementById('cliList');
+    if(dl){ dl.innerHTML=Object.keys(MASTER).sort().map(c=>'<option value="'+esc(c)+'">').join(''); }
   }catch(e){ console.error('마스터 로드 실패', e); }
 }
 
@@ -1250,9 +1260,13 @@ async function processMessage(msgId, m){
     console.error('processMessage',e);
     await mref.update({status:'error'}).catch(()=>{});
     const r=(CHAT[msgId]&&CHAT[msgId].retries)||0;
+    const em=String(e.message||e);
+    const isQuota=/quota|한도|429|RESOURCE_EXHAUSTED|사용량이 몰려/i.test(em);
     if(r===0){
-      await db.ref('chat').push().set({sys:1, kind:'err', ref:msgId, ts:Date.now(),
-        text:'⚠ 분석 실패: '+String(e.message||e)+'\n30초 후 자동으로 다시 시도합니다.'}).catch(()=>{});
+      await db.ref('chat').push().set({sys:1, kind:isQuota?'warn':'err', ref:msgId, ts:Date.now(),
+        text:isQuota
+          ? '⏳ AI 사용량이 잠시 몰렸습니다 — 30초 후 자동으로 다시 분석합니다. 기다리시면 됩니다.'
+          : '⚠ 분석 실패: '+em.slice(0,120)+'\n30초 후 자동으로 다시 시도합니다.'}).catch(()=>{});
     }else if(r>=3){
       await db.ref('chat').push().set({sys:1, kind:'err', ref:msgId, ts:Date.now(),
         text:'🚨 자동 재시도 3회 모두 실패했습니다.\n서버 상태를 확인하거나, 메시지의 [⚠ 실패·재시도]를 눌러 수동으로 시도하세요.'}).catch(()=>{});
@@ -1560,23 +1574,30 @@ function buildOrderCard(o){
   const head=document.createElement('div'); head.className='oc-head';
   const pAt=printedAt(o.date);
   const isLate=pAt && (o.ts||0)>pAt;
-  head.innerHTML='<span class="oc-cli'+(o.needClient?' warn':'')+'">'+esc(o.client||'(거래처 미확인)')+'</span>'
+  head.innerHTML='<span class="oc-cli'+(o.needClient?' warn':'')+'" style="cursor:pointer;text-decoration:underline dotted" '
+    +'onclick="openCliEdit(\''+esc(o.id)+'\')" title="누르면 거래처 수정 (잘못 잡힌 이름은 학습됩니다)">'+esc(o.client||'(거래처 미확인)')+'</span>'
     +(isLate?'<span style="font-size:10px;font-weight:800;background:#f3e4e2;color:#8a1c1c;border-radius:8px;padding:1px 7px">🆕 인쇄 이후</span>':'')
     +'<span class="oc-meta">'+(o.by?esc(o.by)+' · ':'')+(o.items||[]).length+'품목</span>'
-    +(o.raw?'<span class="oc-src" onclick="alert(this.dataset.r)" data-r="'+esc((o.raw||'').slice(0,600))+'">원문</span>':'');
+    +(o.raw?'<span class="oc-src" onclick="alert(this.dataset.r)" data-r="'+esc((o.raw||'').slice(0,600))+'">원문</span>':'')
+    +'<span onclick="delOrder(\''+esc(o.id)+'\')" title="주문 삭제 (휴지통으로 — 복구 가능)" '
+    +'style="cursor:pointer;font-size:13px;padding:0 2px">🗑</span>';
   card.appendChild(head);
+  const cliEdit=document.createElement('div'); cliEdit.id='cliEdit_'+o.id; cliEdit.style.display='none';
+  card.appendChild(cliEdit);
   const items=document.createElement('div'); items.className='oc-items';
-  items.innerHTML=(o.items||[]).map(it=>{
+  items.innerHTML=(o.items||[]).map((it,idx)=>{
     let t=esc(itemText(it));
     if(it.price) t+=' <span class="price">'+esc(it.price)+'</span>';
     const isNewItem=pAt && it.at && it.at>pAt;
-    return (isNewItem?'<b style="color:#8a1c1c">🆕</b> ':'· ')+t;
+    const tools=' <span onclick="editItem(\''+esc(o.id)+'\','+idx+')" title="품목 수정 (학습 가능)" style="cursor:pointer;font-size:11px;opacity:.65">✏</span>'
+      +'<span onclick="delItem(\''+esc(o.id)+'\','+idx+')" title="이 품목만 삭제" style="cursor:pointer;font-size:11px;opacity:.65;padding-left:2px">✕</span>';
+    return (isNewItem?'<b style="color:#8a1c1c">🆕</b> ':'· ')+t+tools;
   }).join('<br>')||'<span style="color:#b71c1c">⚠ 품목 없음 (손상 주문)</span>';
   card.appendChild(items);
   if(o.needClient){
     const w=document.createElement('div');
     w.style.cssText='font-size:11.5px;color:var(--accent);margin-bottom:6px';
-    w.textContent='⚠ 거래처가 지정되어야 처리할 수 있습니다 — 주문노트 ①-1에서 지정하세요';
+    w.textContent='⚠ 거래처 미확인 — 위의 거래처명을 눌러 지정하세요 (지정하면 학습됩니다)';
     card.appendChild(w);
   }
   // 🚚 차량 미지정 → 그 자리에서 선택. 선택하면 마스터에 저장되어 다음부터 자동.
@@ -1611,6 +1632,122 @@ function buildOrderCard(o){
   });
   card.appendChild(row);
   return card;
+}
+
+/* ============================================================
+   ✏ 미처리 카드 직접 수정 + 학습 (v2.6)
+   ============================================================ */
+
+/* 거래처 수정 — 입력창(마스터 자동완성)을 펼칩니다 */
+function openCliEdit(id){
+  const o=ORDERS[id]; if(!o) return;
+  const box=document.getElementById('cliEdit_'+id); if(!box) return;
+  if(box.style.display!=='none'){ box.style.display='none'; box.innerHTML=''; return; }
+  box.style.display='';
+  box.style.cssText+=';margin-bottom:7px;padding:7px 9px;background:#eef3fb;border:1px solid #b9cbe4;border-radius:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
+  const inp=document.createElement('input');
+  inp.type='text'; inp.setAttribute('list','cliList');
+  inp.placeholder='올바른 거래처명'; inp.value=(o.needClient?'':(o.client||''));
+  inp.style.cssText='flex:1;min-width:120px;padding:7px 9px;border:1px solid var(--line);border-radius:5px;font-size:14px;font-family:var(--sans)';
+  const b=document.createElement('button');
+  b.textContent='저장';
+  b.style.cssText='border:none;background:var(--accent);color:#fff;border-radius:5px;padding:7px 15px;font-weight:800;font-size:12.5px;cursor:pointer';
+  b.onclick=()=>fixClient(id, inp.value.trim(), b);
+  inp.onkeydown=ev=>{ if(ev.key==='Enter') fixClient(id, inp.value.trim(), b); };
+  box.append(inp,b);
+  inp.focus();
+}
+
+/* 거래처 확정: 잘못 잡힌 이름 → 별칭 학습, 학습사전으로 품목 재교정, 차량 자동 */
+async function fixClient(id, name, btn){
+  const o=ORDERS[id]; if(!o) return;
+  if(!name){ alert('거래처명을 입력하세요.'); return; }
+  if(btn){ btn.disabled=true; btn.textContent='저장중'; }
+  try{
+    let sk=matchClient(name);
+    if(MASTER[sk]===undefined){
+      if(!confirm('"'+sk+'"는 마스터에 없는 거래처입니다.\n신규 거래처로 등록할까요?')){ if(btn){btn.disabled=false;btn.textContent='저장';} return; }
+      MASTER[sk]={vehicle:'', single:'', specs:[]};
+      _clientIndex=null;
+      gsCall('saveClient',{client:sk, vehicle:'', rows:'[]', single:''}).catch(e=>console.warn('saveClient',e));
+    }
+    // 📚 별칭 학습: 원래 잘못 잡힌 이름이 있고, 그게 마스터의 다른 거래처가 아니면
+    const wrong=String(o.client||'').trim();
+    if(wrong && wrong!==sk && MASTER[wrong]===undefined && !o.needClient){
+      ALIASES[wrong]=sk;
+      gsCall('addAlias',{katok:wrong, client:sk}).catch(e=>console.warn('addAlias',e));
+    }
+    // 품목을 이 거래처의 학습사전으로 재교정
+    const items=(o.items||[]).map(it=>{
+      const c=correctProduct(sk, it.product||it.text||'', it.text||'');
+      if(c && c.item && c.item!=='삭제'){
+        return Object.assign({}, it, {wasProduct:it.product||it.text, product:c.item, fixed:1});
+      }
+      return it;
+    });
+    const veh = normVeh(o.vehicle)!=='미지정' ? o.vehicle : normVeh(MASTER[sk].vehicle||'미지정');
+    const upd={client:sk, needClient:null, items:items, vehicle:veh};
+    await db.ref('orders/'+id).update(upd);
+    Object.assign(o,{client:sk, needClient:false, items:items, vehicle:veh});
+    renderSide();
+  }catch(e){ alert('저장 실패: '+e.message); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent='저장'; } }
+}
+
+/* 품목 수정 — 바꾼 표현을 학습사전에 등록할지 선택 */
+async function editItem(id, idx){
+  const o=ORDERS[id]; if(!o||!o.items||!o.items[idx]) return;
+  const it=o.items[idx];
+  const cur=itemText(it);
+  const v=prompt('품목 수정', cur);
+  if(v===null) return;
+  const nv=v.trim();
+  if(!nv || nv===cur) return;
+  const items=o.items.slice();
+  items[idx]=Object.assign({}, it, {wasProduct:it.wasProduct||it.product||it.text, product:nv, text:nv, fixed:1, via:'수동수정'});
+  try{
+    // 📚 학습 여부: 원래 표현 → 새 이름 (그 거래처 전용)
+    const orig=String(it.wasProduct||it.product||it.text||'').trim();
+    if(orig && o.client && !o.needClient && learnKey(orig)!==learnKey(nv)){
+      if(confirm('학습할까요?\n앞으로 '+o.client+'의 "'+orig+'" 는 자동으로 "'+nv+'" 로 바뀝니다.')){
+        gsCall('addLearned',{client:o.client, katok:orig, item:nv}).catch(e=>console.warn('addLearned',e));
+        if(!LEARNED.perCustomer[o.client]) LEARNED.perCustomer[o.client]={};
+        LEARNED.perCustomer[o.client][orig]=nv;
+        LEARNED.perCustomer[o.client][learnKey(orig)]=nv;
+      }
+    }
+    await db.ref('orders/'+id).update({items:items});
+    o.items=items;
+    renderSide();
+  }catch(e){ alert('저장 실패: '+e.message); }
+}
+
+/* 품목 한 줄 삭제 */
+async function delItem(id, idx){
+  const o=ORDERS[id]; if(!o||!o.items||!o.items[idx]) return;
+  const nm=itemText(o.items[idx]);
+  if(!confirm('품목 "'+nm+'" 를 삭제할까요?')) return;
+  const items=o.items.slice(); items.splice(idx,1);
+  try{
+    if(!items.length){
+      if(confirm('품목이 없어졌습니다. 주문 전체를 삭제(휴지통)할까요?')){ await delOrder(id, true); return; }
+    }
+    await db.ref('orders/'+id).update({items:items});
+    o.items=items;
+    renderSide();
+  }catch(e){ alert('저장 실패: '+e.message); }
+}
+
+/* 주문 삭제 → 휴지통 (주문노트 ♻에서 복구 가능) */
+async function delOrder(id, skipConfirm){
+  const o=ORDERS[id]; if(!o) return;
+  if(!skipConfirm && !confirm((o.client||'(미지정)')+' · '+(o.date||'')+' 주문을 삭제할까요?\n(휴지통으로 이동 — 주문노트 ♻에서 복구 가능)')) return;
+  try{
+    await db.ref('trash/'+id).set(Object.assign({}, o, {delAt:Date.now(), delBy:MYNAME}));
+    await db.ref('orders/'+id).remove();
+    delete ORDERS[id];
+    renderSide();
+  }catch(e){ alert('삭제 실패: '+e.message); }
 }
 
 /* 🚚 미처리 블록에서 차량 지정 — 주문 반영 + 마스터 학습(setVehicle)
