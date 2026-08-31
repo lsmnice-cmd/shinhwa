@@ -2,10 +2,13 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>신화미트 주문방</title>
 <!--
-  신화미트 주문방 (chat.html) v1.3 — 2026-08-31
+  신화미트 주문방 (chat.html) v1.4 — 2026-08-31
+  · v1.4: 모바일 화면 깨짐 수정 — 200vw 슬라이드 필름이 브라우저 '전체 축소'를
+    유발하던 문제를 클리퍼(#clip) 구조 + minimum-scale=1 로 해결.
+    이제 폰에서는 채팅이 꽉 찬 메인, 스와이프하면 미처리 패널.
   · v1.3: 전산처리 체크 즉시 확인방 이동(주문확인·생산확인은 기록용) /
     확인방 = 전산대조 파이프라인 — 대조 프로그램이 일치 판정하면 자동으로 사라지고,
     매칭 실패 건은 ERP 거래처 코드를 입력해 매칭(erpmap에 학습 → 다음부터 자동 통과)
@@ -57,11 +60,14 @@
   .badge{display:inline-block;min-width:17px;padding:0 5px;border-radius:9px;background:var(--accent);
          color:#fff;font-size:10.5px;font-weight:800;line-height:17px;text-align:center}
 
-  /* ===== 2패널 레이아웃: 모바일 스와이프 / PC 나란히 ===== */
-  #wrap{display:flex;width:200vw;flex:1;min-height:0;
+  /* ===== 2패널 레이아웃: 모바일 스와이프 / PC 나란히 =====
+     #clip(액자)이 화면 크기로 잘라주고, 그 안에서 #wrap(200% 필름)이 좌우로 밉니다.
+     필름이 문서 밖으로 삐져나오지 않아 모바일 브라우저가 축소하지 않습니다. */
+  #clip{flex:1;min-height:0;overflow:hidden;position:relative}
+  #wrap{display:flex;width:200%;height:100%;
         transition:transform .28s cubic-bezier(.25,.7,.3,1)}
-  .pane{width:100vw;height:100%;display:flex;flex-direction:column;overflow:hidden}
-  #wrap.p1{transform:translateX(-100vw)}
+  .pane{width:50%;height:100%;display:flex;flex-direction:column;overflow:hidden}
+  #wrap.p1{transform:translateX(-50%)}
   .mnav{display:flex;background:#2a2a2a}
   .mnav button{flex:1;padding:8px;background:transparent;border:none;color:#b8b2a4;font-weight:800;
                font-size:13px;cursor:pointer;border-bottom:3px solid transparent;font-family:var(--sans)}
@@ -230,6 +236,7 @@
   <button id="mnav1" onclick="goPage(1)">📋 미처리 주문 <span id="mBadge" class="badge" style="display:none">0</span></button>
 </div>
 
+<div id="clip">
 <div id="wrap">
   <!-- ===== 왼쪽: 채팅 ===== -->
   <section class="pane" id="chatPane">
@@ -263,6 +270,7 @@
     <div id="sideScroll"></div>
   </section>
 </div>
+</div><!-- /clip -->
 
 <!-- Firebase (compat, CDN) — 주문노트와 동일 -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
