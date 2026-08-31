@@ -1,0 +1,1093 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>신화미트 주문방</title>
+<!--
+  신화미트 주문방 (chat.html) v1.0 — 2026-08-27
+  ─────────────────────────────────────────────
+  · 직원 전용 웹 채팅 — 카톡 쓰듯 주문을 쓰면, 글쓴이의 브라우저가 즉시
+    기존 parse(Gemini) 파이프라인으로 주문을 만들어 Firebase에 저장합니다.
+    (봇 없음 · 상시 켜둘 PC 없음 · 폴링 없음)
+  · PC: 왼쪽 채팅 + 오른쪽 미처리 주문 블록(체크 3개: 주문확인·생산확인·전산처리)
+    셋 다 체크되면 블록이 "확인방"으로 넘어가 전산대조 대기 상태가 됩니다.
+  · 모바일: 채팅만 보이고, 옆으로 스와이프하면 미처리 주문 패널이 나옵니다.
+  · 답장(↩)으로 "○○ 추가"를 쓰면 원본 주문의 거래처·날짜가 확정적으로 붙습니다.
+  · 사진은 Apps Script를 통해 구글 드라이브 '주문방_사진' 폴더에 저장됩니다.
+  · 의심 주문(지난 날짜·먼 미래·이상한 숫자 머리말·거래처 미확인·인식 실패)은
+    대표님 개인 텔레그램으로 발송됩니다 (Code.gs v1.2 tgNotify — TG_TOKEN/TG_ADMIN).
+  · 로그인·직원 승인·연결 설정(meta/config)은 주문노트(index.html)와 100% 공유.
+-->
+<style>
+  :root{
+    --ink:#1a1a1a; --paper:#f4f1ea; --line:#d9d4c8; --line-strong:#2a2a2a;
+    --accent:#8a1c1c; --accent-soft:#f3e4e2;
+    --ok:#1f6b3a; --ok-soft:#e3f0e7;
+    --wait:#9a6a00; --wait-soft:#fbf0d8;
+    --muted:#6f6a5d; --panel:#ffffff;
+    --mine:#3b3b33; --mine-txt:#f5f2ea;
+    --mono:'Consolas','D2Coding','Menlo',monospace;
+    --sans:'Pretendard','Malgun Gothic','Apple SD Gothic Neo',sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:14px;
+       -webkit-text-size-adjust:100%;overflow:hidden}
+
+  header.top{position:relative;z-index:50;background:var(--ink);color:#f5f2ea;display:flex;align-items:center;
+             gap:10px;padding:9px 14px;border-bottom:3px solid var(--accent)}
+  header.top h1{font-size:15px;margin:0;letter-spacing:2px;font-weight:800;white-space:nowrap}
+  header.top h1 b{color:#e8b4b0}
+  .hbtn{background:transparent;border:1px solid #555;color:#ddd;border-radius:4px;padding:4px 10px;
+        font-size:12px;cursor:pointer;font-family:var(--sans);white-space:nowrap}
+  .hbtn:hover{border-color:#aaa;color:#fff}
+  .status{margin-left:auto;font-size:11px;font-family:var(--mono);opacity:.85;display:flex;align-items:center;gap:6px;white-space:nowrap}
+  .dot{width:8px;height:8px;border-radius:50%;background:#c0392b}
+  .dot.on{background:#2ecc71}
+  .badge{display:inline-block;min-width:17px;padding:0 5px;border-radius:9px;background:var(--accent);
+         color:#fff;font-size:10.5px;font-weight:800;line-height:17px;text-align:center}
+
+  /* ===== 2패널 레이아웃: 모바일 스와이프 / PC 나란히 ===== */
+  #wrap{display:flex;width:200vw;height:calc(100dvh - 48px);
+        transition:transform .28s cubic-bezier(.25,.7,.3,1)}
+  .pane{width:100vw;height:100%;display:flex;flex-direction:column;overflow:hidden}
+  #wrap.p1{transform:translateX(-100vw)}
+  .mnav{display:flex;background:#2a2a2a}
+  .mnav button{flex:1;padding:8px;background:transparent;border:none;color:#b8b2a4;font-weight:800;
+               font-size:13px;cursor:pointer;border-bottom:3px solid transparent;font-family:var(--sans)}
+  .mnav button.on{color:#fff;border-bottom-color:var(--accent)}
+  @media (min-width:920px){
+    #wrap{width:100%;transform:none!important;display:grid;grid-template-columns:1fr 420px}
+    .pane{width:auto}
+    .mnav{display:none}
+    #chatPane{border-right:1px solid var(--line)}
+  }
+
+  /* ===== 채팅 ===== */
+  #chatScroll{flex:1;overflow-y:auto;padding:14px 12px 8px;-webkit-overflow-scrolling:touch}
+  .day-sep{text-align:center;margin:14px 0 10px}
+  .day-sep span{background:#e5e0d3;color:#5b564a;font-size:11px;font-weight:700;padding:3px 12px;border-radius:12px}
+  .msg-row{display:flex;margin-bottom:8px;align-items:flex-end;gap:6px}
+  .msg-row.mine{flex-direction:row-reverse}
+  .bubble-wrap{max-width:78%;display:flex;flex-direction:column}
+  .msg-row.mine .bubble-wrap{align-items:flex-end}
+  .m-name{font-size:11px;color:var(--muted);margin:0 4px 2px;font-weight:700}
+  .bubble{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+          padding:8px 11px;font-size:13.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word;
+          box-shadow:0 1px 0 rgba(0,0,0,.04)}
+  .msg-row.mine .bubble{background:var(--mine);color:var(--mine-txt);border-color:var(--mine)}
+  .m-time{font-size:10px;color:var(--muted);white-space:nowrap;padding-bottom:2px}
+  .m-state{font-size:10px;padding-bottom:2px;white-space:nowrap}
+  .m-state.parsing{color:var(--wait)} .m-state.error{color:var(--accent)} .m-state.done{color:var(--ok)}
+  .rbtn{background:none;border:none;color:#b5b0a4;font-size:13px;cursor:pointer;padding:2px 4px;
+        opacity:0;transition:opacity .15s;align-self:center}
+  .msg-row:hover .rbtn{opacity:.9}
+  @media (hover:none){ .rbtn{opacity:.55} }
+  .quote{border-left:3px solid var(--accent);background:rgba(138,28,28,.06);border-radius:4px;
+         padding:4px 8px;font-size:11.5px;color:#6a5c5c;margin-bottom:5px;cursor:pointer;
+         white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .msg-row.mine .quote{background:rgba(255,255,255,.12);color:#d8d2c4;border-left-color:#e8b4b0}
+  .quote b{font-weight:800}
+  .bubble img.ph{display:block;max-width:min(60vw,300px);max-height:300px;border-radius:6px;cursor:pointer;margin:2px 0}
+
+  /* 시스템 메시지 (파싱 결과) */
+  .sys-row{display:flex;justify-content:center;margin:2px 0 10px}
+  .sys{max-width:88%;background:#fbfaf5;border:1px dashed #c9c2b0;border-radius:8px;padding:7px 12px;
+       font-size:12px;line-height:1.6;color:#4a463c;white-space:pre-wrap;word-break:break-word}
+  .sys.warn{background:#fff6e6;border-color:#e8c979;color:#7a5a00}
+  .sys.err{background:#fdecea;border-color:#e8a9a2;color:#8a1c1c}
+  .sys .tag{font-weight:800}
+
+  /* 입력 바 */
+  #inputBar{background:var(--panel);border-top:1px solid var(--line);padding:8px 10px calc(8px + env(safe-area-inset-bottom))}
+  #replyBar{display:none;align-items:center;gap:8px;background:#f5f2ea;border:1px solid var(--line);
+            border-bottom:none;border-radius:8px 8px 0 0;padding:6px 10px;font-size:12px;color:#5b564a}
+  #replyBar.on{display:flex}
+  #replyBar .rt{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #replyBar button{background:none;border:none;font-size:14px;cursor:pointer;color:var(--muted)}
+  .in-row{display:flex;gap:8px;align-items:flex-end}
+  #chatInput{flex:1;min-height:40px;max-height:130px;padding:9px 12px;border:1px solid var(--line);
+             border-radius:8px;font-family:var(--sans);font-size:14px;line-height:1.45;resize:none;background:#fffef9}
+  #chatInput:focus{outline:none;border-color:var(--accent)}
+  .ibtn{width:42px;height:40px;border:1px solid var(--line);background:#fff;border-radius:8px;
+        font-size:18px;cursor:pointer;flex:0 0 auto}
+  #sendBtn{width:auto;min-width:66px;background:var(--accent);color:#fff;border:none;font-size:14px;font-weight:800;padding:0 16px}
+  #sendBtn:disabled{background:#b5b0a4}
+  .in-hint{font-size:10.5px;color:#a09a8a;margin-top:4px;text-align:right}
+
+  /* ===== 오른쪽: 미처리 주문 / 확인방 ===== */
+  #sidePane{background:#efece3}
+  .side-head{display:flex;gap:6px;align-items:center;padding:10px 12px 8px;flex-wrap:wrap}
+  .seg{display:flex;background:#e0dbcd;border-radius:7px;padding:3px;gap:3px}
+  .seg button{border:none;background:transparent;padding:6px 13px;border-radius:5px;font-weight:800;
+              font-size:12.5px;cursor:pointer;color:#6f6a5d;font-family:var(--sans);white-space:nowrap}
+  .seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.1)}
+  .datebar2{display:flex;align-items:center;gap:4px;margin-left:auto}
+  .datebar2 button{border:1px solid var(--line);background:#fff;border-radius:5px;padding:4px 9px;
+                   cursor:pointer;font-weight:800;font-size:13px}
+  .datebar2 .cur{font-family:var(--mono);font-weight:800;font-size:13px;padding:0 4px;letter-spacing:1px;cursor:pointer}
+  #sideScroll{flex:1;overflow-y:auto;padding:4px 12px 20px;-webkit-overflow-scrolling:touch}
+  .side-sum{font-size:11.5px;color:var(--muted);padding:2px 2px 8px}
+
+  .veh-h{display:flex;align-items:baseline;gap:8px;margin:12px 2px 6px}
+  .veh-h .v{font-family:var(--mono);font-weight:800;font-size:16px;letter-spacing:1px;
+            background:#efe9dd;border:1px solid var(--line);border-radius:5px;padding:2px 10px}
+  .veh-h .n{font-size:11px;color:var(--muted)}
+
+  .ocard{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--line-strong);
+         border-radius:7px;padding:9px 11px;margin-bottom:8px;box-shadow:0 1px 0 rgba(0,0,0,.04)}
+  .ocard.nocli{border-left-color:var(--accent);background:#fdf6f6}
+  .ocard.gone{opacity:0;transform:translateX(30px);transition:all .35s}
+  .oc-head{display:flex;align-items:baseline;gap:8px;margin-bottom:5px}
+  .oc-cli{font-weight:800;font-size:14px}
+  .oc-cli.warn{color:var(--accent)}
+  .oc-meta{font-size:11px;color:var(--muted)}
+  .oc-src{margin-left:auto;font-size:10px;color:#a09a8a;cursor:pointer}
+  .oc-items{font-size:12.5px;line-height:1.6;color:#333;margin-bottom:7px}
+  .oc-items .price{color:var(--accent);font-weight:700}
+  .oc-checks{display:flex;gap:4px}
+  .chk{flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:7px 2px;
+       border:1px solid var(--line);border-radius:6px;background:#faf8f2;cursor:pointer;user-select:none;
+       font-size:12px;font-weight:800;color:#8a857a;white-space:nowrap}
+  .chk input{pointer-events:none;margin:0;width:14px;height:14px;accent-color:var(--ok)}
+  .chk.on{background:var(--ok-soft);border-color:#bcd8c5;color:var(--ok)}
+  .chk:active{transform:scale(.97)}
+
+  /* 확인방 */
+  .ccard{background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:9px 11px;margin-bottom:8px}
+  .ccard .st{font-size:11px;font-weight:800;padding:2px 8px;border-radius:10px;white-space:nowrap}
+  .st.wait{background:#e6eef5;color:#1e4f7a}
+  .st.ok{background:var(--ok-soft);color:var(--ok)}
+  .st.ng{background:var(--accent-soft);color:var(--accent)}
+  .ccard .undo{margin-left:auto;border:1px solid var(--line);background:#fff;border-radius:5px;
+               padding:3px 9px;font-size:11px;cursor:pointer;color:#6f6a5d}
+  .date-h{font-family:var(--mono);font-weight:800;font-size:14px;letter-spacing:1px;margin:14px 2px 6px;
+          border-bottom:2px solid var(--line-strong);padding-bottom:3px}
+  .empty{padding:40px 10px;text-align:center;color:var(--muted);font-size:13px;line-height:1.7}
+
+  /* ===== 로그인 게이트 (주문노트와 동일) ===== */
+  .gate{position:fixed;inset:0;z-index:200;background:var(--ink);display:flex;align-items:center;justify-content:center;padding:20px}
+  .gate.hide{display:none}
+  .gate-card{background:var(--panel);border-radius:8px;padding:32px 28px;width:100%;max-width:380px;text-align:center;border-top:4px solid var(--accent)}
+  .gate-mark{font-size:15px;font-weight:800;letter-spacing:3px}
+  .gate-mark b{color:var(--accent)}
+  .gate-title{font-size:26px;font-weight:800;letter-spacing:4px;margin-top:6px}
+  .gate-sub{color:var(--muted);font-size:12px;margin-top:8px;line-height:1.6}
+  .gbtn{width:100%;margin-top:18px;background:var(--accent);color:#fff;border:none;padding:12px;border-radius:6px;
+        font-size:14px;font-weight:800;cursor:pointer;font-family:var(--sans)}
+  .msg{margin-top:12px;font-size:13px;font-weight:600;min-height:18px;white-space:pre-wrap}
+  .msg.ok{color:var(--ok)} .msg.err{color:var(--accent)}
+  .uidbox{margin-top:14px;padding:12px;background:#f5f2ea;border-radius:6px;text-align:left;word-break:break-all;display:none}
+  .uidbox code{font-size:12px;display:block;margin-top:4px;font-family:var(--mono)}
+  .spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(0,0,0,.15);border-top-color:var(--accent);
+           border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<div id="gate" class="gate">
+  <div class="gate-card">
+    <div class="gate-mark">신화<b>미트</b></div>
+    <div class="gate-title">주문방</div>
+    <div class="gate-sub">직원 전용 주문 채팅방입니다.<br>주문노트와 같은 구글 계정으로 로그인하세요.</div>
+    <button class="gbtn" onclick="signIn()">Google 계정으로 로그인</button>
+    <div id="gateMsg" class="msg"></div>
+    <div id="uidBox" class="uidbox">
+      <div style="font-size:11px;color:var(--muted)">내 UID</div>
+      <code id="myUid"></code>
+    </div>
+  </div>
+</div>
+
+<header class="top">
+  <h1>신화<b>미트</b> · 주문방</h1>
+  <button class="hbtn" onclick="window.open('index.html','_blank')">📓 주문노트</button>
+  <div class="status"><span id="whoami" style="margin-right:4px"></span><span id="fbdot" class="dot"></span><span id="fbstat">연결 준비</span></div>
+</header>
+
+<!-- 모바일 상단 탭 (스와이프와 연동) -->
+<div class="mnav">
+  <button id="mnav0" class="on" onclick="goPage(0)">💬 채팅</button>
+  <button id="mnav1" onclick="goPage(1)">📋 미처리 주문 <span id="mBadge" class="badge" style="display:none">0</span></button>
+</div>
+
+<div id="wrap">
+  <!-- ===== 왼쪽: 채팅 ===== -->
+  <section class="pane" id="chatPane">
+    <div id="chatScroll"></div>
+    <div id="inputBar">
+      <div id="replyBar"><span>↩</span><span class="rt" id="replyTxt"></span><button onclick="clearReply()">✕</button></div>
+      <div class="in-row">
+        <button class="ibtn" title="사진 올리기" onclick="document.getElementById('photoIn').click()">📷</button>
+        <input type="file" id="photoIn" accept="image/*" style="display:none" onchange="sendPhoto(this)">
+        <textarea id="chatInput" placeholder="주문을 카톡에 쓰듯 그대로 입력하세요&#10;예) 0828  /  소들녘  /  삼겹살 3키로 2봉지"></textarea>
+        <button class="ibtn" id="sendBtn" onclick="sendMsg()">전송</button>
+      </div>
+      <div class="in-hint">Enter 전송 · Shift+Enter 줄바꿈 · 메시지의 ↩로 답장(추가 주문)</div>
+    </div>
+  </section>
+
+  <!-- ===== 오른쪽: 미처리 주문 / 확인방 ===== -->
+  <section class="pane" id="sidePane">
+    <div class="side-head">
+      <div class="seg">
+        <button id="segPend" class="on" onclick="setSide('pend')">📋 미처리 <span id="pendBadge" class="badge" style="display:none">0</span></button>
+        <button id="segConf" onclick="setSide('conf')">🔎 확인방 <span id="confBadge" class="badge" style="display:none;background:#1e4f7a">0</span></button>
+      </div>
+      <div class="datebar2" id="dateNav">
+        <button onclick="shiftDate(-1)">‹</button>
+        <span class="cur" id="curDate" onclick="setToday()" title="누르면 오늘로">--.--</span>
+        <button onclick="shiftDate(1)">›</button>
+      </div>
+    </div>
+    <div id="sideScroll"></div>
+  </section>
+</div>
+
+<!-- Firebase (compat, CDN) — 주문노트와 동일 -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script>
+/* ============================================================
+   설정 — 주문노트(index.html)와 같은 localStorage 키·기본값을 씁니다.
+   주문노트에 로그인해 본 브라우저면 설정이 이미 있고,
+   처음인 브라우저도 로그인만 하면 meta/config에서 자동 수신합니다.
+   ============================================================ */
+const LS='shinwha_note_cfg';
+const DEFAULT_FB={
+  fbUrl:'https://shinwha-note-default-rtdb.asia-southeast1.firebasedatabase.app',
+  fbKey:'AIzaSyD4rYh_bfHjL5ajCf6_IKbA7gRb0CU3MJU',
+  fbProj:'shinwha-note'
+};
+let cfg=JSON.parse(localStorage.getItem(LS)||'{}');
+if(!cfg.fbUrl && DEFAULT_FB.fbUrl){ cfg=Object.assign({}, DEFAULT_FB, cfg); }
+let db=null, auth=null, ME=null, fbReady=false, IS_ADMIN=false, ALLOWED=false;
+let MYNAME='';
+
+let ORDERS={}, MASTER={}, LEARNED={perCustomer:{},global:{}}, ALIASES={}, RECENT={}, PRODBYCODE={};
+let seenHashes=new Set();
+let CHAT={};             // msgId -> message
+const VORDER=['0966','6506','1982','4232','택배','사무실','온라인','미지정'];
+const VEH_MERGE={'방문':'사무실','마포':'사무실'};
+const VEH_NUMS=['0966','6506','1982','4232'];
+const SITE_URL=location.origin+location.pathname;   // 텔레그램 알림에 넣을 링크
+
+/* ---------- 공용 유틸 (주문노트와 동일 로직) ---------- */
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function todayStr(){ const d=new Date(); const p=n=>String(n).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
+function mmdd(d){ return String(d||'').slice(5).replace('-','.'); }
+function hhmm(ts){ const d=new Date(ts); const p=n=>String(n).padStart(2,'0'); return p(d.getHours())+':'+p(d.getMinutes()); }
+function shortName(name){ return String(name||'').split(/[\(\-]/)[0].trim(); }
+
+let _clientIndex=null;
+function buildClientIndex(){
+  _clientIndex={};
+  for(const c in MASTER){
+    const k=cliNorm(c);
+    if(!k) continue;
+    (_clientIndex[k]=_clientIndex[k]||[]).push(c);
+  }
+}
+function cliNorm(n){
+  n=String(n||'');
+  n=n.replace(/^[\-\s]+/,'');
+  n=n.replace(/^(신규|택배)\s*[-–]?\s*/,'');
+  n=n.replace(/\([^)]*\)?/g,'');
+  n=n.replace(/[\-–—]\s*(카드|현금|신규).*$/,'');
+  n=n.replace(/\(주\)|㈜|주식회사/g,'');
+  return n.replace(/[^가-힣A-Za-z0-9]/g,'').toLowerCase();
+}
+function matchClient(raw){
+  if(!_clientIndex) buildClientIndex();
+  const rawT=String(raw||'').trim();
+  if(rawT && ALIASES[rawT]) return ALIASES[rawT];
+  const k=cliNorm(raw);
+  if(!k) return shortName(raw);
+  for(const a in ALIASES){ if(cliNorm(a)===k) return ALIASES[a]; }
+  if(_clientIndex[k]) return _clientIndex[k][0];
+  const inner=String(raw).match(/[\(（]([^)）]*)/);
+  if(inner){
+    const ik=cliNorm(inner[1].replace(/^구[-\s]*/,''));
+    if(ik.length>=2 && _clientIndex[ik]) return _clientIndex[ik][0];
+  }
+  const keys=Object.keys(_clientIndex).sort((a,b)=>b.length-a.length);
+  let hit=keys.find(m=>m.length>=3 && k.startsWith(m));
+  if(hit) return _clientIndex[hit][0];
+  hit=keys.find(m=>k.length>=3 && m.startsWith(k));
+  if(hit) return _clientIndex[hit][0];
+  return shortName(raw);
+}
+function learnKey(s){
+  return String(s||'').replace(/[\s\d\.\,]+/g,'').replace(/(키로|킬로|kg|KG|Kg|박스|팩|봉지|개|장|줄|판|리|두|마리|덩이|짝)+$/,'').toLowerCase();
+}
+function correctProduct(client, product, text){
+  const key=learnKey(product);
+  if(!key) return null;
+  const pc=LEARNED.perCustomer[client];
+  if(pc){
+    if(pc[product]!==undefined) return {item:pc[product], via:'거래처'};
+    if(pc[key]!==undefined) return {item:pc[key], via:'거래처'};
+  }
+  if(LEARNED.global[product]!==undefined) return {item:LEARNED.global[product], via:'공통'};
+  if(LEARNED.global[key]!==undefined) return {item:LEARNED.global[key], via:'공통'};
+  const cands=recentCandidates(client, product);
+  if(cands.length===1) return {item:cands[0].item, via:'최근', cands};
+  if(cands.length>1)  return {item:cands[0].item, via:'최근', cands};
+  return null;
+}
+function recentCandidates(client, katok){
+  const list=RECENT[client];
+  if(!list||!list.length) return [];
+  const kw=learnKey(katok);
+  if(!kw || kw.length<2) return [];
+  const out=[];
+  for(const d of list){
+    const ik=learnKey(d.item);
+    if(!ik) continue;
+    if(ik.includes(kw)||kw.includes(ik)) out.push(d);
+  }
+  out.sort((a,b)=>(b.cnt||0)-(a.cnt||0));
+  return out.slice(0,6);
+}
+function normVeh(v){
+  v=String(v||'').trim();
+  if(VEH_MERGE[v]) return VEH_MERGE[v];
+  return v||'미지정';
+}
+function matchVehicle(client){
+  const m=MASTER[client];
+  return m?normVeh(m.vehicle):'';
+}
+function hashOrder(o){
+  const key=(o.date||'')+'|'+(o.client||'')+'|'+(o.items||[]).map(i=>i.text).join('~');
+  let h=0;for(let i=0;i<key.length;i++){h=(h*31+key.charCodeAt(i))|0;}
+  return 'h'+(h>>>0).toString(36);
+}
+function dedupKey(date,client,itemText){
+  return date+'|'+cliNorm(client)+'|'+String(itemText||'').replace(/\s+/g,'');
+}
+function itemText(it){ return it.text||it.product||''; }
+
+/* ---------- Apps Script 호출 ---------- */
+async function gsCall(action, payload={}){
+  if(!cfg.gsUrl) throw new Error('연결 설정이 없습니다 — 주문노트에 한 번 로그인하거나, 관리자에게 문의하세요');
+  const body=new URLSearchParams({action, token:cfg.token||'', ...payload});
+  const res=await fetch(cfg.gsUrl,{method:'POST',body});
+  if(!res.ok) throw new Error('서버 오류 '+res.status);
+  const j=await res.json();
+  if(j.error) throw new Error(j.error);
+  return j;
+}
+
+/* ============================================================
+   로그인 · 권한 (주문노트와 동일 흐름)
+   ============================================================ */
+function setStat(on,txt){fbdot.classList.toggle('on',on);fbstat.textContent=txt;}
+function gateMsgSet(t,ok){const e=document.getElementById('gateMsg');e.textContent=t;e.className='msg '+(ok?'ok':'err');}
+function showGate(){document.getElementById('gate').classList.remove('hide');}
+function hideGate(){document.getElementById('gate').classList.add('hide');}
+
+function initFirebase(){
+  if(!cfg.fbUrl||!cfg.fbKey||!cfg.fbProj){
+    setStat(false,'설정 필요');
+    gateMsgSet('연결 설정이 없습니다. 관리자에게 문의하세요.',false);
+    return;
+  }
+  try{
+    if(!firebase.apps.length){
+      firebase.initializeApp({
+        apiKey:cfg.fbKey, databaseURL:cfg.fbUrl, projectId:cfg.fbProj,
+        authDomain:cfg.fbProj+'.firebaseapp.com'
+      });
+    }
+    db=firebase.database();
+    auth=firebase.auth();
+    auth.onAuthStateChanged(u=>{
+      if(u){ ME=u; onSignedIn(u); }
+      else { ME=null; fbReady=false; showGate(); setStat(false,'로그아웃됨'); }
+    });
+    setStat(false,'로그인 필요');
+  }catch(e){setStat(false,'연결 오류');gateMsgSet('연결 오류: '+e.message,false);console.error(e);}
+}
+function signIn(){
+  if(!auth){ gateMsgSet('연결 설정이 없습니다.',false); return; }
+  const p=new firebase.auth.GoogleAuthProvider();
+  auth.signInWithPopup(p).catch(e=>gateMsgSet('로그인 실패: '+e.message,false));
+}
+function signOut(){ if(auth) auth.signOut(); }
+
+async function onSignedIn(u){
+  MYNAME=(u.displayName||String(u.email||'').split('@')[0]||'직원').trim();
+  // 공유 설정 자동 수신 (meta/config)
+  try{
+    const ss=await db.ref('meta/config').once('value');
+    const c=ss.val();
+    if(c && c.gsUrl && (cfg.gsUrl!==c.gsUrl || cfg.token!==c.token)){
+      cfg=Object.assign({}, cfg, {gsUrl:c.gsUrl, token:c.token});
+      localStorage.setItem(LS, JSON.stringify(cfg));
+    }
+  }catch(e){ /* 미승인 계정은 못 읽음 */ }
+
+  // 권한 확인
+  let access={adminUid:'',emails:[],uids:[]};
+  try{ const j=await gsCall('getAccess'); access=j.access||access; }
+  catch(e){ console.error('getAccess',e); }
+  const email=(u.email||'').toLowerCase();
+  IS_ADMIN = !!(access.adminUid && u.uid===access.adminUid);
+  ALLOWED = IS_ADMIN || (access.emails && access.emails.indexOf(email)>=0);
+  if(!ALLOWED){
+    showGate(); setStat(false,'승인 대기');
+    let msg='접속 권한이 없습니다.';
+    try{
+      const r=await gsCall('requestAccess',{email:email, uid:u.uid, name:(u.displayName||'')});
+      if(r.status==='pending') msg='접속 신청이 접수되었습니다.\n대표님이 승인하면 바로 사용할 수 있습니다.';
+    }catch(e){ msg='접속 신청에 실패했습니다. 잠시 후 다시 시도해 주세요.'; }
+    document.getElementById('uidBox').style.display='';
+    document.getElementById('myUid').textContent=u.uid;
+    gateMsgSet(msg,false);
+    return;
+  }
+
+  // 데이터 구독 (규칙이 막으면 권한 안내)
+  db.ref('orders').on('value',s=>{
+    fbReady=true; hideGate(); setStat(true,'실시간 연결됨');
+    ORDERS=s.val()||{};
+    for(const id in ORDERS){
+      const o=ORDERS[id];
+      if(!o || typeof o!=='object'){ delete ORDERS[id]; continue; }
+      if(!Array.isArray(o.items)) o.items=[];
+      if(!o.id) o.id=id;
+    }
+    seenHashes=new Set(Object.values(ORDERS).map(o=>o.hash).filter(Boolean));
+    renderSide();
+  },err=>{
+    fbReady=false; showGate();
+    gateMsgSet('이 계정은 데이터 접근 권한이 없습니다.\n아래 UID를 관리자에게 알려 Firebase 규칙에 넣어달라고 하세요.',false);
+    document.getElementById('uidBox').style.display='';
+    document.getElementById('myUid').textContent=u.uid;
+    setStat(false,'권한 없음');
+  });
+
+  startChat();
+  loadMaster();
+  renderWhoami(u);
+}
+function renderWhoami(u){
+  document.getElementById('whoami').innerHTML=esc(u.email||'')+' <button class="hbtn" style="padding:2px 8px" onclick="signOut()">로그아웃</button>';
+}
+async function loadMaster(){
+  try{
+    const j=await gsCall('getMaster');
+    MASTER=j.master||{};
+    LEARNED=j.learned||{perCustomer:{},global:{}};
+    ALIASES=j.aliases||{};
+    _clientIndex=null;
+    PRODBYCODE={};
+    for(const c in MASTER) (MASTER[c].specs||[]).forEach(s=>{ if(s.code) PRODBYCODE[s.code]=s.product; });
+  }catch(e){ console.error('마스터 로드 실패', e); }
+}
+
+/* ============================================================
+   채팅
+   ============================================================ */
+let CHAT_STARTED=false, lastDaySep='';
+function startChat(){
+  if(CHAT_STARTED || !db) return;
+  CHAT_STARTED=true;
+  const ref=db.ref('chat').limitToLast(200);
+  ref.on('child_added', s=>{ CHAT[s.key]=s.val(); appendMsg(s.key, s.val()); rescueIfStale(s.key, s.val()); });
+  ref.on('child_changed', s=>{ CHAT[s.key]=s.val(); updateMsg(s.key, s.val()); });
+}
+
+function chatScrollBottom(){
+  const el=document.getElementById('chatScroll');
+  requestAnimationFrame(()=>{ el.scrollTop=el.scrollHeight; });
+}
+function nearBottom(){
+  const el=document.getElementById('chatScroll');
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 160;
+}
+
+function appendMsg(id, m){
+  if(!m) return;
+  const box=document.getElementById('chatScroll');
+  const stick=nearBottom();
+
+  // 날짜 구분선
+  const day=new Date(m.ts||Date.now());
+  const dayStr=day.getFullYear()+'.'+String(day.getMonth()+1).padStart(2,'0')+'.'+String(day.getDate()).padStart(2,'0')
+    +' ('+'일월화수목금토'[day.getDay()]+')';
+  if(dayStr!==lastDaySep){
+    lastDaySep=dayStr;
+    const sep=document.createElement('div'); sep.className='day-sep';
+    sep.innerHTML='<span>'+esc(dayStr)+'</span>';
+    box.appendChild(sep);
+  }
+
+  let el;
+  if(m.sys){
+    el=document.createElement('div'); el.className='sys-row'; el.id='m_'+id;
+    const d=document.createElement('div');
+    d.className='sys'+(m.kind==='warn'?' warn':m.kind==='err'?' err':'');
+    d.innerHTML=sysHtml(m);
+    el.appendChild(d);
+  }else{
+    el=document.createElement('div');
+    el.className='msg-row'+((ME&&m.uid===ME.uid)?' mine':'');
+    el.id='m_'+id;
+    el.innerHTML=bubbleHtml(id,m);
+  }
+  box.appendChild(el);
+  if(stick||m.uid===(ME&&ME.uid)) chatScrollBottom();
+}
+function updateMsg(id, m){
+  const el=document.getElementById('m_'+id);
+  if(!el||!m) return;
+  if(m.sys){
+    const d=el.querySelector('.sys');
+    if(d){ d.className='sys'+(m.kind==='warn'?' warn':m.kind==='err'?' err':''); d.innerHTML=sysHtml(m); }
+  }else{
+    el.innerHTML=bubbleHtml(id,m);
+  }
+}
+function sysHtml(m){ return '<span class="tag">🤖</span> '+esc(m.text||''); }
+function stateHtml(m){
+  if(m.status==='parsing') return '<span class="m-state parsing">분석중…</span>';
+  if(m.status==='error')   return '<span class="m-state error">⚠ 실패</span>';
+  if(m.status==='done')    return '<span class="m-state done">✓</span>';
+  return '';
+}
+function bubbleHtml(id,m){
+  let quote='';
+  if(m.replyTo && CHAT[m.replyTo]){
+    const om=CHAT[m.replyTo];
+    const t=(om.text||(om.photo?'📷 사진':'')).split(/\n/)[0].slice(0,40);
+    quote='<div class="quote" onclick="jumpTo(\''+esc(m.replyTo)+'\')"><b>'+esc(om.name||'')+'</b> '+esc(t)+'</div>';
+  }
+  let body='';
+  if(m.photo && m.photo.id){
+    body+='<img class="ph" src="https://drive.google.com/thumbnail?id='+esc(m.photo.id)+'&sz=w480" '
+        +'onclick="window.open(\'https://drive.google.com/file/d/'+esc(m.photo.id)+'/view\',\'_blank\')" '
+        +'onerror="this.replaceWith(Object.assign(document.createElement(\'a\'),{href:\'https://drive.google.com/file/d/'+esc(m.photo.id)+'/view\',target:\'_blank\',textContent:\'📷 사진 열기\'}))">';
+  }
+  if(m.text) body+=esc(m.text);
+  return '<div class="bubble-wrap">'
+    +'<div class="m-name">'+esc(m.name||'')+'</div>'
+    +'<div class="bubble">'+quote+body+'</div>'
+    +'</div>'
+    +'<span>'+stateHtml(m)+'<span class="m-time">'+hhmm(m.ts||Date.now())+'</span></span>'
+    +'<button class="rbtn" title="이 메시지에 답장 (추가 주문)" onclick="setReply(\''+esc(id)+'\')">↩</button>';
+}
+function jumpTo(id){
+  const el=document.getElementById('m_'+id);
+  if(el){ el.scrollIntoView({behavior:'smooth',block:'center'});
+    el.style.transition='background .3s'; el.style.background='rgba(138,28,28,.08)';
+    setTimeout(()=>{el.style.background='';},900); }
+}
+
+/* ---------- 답장 ---------- */
+let REPLY_TO=null;
+function setReply(id){
+  const m=CHAT[id];
+  if(!m||m.sys) return;
+  REPLY_TO=id;
+  const t=(m.text||(m.photo?'📷 사진':'')).split(/\n/)[0].slice(0,50);
+  document.getElementById('replyTxt').innerHTML='<b>'+esc(m.name||'')+'</b>에게 답장: '+esc(t);
+  document.getElementById('replyBar').classList.add('on');
+  document.getElementById('chatInput').focus();
+}
+function clearReply(){
+  REPLY_TO=null;
+  document.getElementById('replyBar').classList.remove('on');
+}
+
+/* ---------- 전송 ---------- */
+const inputEl=document.getElementById('chatInput');
+inputEl.addEventListener('keydown', ev=>{
+  if(ev.key==='Enter' && !ev.shiftKey && !ev.isComposing){
+    ev.preventDefault(); sendMsg();
+  }
+});
+inputEl.addEventListener('input', ()=>{
+  inputEl.style.height='auto';
+  inputEl.style.height=Math.min(inputEl.scrollHeight,130)+'px';
+});
+
+async function sendMsg(){
+  const text=inputEl.value.trim();
+  if(!text) return;
+  if(!fbReady){ alert('아직 서버에 연결되지 않았습니다.'); return; }
+  const btn=document.getElementById('sendBtn');
+  btn.disabled=true;
+  const msg={uid:ME.uid, name:MYNAME, text, ts:Date.now(), status:'parsing'};
+  if(REPLY_TO) msg.replyTo=REPLY_TO;
+  const ref=db.ref('chat').push();
+  try{
+    await ref.set(msg);
+  }catch(e){ alert('전송 실패: '+e.message); btn.disabled=false; return; }
+  inputEl.value=''; inputEl.style.height='auto';
+  const rTo=REPLY_TO; clearReply();
+  btn.disabled=false;
+  processMessage(ref.key, Object.assign({},msg,{replyTo:rTo||null}));   // 글쓴이 브라우저가 즉시 파싱
+}
+
+async function sendPhoto(input){
+  const file=input.files && input.files[0];
+  input.value='';
+  if(!file || !fbReady) return;
+  const btn=document.getElementById('sendBtn');
+  btn.disabled=true; btn.textContent='…';
+  try{
+    const b64=await compressImage(file);
+    const r=await gsCall('chatPhoto',{data:b64, name:file.name||'photo.jpg', by:MYNAME});
+    const msg={uid:ME.uid, name:MYNAME, text:'', photo:{id:r.id}, ts:Date.now(), status:'done'};
+    if(REPLY_TO){ msg.replyTo=REPLY_TO; clearReply(); }
+    await db.ref('chat').push().set(msg);
+  }catch(e){
+    alert('사진 업로드 실패: '+e.message);
+  }finally{
+    btn.disabled=false; btn.textContent='전송';
+  }
+}
+function compressImage(file){
+  return new Promise((res,rej)=>{
+    const img=new Image();
+    const url=URL.createObjectURL(file);
+    img.onload=()=>{
+      URL.revokeObjectURL(url);
+      const MAX=1400;
+      let w=img.width,h=img.height;
+      if(w>MAX||h>MAX){ const r=Math.min(MAX/w,MAX/h); w=Math.round(w*r); h=Math.round(h*r); }
+      const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+      cv.getContext('2d').drawImage(img,0,0,w,h);
+      const dataUrl=cv.toDataURL('image/jpeg',0.82);
+      res(dataUrl.slice(dataUrl.indexOf(',')+1));
+    };
+    img.onerror=()=>{ URL.revokeObjectURL(url); rej(new Error('이미지를 읽을 수 없습니다')); };
+    img.src=url;
+  });
+}
+
+/* ============================================================
+   메시지 → 주문 생성 (주문노트 processChunk 이식, 단일 메시지판)
+   글쓴이 브라우저에서 실행됩니다. 봇·상시 PC 불필요.
+   ============================================================ */
+async function processMessage(msgId, m){
+  if(!m.text){ return; }
+  const mref=db.ref('chat/'+msgId);
+  try{
+    // 답장이면 원본 메시지가 만든 주문에서 거래처·날짜를 확정
+    let forced=null;
+    if(m.replyTo && CHAT[m.replyTo] && CHAT[m.replyTo].orders && CHAT[m.replyTo].orders.length){
+      const oo=ORDERS[CHAT[m.replyTo].orders[0]];
+      if(oo && oo.client && !oo.needClient) forced={client:oo.client, date:oo.date};
+    }
+    const tot=await createOrders(m.text, forced, msgId, m.name||'');
+    await mref.update({status:'done', orders:tot.ids});
+
+    // 결과를 시스템 답장으로
+    let lines=[];
+    tot.lines.slice(0,8).forEach(l=>lines.push(l));
+    if(tot.lines.length>8) lines.push('…외 '+(tot.lines.length-8)+'건');
+    if(tot.dup) lines.push('🔁 중복 '+tot.dup+'건 건너뜀 (이미 등록됨)');
+    if(tot.fixed) lines.push('🔧 상품명 '+tot.fixed+'개 자동 교정');
+    if(tot.trimmed) lines.push('✂ 잡음 '+tot.trimmed+'개 제외');
+    if(tot.needClient) lines.push('⚠ 거래처 미확인 '+tot.needClient+'건 — 주문노트 ①-1에서 지정하세요');
+    if(tot.newClients.length) lines.push('🆕 신규 거래처: '+tot.newClients.join(', '));
+    if(!tot.ids.length && !tot.dup) lines.push('🚨 주문으로 인식하지 못했습니다 — 형식을 확인하거나 관리자에게 문의하세요');
+    const kind = (!tot.ids.length && !tot.dup) ? 'err' : (tot.needClient?'warn':'');
+    await db.ref('chat').push().set({sys:1, kind, ref:msgId, ts:Date.now(), text:lines.join('\n')});
+
+    // 학습 대기 적재
+    if(tot.pending && tot.pending.length){
+      gsCall('addPending',{rows:JSON.stringify(tot.pending)}).catch(()=>{});
+    }
+    // 의심 주문 → 대표님 텔레그램
+    checkSuspicion(m, tot);
+  }catch(e){
+    console.error('processMessage',e);
+    await mref.update({status:'error'}).catch(()=>{});
+    await db.ref('chat').push().set({sys:1, kind:'err', ref:msgId, ts:Date.now(),
+      text:'⚠ 분석 실패: '+String(e.message||e)+'\n잠시 후 메시지를 다시 보내거나 관리자에게 문의하세요.'}).catch(()=>{});
+  }
+}
+
+async function createOrders(text, forced, msgId, senderName){
+  const baseDate = forced ? forced.date : todayStr();
+  const tot={ids:[], lines:[], dup:0, fixed:0, trimmed:0, needClient:0, newClients:[], pending:[], dates:[]};
+  const j=await gsCall('parse',{text, baseDate});
+  const parsed=j.orders||[];
+  if(!parsed.length) return tot;
+
+  // 이 메시지에 나온 거래처들의 ERP 최근구매를 한 번에
+  const need=[...new Set(parsed.map(o=>matchClient(o.client)).filter(c=>c && !(c in RECENT)))];
+  if(need.length){
+    try{
+      const r=await gsCall('getRecent',{clients:JSON.stringify(need)});
+      const got=r.recent||{};
+      need.forEach(c=>{ RECENT[c]=got[c]||[]; });
+    }catch(e){ console.warn('getRecent',e); }
+  }
+
+  for(let o of parsed){
+    let sk=matchClient(o.client);
+    if((!sk || !String(o.client||'').trim()) && forced){ sk=forced.client; }   // 답장 → 원본 거래처 확정
+    const isNew = sk && !MASTER[sk];
+    if(isNew){
+      MASTER[sk]={vehicle:'',single:'',specs:[]};
+      _clientIndex=null;
+      tot.newClients.push(sk);
+      gsCall('upsertClient',{client:sk, vehicle:'', single:''}).catch(e=>console.warn(e));
+    }
+    o.client=sk;
+    o.date=o.date||baseDate;
+    o.vehicle=normVeh(o.vehicle||matchVehicle(sk)||'미지정');
+    if(!sk){ o.needClient=true; tot.needClient++; }
+
+    // 단일품목 업체
+    const single=(MASTER[sk]&&MASTER[sk].single)||'';
+    if(single){
+      o.items=(o.items||[]).map(it=>{
+        const numMatch=(it.text||'').match(/[\d\.]+\s*(키로|킬로|kg|박스|팩|봉지|개|장|줄|판|리|두|마리|덩이|짝)?/i);
+        const qty=numMatch?numMatch[0].trim():'';
+        return {product:single, text:single+(qty?' '+qty:''), price:it.price||''};
+      });
+    }else{
+      o.items=(o.items||[]).filter(it=>{
+        const c=correctProduct(sk, it.product, it.text);
+        if(c && c.item==='삭제' && (c.via==='거래처'||c.via==='공통')){ tot.trimmed++; return false; }
+        if(!c || (c.via!=='거래처' && c.via!=='공통')){
+          const kw=(it.product||'').trim();
+          if(kw && kw.length>=2) tot.pending.push({client:sk, katok:kw, text:(it.text||'').slice(0,60)});
+        }
+        if(c && c.item!==it.product){
+          it.wasProduct=it.product||'';
+          it.product=c.item; it.fixed=1; it.via=c.via;
+          if(c.cands && c.cands.length>1) it.cands=c.cands.map(x=>x.item);
+          tot.fixed++;
+        }
+        return true;
+      });
+      if(!o.items.length) continue;
+    }
+
+    // 같은 날짜·거래처가 이미 있으면 품목만 병합 (품목 단위 중복 검사)
+    const existing=sk ? Object.values(ORDERS).find(x=>x && x.date===o.date && !x.needClient && cliNorm(x.client)===cliNorm(sk)) : null;
+    if(existing){
+      const have=new Set((existing.items||[]).map(it=>dedupKey(o.date,sk,it.text)));
+      const toAdd=(o.items||[]).filter(it=>{
+        const k=dedupKey(o.date,sk,it.text);
+        if(have.has(k)){ tot.dup++; return false; }
+        have.add(k); return true;
+      });
+      if(!toAdd.length) continue;
+      existing.items=(existing.items||[]).concat(toAdd);
+      existing.hash=hashOrder(existing);
+      existing.gapDone=false;
+      existing.ts=Date.now();
+      const upd={items:existing.items, hash:existing.hash, gapDone:false, ts:existing.ts};
+      // 이미 확인방으로 넘어간 주문에 품목이 추가되면 → 다시 미처리로 되돌림 (전산 재확인 필요)
+      if(existing.confirm){ upd.confirm=null; upd.confirmAt=null; upd['chk/erp']=null; existing.confirm=null; if(existing.chk) delete existing.chk.erp; }
+      await db.ref('orders/'+existing.id).update(upd);
+      tot.ids.push(existing.id);
+      tot.dates.push(o.date);
+      tot.lines.push('➕ '+sk+' ('+mmdd(o.date)+')에 '+toAdd.length+'품목 추가'+(existing.confirm===null?' — 확인방에서 미처리로 복귀':''));
+      continue;
+    }
+
+    o.hash=hashOrder(o);
+    if(seenHashes.has(o.hash)){ tot.dup+=(o.items||[]).length; continue; }
+
+    o.done=false; o.ts=Date.now(); o.chatMsg=msgId; o.by=senderName;
+    const ref=db.ref('orders').push();
+    o.id=ref.key;
+    await ref.set(o);
+    ORDERS[o.id]=o;
+    seenHashes.add(o.hash);
+    tot.ids.push(o.id);
+    tot.dates.push(o.date);
+    tot.lines.push('✅ '+(sk||'(거래처 미확인)')+' · '+mmdd(o.date)+' · '+(o.items||[]).length+'품목 → '+o.vehicle);
+  }
+  return tot;
+}
+
+/* ---------- 의심 주문 판정 → 대표님 텔레그램 ---------- */
+function validMMDD(t){
+  if(!/^\d{3,4}$/.test(t)) return false;
+  const s=t.padStart(4,'0');
+  const mm=Number(s.slice(0,2)), dd=Number(s.slice(2));
+  return mm>=1&&mm<=12&&dd>=1&&dd<=31;
+}
+function checkSuspicion(m, tot){
+  const reasons=[];
+  const today=todayStr();
+  const lim=new Date(); lim.setDate(lim.getDate()+7);
+  const limStr=lim.getFullYear()+'-'+String(lim.getMonth()+1).padStart(2,'0')+'-'+String(lim.getDate()).padStart(2,'0');
+  [...new Set(tot.dates)].forEach(d=>{
+    if(d<today) reasons.push('지난 날짜로 주문이 잡혔습니다: '+d);
+    else if(d>limStr) reasons.push('7일 넘는 먼 미래 날짜입니다: '+d);
+  });
+  // 이상한 숫자 머리말 (0840 처럼 월·일이 불가능한 3~4자리, 차량번호 제외)
+  const lines=String(m.text||'').split(/\n/).map(s=>s.trim()).filter(Boolean).slice(0,3);
+  for(const ln of lines){
+    if(/^\d{3,4}$/.test(ln) && VEH_NUMS.indexOf(ln)<0 && !validMMDD(ln)){
+      reasons.push('이상한 숫자 머리말: "'+ln+'" (날짜 오타 의심)'); break;
+    }
+    if(/[가-힣]/.test(ln)) break;
+  }
+  if(tot.needClient) reasons.push('거래처 미확인 '+tot.needClient+'건 (①-1 지정 필요)');
+  if(!tot.ids.length && !tot.dup){
+    const toks=(String(m.text||'').match(/[가-힣A-Za-z0-9]{2,}/g)||[]);
+    if(toks.length>=2 || /\d/.test(m.text)) reasons.push('주문으로 인식하지 못한 메시지');
+  }
+  if(!reasons.length) return;
+
+  db.ref('chat').push().set({sys:1, kind:'warn', ref:'', ts:Date.now(),
+    text:'⚠ 이 주문은 확인이 필요해 보여 대표님께 알림을 보냈습니다\n· '+reasons.join('\n· ')}).catch(()=>{});
+  const tg='⚠ 주문방 의심 주문\n'
+    +'보낸사람: '+(m.name||'')+'\n'
+    +'사유:\n· '+reasons.join('\n· ')+'\n\n'
+    +'── 원문 ──\n'+String(m.text||'').slice(0,800)+'\n\n'
+    +'확인: '+SITE_URL;
+  gsCall('tgNotify',{text:tg}).catch(e=>console.warn('tgNotify',e));
+}
+
+/* ---------- 분석중 상태로 방치된 메시지 구조 (관리자 브라우저) ----------
+   글쓴이가 전송 직후 브라우저를 닫으면 status=parsing 으로 남습니다.
+   관리자 화면이 3분 지난 parsing 메시지를 transaction으로 선점해 대신 처리합니다. */
+async function rescueIfStale(id, m){
+  if(!IS_ADMIN || !m || m.sys || !m.text) return;
+  if(m.status!=='parsing') return;
+  if(Date.now()-(m.ts||0) < 3*60*1000){
+    setTimeout(()=>{ const cur=CHAT[id]; if(cur) rescueIfStale(id, cur); }, 3*60*1000+5000);
+    return;
+  }
+  try{
+    const tr=await db.ref('chat/'+id+'/status').transaction(cur=>{
+      if(cur!=='parsing') return;
+      return 'retrying';
+    });
+    if(!tr.committed) return;
+    await processMessage(id, m);
+  }catch(e){ console.warn('rescue',e); }
+}
+
+/* ============================================================
+   오른쪽 패널 — 미처리 주문 (체크 3개) / 확인방
+   ============================================================ */
+let SIDE='pend';
+let PANEL_DATE=todayStr();
+const CHK_DEF=[['ord','주문확인'],['prod','생산확인'],['erp','전산처리']];
+
+function setSide(s){
+  SIDE=s;
+  document.getElementById('segPend').classList.toggle('on', s==='pend');
+  document.getElementById('segConf').classList.toggle('on', s==='conf');
+  document.getElementById('dateNav').style.display = s==='pend' ? '' : 'none';
+  renderSide();
+}
+function shiftDate(n){
+  const d=new Date(PANEL_DATE+'T12:00:00');
+  d.setDate(d.getDate()+n);
+  PANEL_DATE=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  renderSide();
+}
+function setToday(){ PANEL_DATE=todayStr(); renderSide(); }
+
+function allChecked(o){
+  return !!(o.chk && o.chk.ord && o.chk.prod && o.chk.erp);
+}
+function pendListFor(date){
+  return Object.values(ORDERS).filter(o=>o && o.date===date && !o.confirm);
+}
+function renderSide(){
+  document.getElementById('curDate').textContent=mmdd(PANEL_DATE)||'--.--';
+  // 뱃지: 오늘 미처리 / 확인방 대기
+  const nToday=pendListFor(todayStr()).length;
+  const pb=document.getElementById('pendBadge'), mb=document.getElementById('mBadge');
+  pb.style.display=nToday?'':'none'; pb.textContent=nToday;
+  mb.style.display=nToday?'':'none'; mb.textContent=nToday;
+  const conf=Object.values(ORDERS).filter(o=>o && o.confirm);
+  const cb=document.getElementById('confBadge');
+  cb.style.display=conf.length?'':'none'; cb.textContent=conf.length;
+
+  if(SIDE==='pend') renderPend();
+  else renderConf(conf);
+}
+
+function renderPend(){
+  const box=document.getElementById('sideScroll');
+  box.innerHTML='';
+  const list=pendListFor(PANEL_DATE);
+  const doneN=Object.values(ORDERS).filter(o=>o && o.date===PANEL_DATE && o.confirm).length;
+  const sum=document.createElement('div'); sum.className='side-sum';
+  sum.textContent=mmdd(PANEL_DATE)+' — 미처리 '+list.length+'건 · 확인방 이동 '+doneN+'건';
+  box.appendChild(sum);
+  if(!list.length){
+    const e=document.createElement('div'); e.className='empty';
+    e.innerHTML=doneN?'🎉 이 날짜의 주문이 모두 처리되어<br>확인방으로 넘어갔습니다':'이 날짜에 미처리 주문이 없습니다';
+    box.appendChild(e); return;
+  }
+  const g={};
+  list.forEach(o=>{ const v=normVeh(o.vehicle||'미지정'); (g[v]=g[v]||[]).push(o); });
+  const vehicles=VORDER.filter(v=>g[v]).concat(Object.keys(g).filter(v=>!VORDER.includes(v)));
+  [...new Set(vehicles)].forEach(v=>{
+    const h=document.createElement('div'); h.className='veh-h';
+    h.innerHTML='<span class="v">'+esc(v)+'</span><span class="n">'+g[v].length+'곳</span>';
+    box.appendChild(h);
+    g[v].sort((a,b)=>String(a.client).localeCompare(String(b.client),'ko'))
+        .forEach(o=>box.appendChild(buildOrderCard(o)));
+  });
+}
+
+function buildOrderCard(o){
+  const card=document.createElement('div');
+  card.className='ocard'+(o.needClient?' nocli':'');
+  card.id='oc_'+o.id;
+  const head=document.createElement('div'); head.className='oc-head';
+  head.innerHTML='<span class="oc-cli'+(o.needClient?' warn':'')+'">'+esc(o.client||'(거래처 미확인)')+'</span>'
+    +'<span class="oc-meta">'+(o.by?esc(o.by)+' · ':'')+(o.items||[]).length+'품목</span>'
+    +(o.raw?'<span class="oc-src" onclick="alert(this.dataset.r)" data-r="'+esc((o.raw||'').slice(0,600))+'">원문</span>':'');
+  card.appendChild(head);
+  const items=document.createElement('div'); items.className='oc-items';
+  items.innerHTML=(o.items||[]).map(it=>{
+    let t=esc(itemText(it));
+    if(it.price) t+=' <span class="price">'+esc(it.price)+'</span>';
+    return '· '+t;
+  }).join('<br>')||'<span style="color:#b71c1c">⚠ 품목 없음 (손상 주문)</span>';
+  card.appendChild(items);
+  if(o.needClient){
+    const w=document.createElement('div');
+    w.style.cssText='font-size:11.5px;color:var(--accent);margin-bottom:6px';
+    w.textContent='⚠ 거래처가 지정되어야 처리할 수 있습니다 — 주문노트 ①-1에서 지정하세요';
+    card.appendChild(w);
+  }
+  const row=document.createElement('div'); row.className='oc-checks';
+  CHK_DEF.forEach(([key,label])=>{
+    const c=o.chk&&o.chk[key];
+    const b=document.createElement('label');
+    b.className='chk'+(c?' on':'');
+    b.title=c?(c.by+' · '+new Date(c.at).toLocaleString('ko-KR')):label+' 체크';
+    b.innerHTML='<input type="checkbox"'+(c?' checked':'')+'> '+label;
+    b.onclick=ev=>{ ev.preventDefault(); toggleChk(o.id, key, !c); };
+    row.appendChild(b);
+  });
+  card.appendChild(row);
+  return card;
+}
+
+async function toggleChk(id, key, on){
+  const o=ORDERS[id]; if(!o) return;
+  if(o.needClient && on){ alert('거래처 미확인 주문은 먼저 주문노트 ①-1에서 거래처를 지정하세요.'); return; }
+  o.chk=o.chk||{};
+  if(on) o.chk[key]={by:MYNAME, at:Date.now()};
+  else delete o.chk[key];
+  const upd={}; upd['chk/'+key]= on?o.chk[key]:null;
+  // 생산확인은 주문노트의 "완료" 표시와 동기화
+  if(key==='prod') upd['done']=!!on;
+  try{
+    await db.ref('orders/'+id).update(upd);
+    if(allChecked(o)){
+      // 셋 다 체크 → 확인방으로 (전산대조 대기)
+      const el=document.getElementById('oc_'+id);
+      if(el) el.classList.add('gone');
+      setTimeout(async()=>{
+        o.confirm='wait'; o.confirmAt=Date.now();
+        await db.ref('orders/'+id).update({confirm:'wait', confirmAt:o.confirmAt}).catch(()=>{});
+        renderSide();
+      },330);
+      return;
+    }
+  }catch(e){ alert('저장 실패: '+e.message); }
+  renderSide();
+}
+
+/* ---------- 확인방 ---------- */
+function renderConf(conf){
+  const box=document.getElementById('sideScroll');
+  box.innerHTML='';
+  const sum=document.createElement('div'); sum.className='side-sum';
+  sum.textContent='주문·생산·전산 확인이 끝난 주문입니다. 전산대조 프로그램이 ERP와 대조해 결과를 표시합니다.';
+  box.appendChild(sum);
+  if(!conf.length){
+    const e=document.createElement('div'); e.className='empty';
+    e.textContent='확인방이 비어 있습니다 — 미처리 주문의 체크 3개를 모두 채우면 여기로 넘어옵니다';
+    box.appendChild(e); return;
+  }
+  const byDate={};
+  conf.forEach(o=>{ (byDate[o.date]=byDate[o.date]||[]).push(o); });
+  Object.keys(byDate).sort().reverse().forEach(d=>{
+    const h=document.createElement('div'); h.className='date-h'; h.textContent=d.replace(/-/g,'.');
+    box.appendChild(h);
+    byDate[d].sort((a,b)=>String(a.client).localeCompare(String(b.client),'ko')).forEach(o=>{
+      const card=document.createElement('div'); card.className='ccard';
+      let st='<span class="st wait">🔎 대조 대기</span>';
+      if(o.recon){
+        if(o.recon.status==='ok') st='<span class="st ok">✅ ERP 일치'+(o.recon.weight?' · '+esc(o.recon.weight):'')+'</span>';
+        else if(o.recon.status==='ng') st='<span class="st ng">⚠ 불일치'+(o.recon.reason?' · '+esc(o.recon.reason):'')+'</span>';
+      }
+      const head=document.createElement('div');
+      head.style.cssText='display:flex;align-items:center;gap:8px;margin-bottom:4px';
+      head.innerHTML='<b>'+esc(o.client||'')+'</b> <span class="oc-meta">'+esc(normVeh(o.vehicle))+' · '+(o.items||[]).length+'품목</span> '+st
+        +'<button class="undo" onclick="undoConfirm(\''+esc(o.id)+'\')">↩ 되돌리기</button>';
+      card.appendChild(head);
+      const items=document.createElement('div'); items.className='oc-items'; items.style.marginBottom='0';
+      items.innerHTML=(o.items||[]).map(it=>'· '+esc(itemText(it))).join('<br>');
+      card.appendChild(items);
+      const meta=document.createElement('div');
+      meta.style.cssText='font-size:10.5px;color:#a09a8a;margin-top:5px';
+      const ck=o.chk||{};
+      meta.textContent=CHK_DEF.map(([k,l])=>ck[k]?l+':'+ck[k].by:'').filter(Boolean).join(' · ')
+        +(o.confirmAt?' · 이동 '+new Date(o.confirmAt).toLocaleString('ko-KR'):'');
+      card.appendChild(meta);
+      box.appendChild(card);
+    });
+  });
+}
+async function undoConfirm(id){
+  const o=ORDERS[id]; if(!o) return;
+  if(!confirm(o.client+' 주문을 미처리로 되돌릴까요? (전산처리 체크가 해제됩니다)')) return;
+  o.confirm=null; if(o.chk) delete o.chk.erp;
+  await db.ref('orders/'+id).update({confirm:null, confirmAt:null, 'chk/erp':null}).catch(e=>alert('실패: '+e.message));
+  PANEL_DATE=o.date;
+  setSide('pend');
+}
+
+/* ============================================================
+   모바일 스와이프 (채팅 ↔ 미처리 패널)
+   ============================================================ */
+let PAGE=0;
+function goPage(p){
+  PAGE=p;
+  document.getElementById('wrap').classList.toggle('p1', p===1);
+  document.getElementById('mnav0').classList.toggle('on', p===0);
+  document.getElementById('mnav1').classList.toggle('on', p===1);
+}
+(function(){
+  const wrap=document.getElementById('wrap');
+  let x0=0,y0=0,dx=0,lock=null;
+  wrap.addEventListener('touchstart',e=>{
+    if(window.innerWidth>=920) return;
+    x0=e.touches[0].clientX; y0=e.touches[0].clientY; dx=0; lock=null;
+  },{passive:true});
+  wrap.addEventListener('touchmove',e=>{
+    if(window.innerWidth>=920) return;
+    const mx=e.touches[0].clientX-x0, my=e.touches[0].clientY-y0;
+    if(lock===null && (Math.abs(mx)>12||Math.abs(my)>12)) lock=Math.abs(mx)>Math.abs(my)?'h':'v';
+    if(lock==='h') dx=mx;
+  },{passive:true});
+  wrap.addEventListener('touchend',()=>{
+    if(window.innerWidth>=920 || lock!=='h') return;
+    if(dx<-55 && PAGE===0) goPage(1);
+    else if(dx>55 && PAGE===1) goPage(0);
+  });
+})();
+
+/* ---------- 부팅 ---------- */
+initFirebase();
+</script>
+</body>
+</html>
