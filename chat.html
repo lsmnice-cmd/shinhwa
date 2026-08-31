@@ -4,8 +4,37 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>신화미트 주문방</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1a1a1a">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v1.15 — 2026-08-31
+  신화미트 주문방 (chat.html) v2.1 — 2026-09-01
+  · v2.1: 확인방 품목 짝짓기 — "품목 짝짓기 필요" 카드에서 미매칭 채팅 품목마다
+    그날 ERP 매출 품목 드롭다운으로 짝을 지어 [학습·적용]:
+      ① 학습사전에 등록 → 다음부터 채팅 입력 즉시 정식 품목으로 자동 교정(실시간)
+      ② 이 주문의 품목명도 즉시 교체(주문노트 반영)
+      ③ 전부 짝지어지면 자동 통과(확인방에서 제거)
+    코드 입력칸은 코드 문제(못 찾음·매출 없음)일 때만 표시.
+  · v2.0: 📲 설치형 앱(PWA) + 백그라운드 푸시(FCM)
+    - 홈 화면에 설치하면 앱 아이콘·전체화면으로 열립니다 (manifest.json)
+    - 🔔 알림을 켜면 이 기기가 푸시에 등록되어, 브라우저를 완전히 꺼도
+      새 메시지가 시스템 알림(소리+진동)으로 옵니다 — 카톡과 같은 경로
+    - 발송: 메시지를 보낸 직원의 브라우저가 Apps Script('push')를 호출,
+      서버가 FCM으로 전 기기 발송 (보낸 사람 기기 제외, 매너타임 미발송)
+    - PUSH_SENDER_ID / PUSH_APP_ID / VAPID 모두 채워진 완성본입니다
+    - 함께 배포: manifest.json, firebase-messaging-sw.js, icon-192/512.png,
+      Code.gs v1.7(push 액션, FB_SA_JSON 속성 필요)
+  · v1.17: 재접속 속도 개선 — "서버 연결 중…"에 갇히던 문제.
+    접속 즉시 데이터 연결을 시작하고(1~2초 내 화면 진입), 느린 권한 확인
+    (Apps Script 깨우기 5~10초)은 뒤에서 병행. 8초 넘게 안 열리면
+    네트워크 안내(회사 와이파이 차단 가능성 → LTE 시도) 표시.
+  · v1.16: 로그인 풀림 완화 — 이전에 로그인했던 기기는 계정 선택 없이
+    버튼 한 번으로 즉시 재로그인(구글 세션 재사용). 로그인 화면에
+    "로그인이 자꾸 풀리나요?" 안내(기기별 예외 등록 경로) 추가.
+    ※ 사이트가 브라우저 쿠키 예외를 대신 등록하는 것은 보안상 불가.
   · v1.15: 아이폰 로그인 멈춤 대응 — 로그인 버튼을 눌렀는데 몇 초 안에
     구글 창이 안 뜨면(사파리 기본 팝업 차단이 소리 없이 막는 증상) 해결
     방법을 화면에 자동 안내 + [전체화면 로그인 시도] 예비 버튼 표시.
@@ -252,6 +281,7 @@
     <div class="gate-title">주문방</div>
     <div class="gate-sub">직원 전용 주문 채팅방입니다.<br>주문노트와 같은 구글 계정으로 로그인하세요.</div>
     <button class="gbtn" onclick="signIn()">Google 계정으로 로그인</button>
+    <button onclick="loginHelp()" style="width:100%;margin-top:8px;background:none;border:none;color:#8a857a;font-size:12px;cursor:pointer;text-decoration:underline;font-family:var(--sans)">로그인이 자꾸 풀리나요?</button>
     <div id="gateMsg" class="msg"></div>
     <div id="uidBox" class="uidbox">
       <div style="font-size:11px;color:var(--muted)">내 UID</div>
@@ -312,6 +342,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
 <script>
 /* ============================================================
    설정 — 주문노트(index.html)와 같은 localStorage 키·기본값을 씁니다.
@@ -343,6 +374,17 @@ const VORDER=['0966','6506','1982','4232','택배','사무실','온라인','미�
 const VEH_MERGE={'방문':'사무실','마포':'사무실'};
 const VEH_NUMS=['0966','6506','1982','4232'];
 const SITE_URL=location.origin+location.pathname;   // 텔레그램 알림에 넣을 링크
+
+/* ── 📲 푸시 설정 ─────────────────────────────────────────
+   VAPID 키는 채워져 있습니다. 아래 두 값만 Firebase 콘솔에서 복사해 넣으세요:
+   ⚙ 프로젝트 설정 → 일반 탭 → 아래 "내 앱"의 웹앱 → SDK 설정 및 구성에서
+     messagingSenderId → PUSH_SENDER_ID (숫자)
+     appId             → PUSH_APP_ID   (1:숫자:web:... 형태)                 */
+const PUSH_VAPID='BLuWBs8cLrBPcRgQ8CxlovHnkx0kr2t29kFqzV9uxShoFdVU-eAPKLs5JB_zvcji0KRVmxHjEN5GRISqWOrz63I';
+const PUSH_SENDER_ID='491535051004';
+const PUSH_APP_ID='1:491535051004:web:34325f3045a2ec6dc88f79';
+let SW_REG=null, PUSH_TOKEN=null;
+function pushReady(){ return !!(PUSH_SENDER_ID && PUSH_APP_ID && 'serviceWorker' in navigator && window.firebase && firebase.messaging); }
 
 /* ---------- 공용 유틸 (주문노트와 동일 로직) ---------- */
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -484,6 +526,14 @@ function initFirebase(){
       if(u){ ME=u; clearTimeout(LOGIN_WATCH); try{localStorage.setItem('shinwha_had_login','1');}catch(e){} gateMsgSet('✓ '+(u.email||'')+' 로그인됨 — 서버 연결 중…',true); onSignedIn(u); }
       else { ME=null; fbReady=false; showGate(); setStat(false,'로그아웃됨'); }
     });
+    // 📲 푸시 수신기(서비스워커) 등록 — 설정값을 주소로 넘겨줌
+    if(pushReady()){
+      navigator.serviceWorker.register('firebase-messaging-sw.js?key='+encodeURIComponent(cfg.fbKey)
+        +'&pid='+encodeURIComponent(cfg.fbProj)+'&sid='+encodeURIComponent(PUSH_SENDER_ID)
+        +'&aid='+encodeURIComponent(PUSH_APP_ID))
+        .then(r=>{ SW_REG=r; })
+        .catch(e=>console.warn('SW 등록 실패', e));
+    }
     setStat(false,'로그인 필요');
     gateMsgSet('로그인 상태 확인 중…',true);
     setTimeout(()=>{
@@ -535,7 +585,11 @@ function showIosAltBtn(){
 function signIn(){
   if(!auth){ gateMsgSet('연결 설정이 없습니다.',false); return; }
   const p=new firebase.auth.GoogleAuthProvider();
-  p.setCustomParameters({prompt:'select_account'});
+  // 이 기기에서 로그인한 적이 있으면 계정 선택을 건너뛰고 즉시 재로그인
+  // (팝업이 떴다가 바로 닫히며 끝납니다). 처음인 기기만 계정 선택 표시.
+  if(localStorage.getItem('shinwha_had_login')!=='1'){
+    p.setCustomParameters({prompt:'select_account'});
+  }
   gateMsgSet('구글 로그인 창을 엽니다…',true);
   loginWatchdog();
   // ★ 전 기기 팝업 우선 — 최신 크롬·사파리 모두 redirect 방식은
@@ -558,39 +612,49 @@ function signIn(){
 }
 function signOut(){ if(auth) auth.signOut(); }
 
+/* 로그인 유지 안내 — 브라우저가 사이트 데이터를 지우면 코드로는 막을 수 없어,
+   기기별 예외 등록 경로를 안내합니다. */
+function loginHelp(){
+  const ios=isIOS();
+  let t;
+  if(ios){
+    t='아이폰에서 로그인이 풀리는 경우:\n\n'
+     +'1) 설정 앱 → Safari → \'모든 웹사이트 데이터 지우기\'를 실행한 적이 있으면 그 뒤엔 다시 로그인해야 합니다\n'
+     +'2) 설정 → Safari → 고급 → \'모든 쿠키 차단\'이 켜져 있으면 꺼주세요\n'
+     +'3) 개인정보 보호 브라우징(비공개 탭)에서는 유지되지 않습니다\n\n'
+     +'그래도 풀리면, 이전에 로그인한 기기는 로그인 버튼 한 번이면 계정 선택 없이 바로 들어갑니다.';
+  }else{
+    t='크롬에서 로그인이 풀리는 경우:\n\n'
+     +'[PC 크롬]\n'
+     +'설정 → 개인정보 보호 및 보안 → 쿠키(또는 사이트 설정) →\n'
+     +'\'모든 창을 닫을 때 데이터 삭제\'가 켜져 있다면:\n'
+     +'  → 그 아래 \'데이터를 삭제하지 않을 사이트(추가)\'에\n'
+     +'     lsmnice-cmd.github.io 를 등록하세요 (예외 등록)\n'
+     +'또는 해당 옵션 자체를 꺼도 됩니다\n\n'
+     +'[폰 크롬/삼성인터넷]\n'
+     +'설정 → 개인정보 보호에서 \'종료 시 검색기록/쿠키 삭제\'류 옵션 끄기\n'
+     +'시크릿(비밀) 탭에서는 유지되지 않습니다\n\n'
+     +'참고: 사이트가 이 예외를 대신 등록해 줄 수는 없습니다(브라우저 보안 정책).\n'
+     +'그래도 풀리면, 이전에 로그인한 기기는 로그인 버튼 한 번이면 계정 선택 없이 바로 들어갑니다.';
+  }
+  alert(t);
+}
+
 async function onSignedIn(u){
   MYNAME=(u.displayName||String(u.email||'').split('@')[0]||'직원').trim();
-  // 공유 설정 자동 수신 (meta/config)
-  try{
-    const ss=await db.ref('meta/config').once('value');
-    const c=ss.val();
-    if(c && c.gsUrl && (cfg.gsUrl!==c.gsUrl || cfg.token!==c.token)){
-      cfg=Object.assign({}, cfg, {gsUrl:c.gsUrl, token:c.token});
-      localStorage.setItem(LS, JSON.stringify(cfg));
+
+  // ★ v1.17: 데이터 연결을 즉시 시작합니다 (실제 문지기는 Firebase 규칙 — UID 단위).
+  //   느린 것들(설정 수신·Apps Script 권한 확인·마스터 로드)은 함수 뒷부분에서 병행.
+  //   → 재접속이 1~2초 안에 열립니다.
+
+  // 8초 넘게 못 열리면 네트워크 안내 (회사 와이파이가 실시간 연결을 막는 경우가 있음)
+  setTimeout(()=>{
+    if(!fbReady && ME){
+      gateMsgSet('서버 연결이 늦어지고 있습니다…\n회사 와이파이가 실시간 연결을 차단하는 경우가 있습니다.\n와이파이를 끄고 LTE/5G로 한 번 열어보세요 — 그걸로 열리면 와이파이 문제입니다.',false);
     }
-  }catch(e){ /* 미승인 계정은 못 읽음 */ }
+  }, 8000);
 
-  // 권한 확인
-  let access={adminUid:'',emails:[],uids:[]};
-  try{ const j=await gsCall('getAccess'); access=j.access||access; }
-  catch(e){ console.error('getAccess',e); }
-  const email=(u.email||'').toLowerCase();
-  IS_ADMIN = !!(access.adminUid && u.uid===access.adminUid);
-  ALLOWED = IS_ADMIN || (access.emails && access.emails.indexOf(email)>=0);
-  if(!ALLOWED){
-    showGate(); setStat(false,'승인 대기');
-    let msg='접속 권한이 없습니다.';
-    try{
-      const r=await gsCall('requestAccess',{email:email, uid:u.uid, name:(u.displayName||'')});
-      if(r.status==='pending') msg='접속 신청이 접수되었습니다.\n대표님이 승인하면 바로 사용할 수 있습니다.';
-    }catch(e){ msg='접속 신청에 실패했습니다. 잠시 후 다시 시도해 주세요.'; }
-    document.getElementById('uidBox').style.display='';
-    document.getElementById('myUid').textContent=u.uid;
-    gateMsgSet(msg,false);
-    return;
-  }
-
-  // 데이터 구독 (규칙이 막으면 권한 안내)
+  // 데이터 구독 (규칙이 막으면 접속 신청 안내)
   db.ref('orders').on('value',s=>{
     fbReady=true; hideGate(); setStat(true,'실시간 연결됨');
     ORDERS=s.val()||{};
@@ -602,27 +666,48 @@ async function onSignedIn(u){
     }
     seenHashes=new Set(Object.values(ORDERS).map(o=>o.hash).filter(Boolean));
     renderSide();
-  },err=>{
+  },async err=>{
     fbReady=false; showGate();
-    gateMsgSet('이 계정은 데이터 접근 권한이 없습니다.\n아래 UID를 관리자에게 알려 Firebase 규칙에 넣어달라고 하세요.',false);
+    setStat(false,'승인 대기');
+    let msg='이 계정은 아직 승인되지 않았습니다.';
+    try{
+      const r=await gsCall('requestAccess',{email:(u.email||'').toLowerCase(), uid:u.uid, name:(u.displayName||'')});
+      if(r && r.status==='pending') msg='접속 신청이 접수되었습니다.\n대표님이 승인하면 바로 사용할 수 있습니다.';
+    }catch(e){}
     document.getElementById('uidBox').style.display='';
     document.getElementById('myUid').textContent=u.uid;
-    setStat(false,'권한 없음');
+    gateMsgSet(msg,false);
   });
-
-  // ✏ 채팅 표시 이름 — 바꾼 적이 있으면 어느 기기에서든 그 이름으로
-  try{
-    const nk=await db.ref('users/'+u.uid+'/nick').once('value');
-    if(nk.val()) MYNAME=String(nk.val()).trim()||MYNAME;
-  }catch(e){}
 
   // 🖨 인쇄 도장 구독 — 주문노트에서 인쇄하면 즉시 반영
   db.ref('meta/printed').on('value',s2=>{ PRINTED=s2.val()||{}; renderSide(); });
   startPresence();
-
   startChat();
-  loadMaster();
   renderWhoami(u);
+  if(ALERT_ON) setTimeout(enablePush, 1500);   // 📲 알림 켠 기기는 토큰 자동 갱신
+
+  // ── 느린 작업은 병행 (화면 진입을 막지 않음) ──
+  (async()=>{
+    try{
+      const ss=await db.ref('meta/config').once('value');
+      const c=ss.val();
+      if(c && c.gsUrl && (cfg.gsUrl!==c.gsUrl || cfg.token!==c.token)){
+        cfg=Object.assign({}, cfg, {gsUrl:c.gsUrl, token:c.token});
+        localStorage.setItem(LS, JSON.stringify(cfg));
+      }
+    }catch(e){}
+    try{
+      const nk=await db.ref('users/'+u.uid+'/nick').once('value');
+      if(nk.val()){ MYNAME=String(nk.val()).trim()||MYNAME; renderPresence(); }
+    }catch(e){}
+    try{
+      const j=await gsCall('getAccess');
+      const access=j.access||{};
+      IS_ADMIN = !!(access.adminUid && u.uid===access.adminUid);
+      ALLOWED = IS_ADMIN || ((access.emails||[]).indexOf((u.email||'').toLowerCase())>=0);
+    }catch(e){ console.warn('getAccess',e); }
+    loadMaster();
+  })();
 }
 function renderWhoami(u){
   document.getElementById('whoami').innerHTML=esc(u.email||'')+' <button class="hbtn" style="padding:2px 8px" onclick="signOut()">로그아웃</button>';
@@ -710,6 +795,19 @@ function isQuiet(){
   return (h>=18 || h<7);                               // 평일 18시~다음날 07시
 }
 
+/* 📲 다른 직원들의 기기로 시스템 푸시 발송 (서버가 FCM으로 전달).
+   보낸 사람의 기기는 서버가 제외. 매너타임에는 발송하지 않음. */
+function sendPushOut(text){
+  try{
+    if(isQuiet()) return;
+    gsCall('push',{
+      title:'주문방 · '+MYNAME,
+      body:String(text||'').replace(/\s+/g,' ').slice(0,90),
+      from:(ME&&ME.uid)||''
+    }).catch(e=>console.warn('push',e));
+  }catch(e){}
+}
+
 /* ---------- 🔔 새 메시지 알림 (소리·진동·시스템 알림) ---------- */
 function toggleAlert(){
   ALERT_ON=!ALERT_ON;
@@ -718,11 +816,42 @@ function toggleAlert(){
     // 사용자 터치 시점에 오디오 준비 (브라우저 정책상 여기서만 가능)
     try{ if(!AC) AC=new (window.AudioContext||window.webkitAudioContext)(); if(AC.state==='suspended') AC.resume(); }catch(e){}
     if(window.Notification && Notification.permission==='default'){
-      Notification.requestPermission().catch(()=>{});
-    }
+      Notification.requestPermission().then(()=>enablePush()).catch(()=>{});
+    }else enablePush();
     beep(); if(navigator.vibrate) navigator.vibrate(120);
+  }else{
+    disablePush();
   }
   renderPresence();
+}
+
+/* ── 📲 이 기기를 푸시에 등록/해제 ── */
+function tokKey(t){ let h=0; const s=String(t); for(let i=0;i<s.length;i++){h=(h*31+s.charCodeAt(i))|0;} return 'd'+(h>>>0).toString(36); }
+async function enablePush(){
+  if(!ME || !db) return;
+  if(!pushReady()){
+    if(!PUSH_SENDER_ID||!PUSH_APP_ID) console.warn('푸시 설정(PUSH_SENDER_ID/APP_ID)이 비어 있습니다 — 파일 상단에 채우세요');
+    return;
+  }
+  if(!window.Notification || Notification.permission!=='granted') return;
+  try{
+    if(!SW_REG) SW_REG=await navigator.serviceWorker.ready;
+    const t=await firebase.messaging().getToken({vapidKey:PUSH_VAPID, serviceWorkerRegistration:SW_REG});
+    if(!t) return;
+    PUSH_TOKEN=t;
+    await db.ref('push_tokens/'+ME.uid+'/'+tokKey(t)).set({
+      token:t, at:Date.now(), name:MYNAME,
+      ua:(navigator.userAgent||'').slice(0,60)
+    });
+    console.log('📲 푸시 등록 완료');
+  }catch(e){ console.warn('푸시 등록 실패', e); }
+}
+async function disablePush(){
+  try{
+    if(ME && db && PUSH_TOKEN){
+      await db.ref('push_tokens/'+ME.uid+'/'+tokKey(PUSH_TOKEN)).remove();
+    }
+  }catch(e){}
 }
 function beep(){
   try{
@@ -905,6 +1034,7 @@ async function sendMsg(){
   inputEl.value=''; inputEl.style.height='auto';
   const rTo=REPLY_TO; clearReply();
   btn.disabled=false;
+  sendPushOut(text);                                                    // 📲 다른 기기들에 시스템 푸시
   processMessage(ref.key, Object.assign({},msg,{replyTo:rTo||null}));   // 글쓴이 브라우저가 즉시 파싱
 }
 
@@ -920,6 +1050,7 @@ async function sendPhoto(input){
     const msg={uid:ME.uid, name:MYNAME, text:'', photo:{id:r.id}, ts:Date.now(), status:'done'};
     if(REPLY_TO){ msg.replyTo=REPLY_TO; clearReply(); }
     await db.ref('chat').push().set(msg);
+    sendPushOut('📷 사진');
   }catch(e){
     alert('사진 업로드 실패: '+e.message);
   }finally{
@@ -1422,29 +1553,67 @@ function renderConf(conf){
       const items=document.createElement('div'); items.className='oc-items'; items.style.marginBottom='0';
       items.innerHTML=(o.items||[]).map(it=>'· '+esc(itemText(it))).join('<br>');
       card.appendChild(items);
-      // ⚠ 매칭 실패 → ERP 거래처 코드를 입력해 매칭 (erpmap에 학습 → 다음부터 자동)
+      // ⚠ 매칭 실패 처리 UI
       if(o.recon && o.recon.status==='ng'){
-        const fix=document.createElement('div');
-        fix.style.cssText='display:flex;gap:6px;align-items:center;margin-top:7px;padding:7px 9px;background:#fdf3f3;border:1px solid #e8c4c0;border-radius:6px';
-        const lb=document.createElement('span');
-        lb.style.cssText='font-size:11.5px;color:#8a1c1c;font-weight:700;white-space:nowrap';
-        lb.textContent='ERP 거래처 코드:';
-        const inp=document.createElement('input');
-        inp.type='text'; inp.placeholder='예) 10234';
-        inp.style.cssText='flex:1;min-width:70px;padding:6px 8px;border:1px solid var(--line);border-radius:5px;font-family:var(--mono);font-weight:700;font-size:14px';
-        if(o.recon.code) inp.value=o.recon.code;
-        const btn=document.createElement('button');
-        btn.textContent='매칭';
-        btn.style.cssText='border:none;background:var(--accent);color:#fff;border-radius:5px;padding:6px 14px;font-weight:800;font-size:12px;cursor:pointer';
-        btn.onclick=()=>mapErpCode(o.id, inp.value.trim(), btn);
-        inp.onkeydown=ev=>{ if(ev.key==='Enter') mapErpCode(o.id, inp.value.trim(), btn); };
-        const pass=document.createElement('button');
-        pass.textContent='✔ 이대로 통과';
-        pass.title='명칭 차이일 뿐 전산 입력이 맞다면, 대조 없이 통과 처리합니다';
-        pass.style.cssText='border:1px solid #bcd8c5;background:var(--ok-soft);color:var(--ok);border-radius:5px;padding:6px 10px;font-weight:800;font-size:12px;cursor:pointer;white-space:nowrap';
-        pass.onclick=()=>passRecon(o.id);
-        fix.append(lb,inp,btn,pass);
-        card.appendChild(fix);
+        const hasPair = o.recon.missItems && o.recon.missItems.length && o.recon.erpItems && o.recon.erpItems.length;
+        // ① 품목 짝짓기 — 채팅 표현 ↔ 그날 ERP 매출 품목 (학습되어 다음부터 실시간 자동)
+        if(hasPair){
+          const pw=document.createElement('div');
+          pw.style.cssText='margin-top:7px;padding:8px 9px;background:#fbf7ec;border:1px solid #e2d3a8;border-radius:6px';
+          const t=document.createElement('div');
+          t.style.cssText='font-size:11.5px;color:#7a5a00;font-weight:800;margin-bottom:6px';
+          t.textContent='🔗 품목 짝짓기 — 이 거래처의 채팅 표현을 ERP 품목과 연결하면 학습되어 다음부터 자동 반영됩니다';
+          pw.appendChild(t);
+          o.recon.missItems.forEach(mi=>{
+            const row=document.createElement('div');
+            row.style.cssText='display:flex;gap:6px;align-items:center;margin-bottom:5px;flex-wrap:wrap';
+            const nm=document.createElement('span');
+            nm.style.cssText='font-weight:800;font-size:12.5px;min-width:70px';
+            nm.textContent='“'+mi.name+'”';
+            const sel=document.createElement('select');
+            sel.style.cssText='flex:1;min-width:130px;padding:6px;border:1px solid var(--line);border-radius:5px;font-size:12.5px;font-family:var(--sans)';
+            const o0=document.createElement('option'); o0.value=''; o0.textContent='→ ERP 품목 선택'; sel.appendChild(o0);
+            [...new Set(o.recon.erpItems)].forEach(e=>{
+              const op=document.createElement('option'); op.value=e; op.textContent=e; sel.appendChild(op);
+            });
+            const b=document.createElement('button');
+            b.textContent='학습·적용';
+            b.style.cssText='border:none;background:#1f6b3a;color:#fff;border-radius:5px;padding:6px 11px;font-weight:800;font-size:12px;cursor:pointer';
+            b.onclick=()=>{ if(!sel.value){alert('ERP 품목을 선택하세요.');return;} pairLearn(o.id, mi.i, mi.name, sel.value, b); };
+            row.append(nm,sel,b);
+            pw.appendChild(row);
+          });
+          const pass=document.createElement('button');
+          pass.textContent='✔ 짝짓기 없이 이대로 통과';
+          pass.style.cssText='border:1px solid #bcd8c5;background:var(--ok-soft);color:var(--ok);border-radius:5px;padding:5px 10px;font-weight:800;font-size:11.5px;cursor:pointer';
+          pass.onclick=()=>passRecon(o.id);
+          pw.appendChild(pass);
+          card.appendChild(pw);
+        }
+        // ② 코드 문제(못 찾음 / 해당일 매출 없음)일 때만 코드 입력칸
+        if(!hasPair){
+          const fix=document.createElement('div');
+          fix.style.cssText='display:flex;gap:6px;align-items:center;margin-top:7px;padding:7px 9px;background:#fdf3f3;border:1px solid #e8c4c0;border-radius:6px;flex-wrap:wrap';
+          const lb=document.createElement('span');
+          lb.style.cssText='font-size:11.5px;color:#8a1c1c;font-weight:700;white-space:nowrap';
+          lb.textContent='ERP 거래처 코드:';
+          const inp=document.createElement('input');
+          inp.type='text'; inp.placeholder='예) 10234';
+          inp.style.cssText='flex:1;min-width:70px;padding:6px 8px;border:1px solid var(--line);border-radius:5px;font-family:var(--mono);font-weight:700;font-size:14px';
+          if(o.recon.code) inp.value=o.recon.code;
+          const btn=document.createElement('button');
+          btn.textContent='매칭';
+          btn.style.cssText='border:none;background:var(--accent);color:#fff;border-radius:5px;padding:6px 14px;font-weight:800;font-size:12px;cursor:pointer';
+          btn.onclick=()=>mapErpCode(o.id, inp.value.trim(), btn);
+          inp.onkeydown=ev=>{ if(ev.key==='Enter') mapErpCode(o.id, inp.value.trim(), btn); };
+          const pass=document.createElement('button');
+          pass.textContent='✔ 이대로 통과';
+          pass.title='전산 입력이 맞다면 대조 없이 통과 처리합니다';
+          pass.style.cssText='border:1px solid #bcd8c5;background:var(--ok-soft);color:var(--ok);border-radius:5px;padding:6px 10px;font-weight:800;font-size:12px;cursor:pointer;white-space:nowrap';
+          pass.onclick=()=>passRecon(o.id);
+          fix.append(lb,inp,btn,pass);
+          card.appendChild(fix);
+        }
       }
       const meta=document.createElement('div');
       meta.style.cssText='font-size:10.5px;color:#a09a8a;margin-top:5px';
@@ -1471,6 +1640,48 @@ async function mapErpCode(id, code, btn){
     renderSide();
   }catch(e){ alert('저장 실패: '+e.message); }
   finally{ if(btn){ btn.disabled=false; btn.textContent='매칭'; } }
+}
+
+/* 🔗 품목 짝짓기 — 채팅 표현을 ERP 품목과 연결.
+   ① 학습사전 등록 (거래처별) → 파서가 다음 입력부터 실시간 자동 교정
+   ② 이 주문의 해당 품목명도 즉시 교체 (주문노트 반영)
+   ③ 남은 미매칭이 없으면 자동 통과 (확인방에서 제거) */
+async function pairLearn(id, idx, katok, erpItem, btn){
+  const o=ORDERS[id]; if(!o) return;
+  if(btn){ btn.disabled=true; btn.textContent='저장중'; }
+  try{
+    // ① 학습사전 등록
+    await gsCall('addLearned',{client:o.client, katok:katok, item:erpItem});
+    if(!LEARNED.perCustomer[o.client]) LEARNED.perCustomer[o.client]={};
+    LEARNED.perCustomer[o.client][katok]=erpItem;
+    LEARNED.perCustomer[o.client][learnKey(katok)]=erpItem;
+    // ② 이 주문의 품목명 교체
+    const items=(o.items||[]).slice();
+    if(items[idx]){
+      items[idx]=Object.assign({}, items[idx], {wasProduct:items[idx].product||katok, product:erpItem, fixed:1, via:'짝짓기'});
+    }
+    // ③ 미매칭 목록에서 제거 — 비면 통과
+    const miss=((o.recon&&o.recon.missItems)||[]).filter(m=>m.i!==idx);
+    const upd={items:items};
+    if(miss.length){
+      upd['recon/missItems']=miss;
+      const names=miss.map(m=>m.name);
+      upd['recon/reason']='품목 짝짓기 필요: '+names.slice(0,3).join(', ')+(names.length>3?' 외 '+(names.length-3):'');
+    }else{
+      upd['recon/missItems']=null;
+      upd['recon/status']='ok';
+      upd['recon/via']='짝짓기 완료';
+      upd['confirm']='done';
+      upd['reconAt']=Date.now();
+    }
+    await db.ref('orders/'+id).update(upd);
+    o.items=items;
+    if(!o.recon) o.recon={};
+    if(miss.length){ o.recon.missItems=miss; }
+    else { o.recon.missItems=null; o.recon.status='ok'; o.confirm='done'; }
+    renderSide();
+  }catch(e){ alert('저장 실패: '+e.message); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent='학습·적용'; } }
 }
 
 /* ✔ 이대로 통과 — 품목 명칭 차이 등으로 대조가 못 찾았지만 사람이 확인했을 때.
