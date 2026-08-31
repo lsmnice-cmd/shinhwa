@@ -5,7 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>신화미트 주문방</title>
 <!--
-  신화미트 주문방 (chat.html) v1.2 — 2026-08-31
+  신화미트 주문방 (chat.html) v1.3 — 2026-08-31
+  · v1.3: 전산처리 체크 즉시 확인방 이동(주문확인·생산확인은 기록용) /
+    확인방 = 전산대조 파이프라인 — 대조 프로그램이 일치 판정하면 자동으로 사라지고,
+    매칭 실패 건은 ERP 거래처 코드를 입력해 매칭(erpmap에 학습 → 다음부터 자동 통과)
   · v1.2: 👥 접속인원 표시 + 채팅 이름 바꾸기(✏, 기기 공통 저장) /
     모바일 화면 보정(주소창 높이·iOS 입력 확대 방지·터치 크기) /
     카톡 내장 브라우저 감지 시 외부 브라우저로 자동 전환(구글 로그인 차단 대응)
@@ -981,7 +984,7 @@ function renderSide(){
   const pb=document.getElementById('pendBadge'), mb=document.getElementById('mBadge');
   pb.style.display=nToday?'':'none'; pb.textContent=nToday;
   mb.style.display=nToday?'':'none'; mb.textContent=nToday;
-  const conf=Object.values(ORDERS).filter(o=>o && o.confirm);
+  const conf=Object.values(ORDERS).filter(o=>o && o.confirm==='wait');
   const cb=document.getElementById('confBadge');
   cb.style.display=conf.length?'':'none'; cb.textContent=conf.length;
 
@@ -1074,8 +1077,8 @@ async function toggleChk(id, key, on){
   if(key==='prod') upd['done']=!!on;
   try{
     await db.ref('orders/'+id).update(upd);
-    if(allChecked(o)){
-      // 셋 다 체크 → 확인방으로 (전산대조 대기)
+    if(key==='erp' && on){
+      // ★ 전산처리 체크 = 즉시 확인방으로 (전산대조 대기). 주문확인·생산확인은 기록용.
       const el=document.getElementById('oc_'+id);
       if(el) el.classList.add('gone');
       setTimeout(async()=>{
@@ -1094,11 +1097,11 @@ function renderConf(conf){
   const box=document.getElementById('sideScroll');
   box.innerHTML='';
   const sum=document.createElement('div'); sum.className='side-sum';
-  sum.textContent='주문·생산·전산 확인이 끝난 주문입니다. 전산대조 프로그램이 ERP와 대조해 결과를 표시합니다.';
+  sum.textContent='전산처리된 주문입니다. 대조 프로그램이 ERP와 맞으면 자동으로 사라지고, 매칭 실패 건만 남습니다 — ERP 거래처 코드를 입력하면 학습되어 다음부터 자동 통과합니다.';
   box.appendChild(sum);
   if(!conf.length){
     const e=document.createElement('div'); e.className='empty';
-    e.textContent='확인방이 비어 있습니다 — 미처리 주문의 체크 3개를 모두 채우면 여기로 넘어옵니다';
+    e.innerHTML='확인방이 비어 있습니다 ✅<br><span style="font-size:11px">전산처리 체크된 주문이 여기로 오고, ERP 대조를 통과하면 자동으로 사라집니다</span>';
     box.appendChild(e); return;
   }
   const byDate={};
@@ -1111,7 +1114,7 @@ function renderConf(conf){
       let st='<span class="st wait">🔎 대조 대기</span>';
       if(o.recon){
         if(o.recon.status==='ok') st='<span class="st ok">✅ ERP 일치'+(o.recon.weight?' · '+esc(o.recon.weight):'')+'</span>';
-        else if(o.recon.status==='ng') st='<span class="st ng">⚠ 불일치'+(o.recon.reason?' · '+esc(o.recon.reason):'')+'</span>';
+        else if(o.recon.status==='ng') st='<span class="st ng">⚠ 매칭 실패'+(o.recon.reason?' · '+esc(o.recon.reason):'')+'</span>';
       }
       const head=document.createElement('div');
       head.style.cssText='display:flex;align-items:center;gap:8px;margin-bottom:4px';
@@ -1121,6 +1124,25 @@ function renderConf(conf){
       const items=document.createElement('div'); items.className='oc-items'; items.style.marginBottom='0';
       items.innerHTML=(o.items||[]).map(it=>'· '+esc(itemText(it))).join('<br>');
       card.appendChild(items);
+      // ⚠ 매칭 실패 → ERP 거래처 코드를 입력해 매칭 (erpmap에 학습 → 다음부터 자동)
+      if(o.recon && o.recon.status==='ng'){
+        const fix=document.createElement('div');
+        fix.style.cssText='display:flex;gap:6px;align-items:center;margin-top:7px;padding:7px 9px;background:#fdf3f3;border:1px solid #e8c4c0;border-radius:6px';
+        const lb=document.createElement('span');
+        lb.style.cssText='font-size:11.5px;color:#8a1c1c;font-weight:700;white-space:nowrap';
+        lb.textContent='ERP 거래처 코드:';
+        const inp=document.createElement('input');
+        inp.type='text'; inp.placeholder='예) 10234';
+        inp.style.cssText='flex:1;min-width:70px;padding:6px 8px;border:1px solid var(--line);border-radius:5px;font-family:var(--mono);font-weight:700;font-size:14px';
+        if(o.recon.code) inp.value=o.recon.code;
+        const btn=document.createElement('button');
+        btn.textContent='매칭';
+        btn.style.cssText='border:none;background:var(--accent);color:#fff;border-radius:5px;padding:6px 14px;font-weight:800;font-size:12px;cursor:pointer';
+        btn.onclick=()=>mapErpCode(o.id, inp.value.trim(), btn);
+        inp.onkeydown=ev=>{ if(ev.key==='Enter') mapErpCode(o.id, inp.value.trim(), btn); };
+        fix.append(lb,inp,btn);
+        card.appendChild(fix);
+      }
       const meta=document.createElement('div');
       meta.style.cssText='font-size:10.5px;color:#a09a8a;margin-top:5px';
       const ck=o.chk||{};
@@ -1131,6 +1153,23 @@ function renderConf(conf){
     });
   });
 }
+/* ERP 거래처 코드 매칭 — erpmap/{정규화된 거래처명} = {code, client, by, at}
+   전산대조 프로그램이 다음 실행 때 이 코드를 최우선으로 써서 재대조합니다.
+   한 번 매칭하면 학습되어 같은 거래처는 다음부터 자동 통과합니다. */
+async function mapErpCode(id, code, btn){
+  const o=ORDERS[id]; if(!o) return;
+  if(!code){ alert('ERP 거래처 코드를 입력하세요.'); return; }
+  if(btn){ btn.disabled=true; btn.textContent='저장중'; }
+  try{
+    await db.ref('erpmap/'+cliNorm(o.client)).set({code:code, client:o.client, by:MYNAME, at:Date.now()});
+    // 재대조 요청: 실패 표시를 지우고 대조 대기로 되돌림 (다음 대조 실행 때 코드로 매칭)
+    o.recon=null;
+    await db.ref('orders/'+id).update({recon:null, reconReq:Date.now()});
+    renderSide();
+  }catch(e){ alert('저장 실패: '+e.message); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent='매칭'; } }
+}
+
 async function undoConfirm(id){
   const o=ORDERS[id]; if(!o) return;
   if(!confirm(o.client+' 주문을 미처리로 되돌릴까요? (전산처리 체크가 해제됩니다)')) return;
