@@ -11,7 +11,12 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v2.8 — 2026-09-01
+  신화미트 주문방 (chat.html) v2.9 — 2026-09-01
+  · v2.9: 말풍선 수정·삭제 (글쓴이·관리자만, 꾹 누르기 메뉴)
+    - 🗑 삭제: 메시지가 만든 주문/추가 품목이 주문노트에서도 함께 삭제(휴지통)
+    - ✏ 수정: 이전 반영분을 되돌린 뒤 새 내용으로 다시 분석 → 주문노트 갱신
+    - "○○ 수정" 메시지: 그 거래처 기존 주문에서 같은 품목을 찾아 교체
+      (없으면 추가). "추가"는 기존처럼 덧붙임. 품목마다 출처 메시지 기록.
   · v2.8: 학습 실시간 전파 — 차량 지정·별칭·학습사전·신규 거래처가 저장되면
     접속 중인 모든 화면이 마스터를 자동으로 다시 읽습니다.
     (한 화면에서 차량을 지정했는데 다른 화면/다음 주문에서 또 미지정으로
@@ -1079,6 +1084,12 @@ function bubbleHtml(id,m){
     const om=CHAT[m.replyTo];
     quote='<div class="quote" onclick="event.stopPropagation();jumpTo(\''+esc(m.replyTo)+'\')"><b>'+esc(om.name||'')+'</b> '+esc(replyPreview(om))+'</div>';
   }
+  if(m.deleted){
+    return '<div class="bubble-wrap">'
+      +'<div class="m-name">'+esc(m.name||'')+'</div>'
+      +'<div class="bubble" style="opacity:.55"><i>🗑 삭제된 메시지</i></div>'
+      +'</div><span><span class="m-time">'+hhmm(m.ts||Date.now())+'</span></span>';
+  }
   let body='';
   if(m.photo && m.photo.id){
     body+='<img class="ph" src="https://drive.google.com/thumbnail?id='+esc(m.photo.id)+'&sz=w480" '
@@ -1090,7 +1101,7 @@ function bubbleHtml(id,m){
     +'<div class="m-name">'+esc(m.name||'')+'</div>'
     +'<div class="bubble" onclick="bubbleTap(\''+esc(id)+'\')" oncontextmenu="event.preventDefault();openMsgMenu(\''+esc(id)+'\')" title="누르면 답장 · 꾹 누르면 메뉴(복사/답장)">'+quote+body+'</div>'
     +'</div>'
-    +'<span>'+stateHtml(id,m)+'<span class="m-time">'+hhmm(m.ts||Date.now())+'</span></span>'
+    +'<span>'+stateHtml(id,m)+(m.edited?'<span style="font-size:10px;color:var(--muted)">(수정됨)</span>':'')+'<span class="m-time">'+hhmm(m.ts||Date.now())+'</span></span>'
     +'<button class="rbtn" title="이 메시지에 답장 (추가 주문)" onclick="setReply(\''+esc(id)+'\')">↩</button>';
 }
 /* ---------- 꾹 누르기(길게) → 카톡식 메뉴 ---------- */
@@ -1117,12 +1128,16 @@ function bubbleTap(id){
   ['touchend','touchcancel'].forEach(ev=>box.addEventListener(ev,()=>clearTimeout(LP_T)));
 })();
 function openMsgMenu(id){
-  const m=CHAT[id]; if(!m||m.sys) return;
+  const m=CHAT[id]; if(!m||m.sys||m.deleted) return;
   const menu=document.getElementById('msgMenu');
   let h='<div class="mm-prev"><b>'+esc(m.name||'')+'</b> · '+esc(replyPreview(m))+'</div>';
   h+='<button onclick="closeMsgMenu();setReply(\''+esc(id)+'\')">↩ 답장 (추가 주문)</button>';
   if(m.text) h+='<button id="mmCopy" onclick="copyMsg(\''+esc(id)+'\')">📋 복사</button>';
   if(m.status==='error') h+='<button onclick="closeMsgMenu();retryMsg(\''+esc(id)+'\')" style="color:var(--accent)">🔄 다시 분석</button>';
+  if((m.uid===(ME&&ME.uid) || IS_ADMIN) && !m.deleted){
+    if(m.text) h+='<button onclick="closeMsgMenu();openEditMsg(\''+esc(id)+'\')">✏ 수정 (주문노트에 다시 반영)</button>';
+    h+='<button onclick="closeMsgMenu();delMsg(\''+esc(id)+'\')" style="color:var(--accent)">🗑 삭제 (등록된 주문도 취소)</button>';
+  }
   h+='<button class="mm-x" onclick="closeMsgMenu()">닫기</button>';
   menu.innerHTML=h;
   document.getElementById('msgMenuBg').classList.add('on');
@@ -1139,6 +1154,73 @@ async function copyMsg(id){
     prompt('길게 눌러 복사하세요', m.text||'');
     closeMsgMenu();
   }
+}
+
+/* ⏪ 이 메시지가 주문노트에 반영한 것들을 되돌립니다.
+   - 메시지가 통째로 만든 주문 → 휴지통
+   - 기존 주문에 추가했던 품목(src 표시) → 그 품목만 제거 (품목이 다 빠지면 주문도 휴지통) */
+async function rollbackMsg(msgId){
+  for(const oid of Object.keys(ORDERS)){
+    const o=ORDERS[oid]; if(!o) continue;
+    if(o.chatMsg===msgId){
+      await db.ref('trash/'+oid).set(Object.assign({}, o, {delAt:Date.now(), delBy:MYNAME, delWhy:'말풍선 삭제/수정'}));
+      await db.ref('orders/'+oid).remove();
+      delete ORDERS[oid];
+      continue;
+    }
+    const its=o.items||[];
+    if(its.some(it=>it && it.src===msgId)){
+      const rest=its.filter(it=>!(it && it.src===msgId));
+      if(!rest.length){
+        await db.ref('trash/'+oid).set(Object.assign({}, o, {delAt:Date.now(), delBy:MYNAME, delWhy:'말풍선 삭제/수정'}));
+        await db.ref('orders/'+oid).remove();
+        delete ORDERS[oid];
+      }else{
+        o.items=rest; o.hash=hashOrder(o); o.ts=Date.now();
+        await db.ref('orders/'+oid).update({items:rest, hash:o.hash, ts:o.ts});
+      }
+    }
+  }
+  seenHashes=new Set(Object.values(ORDERS).map(x=>x&&x.hash).filter(Boolean));
+  renderSide();
+}
+
+/* 🗑 말풍선 삭제 — 주문노트 반영분도 함께 취소 */
+async function delMsg(id){
+  const m=CHAT[id]; if(!m||m.sys) return;
+  if(!(m.uid===(ME&&ME.uid) || IS_ADMIN)){ alert('본인 메시지만 삭제할 수 있습니다.'); return; }
+  if(!confirm('이 메시지를 삭제할까요?\n이 메시지로 등록된 주문·추가 품목도 주문노트에서 함께 삭제됩니다(휴지통).')) return;
+  try{
+    await rollbackMsg(id);
+    await db.ref('chat/'+id).update({deleted:1, status:null, orders:null});
+  }catch(e){ alert('삭제 실패: '+e.message); }
+}
+
+/* ✏ 말풍선 수정 — 이전 반영분 되돌린 뒤 새 내용으로 재분석 */
+function openEditMsg(id){
+  const m=CHAT[id]; if(!m||m.sys||m.deleted||!m.text) return;
+  if(!(m.uid===(ME&&ME.uid) || IS_ADMIN)){ alert('본인 메시지만 수정할 수 있습니다.'); return; }
+  const menu=document.getElementById('msgMenu');
+  menu.innerHTML='<div class="mm-prev"><b>✏ 메시지 수정</b> — 저장하면 이전 반영을 되돌리고 새 내용으로 다시 분석합니다</div>'
+    +'<textarea id="editMsgTa" style="width:100%;min-height:120px;padding:9px;border:1px solid var(--line);border-radius:8px;'
+    +'font-size:14px;font-family:var(--sans);resize:vertical;box-sizing:border-box"></textarea>'
+    +'<button onclick="saveEditMsg(\''+esc(id)+'\')" style="background:var(--accent);color:#fff;text-align:center;border-radius:8px;margin-top:8px">저장하고 다시 분석</button>'
+    +'<button class="mm-x" onclick="closeMsgMenu()">취소</button>';
+  document.getElementById('editMsgTa').value=m.text;
+  document.getElementById('msgMenuBg').classList.add('on');
+}
+async function saveEditMsg(id){
+  const m=CHAT[id]; if(!m) return;
+  const ta=document.getElementById('editMsgTa');
+  const nv=(ta&&ta.value||'').trim();
+  if(!nv){ alert('내용이 비어 있습니다. 삭제하려면 🗑 삭제를 쓰세요.'); return; }
+  closeMsgMenu();
+  if(nv===m.text) return;
+  try{
+    await rollbackMsg(id);
+    await db.ref('chat/'+id).update({text:nv, edited:1, status:'parsing', orders:null});
+    await processMessage(id, Object.assign({}, m, {text:nv}));
+  }catch(e){ alert('수정 실패: '+e.message); }
 }
 
 function jumpTo(id){
@@ -1257,7 +1339,8 @@ async function processMessage(msgId, m){
       const oo=ORDERS[CHAT[m.replyTo].orders[0]];
       if(oo && oo.client && !oo.needClient) forced={client:oo.client, date:oo.date};
     }
-    const tot=await createOrders(m.text, forced, msgId, m.name||'');
+    const isEdit=/수정/.test(String(m.text||'').split(/\n/).slice(0,2).join(' '));
+    const tot=await createOrders(m.text, forced, msgId, m.name||'', isEdit);
     await mref.update({status:'done', orders:tot.ids});
 
     // 결과를 시스템 답장으로
@@ -1298,7 +1381,7 @@ async function processMessage(msgId, m){
   }
 }
 
-async function createOrders(text, forced, msgId, senderName){
+async function createOrders(text, forced, msgId, senderName, isEdit){
   const baseDate = forced ? forced.date : todayStr();
   const tot={ids:[], lines:[], dup:0, fixed:0, trimmed:0, needClient:0, newClients:[], pending:[], dates:[]};
   const j=await gsCall('parse',{text, baseDate});
@@ -1406,14 +1489,30 @@ async function createOrders(text, forced, msgId, senderName){
     // 같은 날짜·거래처가 이미 있으면 품목만 병합 (품목 단위 중복 검사)
     const existing=sk ? Object.values(ORDERS).find(x=>x && x.date===o.date && !x.needClient && cliNorm(x.client)===cliNorm(sk)) : null;
     if(existing){
+      let repl=0;
+      if(isEdit){
+        // ✏ "수정" 메시지: 같은 품목(이름 기준)을 찾아 교체
+        (o.items||[]).forEach(nit=>{
+          const nk=learnKey(nit.product||nit.text||'');
+          if(!nk) return;
+          const i=(existing.items||[]).findIndex(x=>learnKey(x.product||x.text||'')===nk);
+          if(i>=0){
+            existing.items[i]=Object.assign({}, existing.items[i], nit,
+              {at:Date.now(), src:msgId, edited:1});
+            nit._used=1; repl++;
+          }
+        });
+      }
       const have=new Set((existing.items||[]).map(it=>dedupKey(o.date,sk,it.text)));
       const toAdd=(o.items||[]).filter(it=>{
+        if(it._used){ delete it._used; return false; }
         const k=dedupKey(o.date,sk,it.text);
         if(have.has(k)){ tot.dup++; return false; }
         have.add(k); return true;
       });
-      if(!toAdd.length) continue;
-      toAdd.forEach(it=>{ it.at=Date.now(); });   // 인쇄 이후 추가 품목 🆕 표시용
+      if(!toAdd.length && !repl) continue;
+      toAdd.forEach(it=>{ it.at=Date.now(); it.src=msgId; });   // 출처 메시지 기록 (🆕 표시·되돌리기용)
+      if(repl) tot.lines.push('✏ '+sk+' ('+mmdd(o.date)+') 품목 '+repl+'건 수정 반영');
       existing.items=(existing.items||[]).concat(toAdd);
       existing.hash=hashOrder(existing);
       existing.gapDone=false;
@@ -1432,6 +1531,7 @@ async function createOrders(text, forced, msgId, senderName){
     if(seenHashes.has(o.hash)){ tot.dup+=(o.items||[]).length; continue; }
 
     o.done=false; o.ts=Date.now(); o.chatMsg=msgId; o.by=senderName;
+    (o.items||[]).forEach(it=>{ if(it && !it.src) it.src=msgId; });
     const ref=db.ref('orders').push();
     o.id=ref.key;
     await ref.set(o);
