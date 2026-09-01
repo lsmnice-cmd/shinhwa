@@ -2467,6 +2467,9 @@ function firstDate(){
 function setNoteDate(d){ noteDate=d; renderNote(); }
 function setWorkDate(d){ workDate=d; renderWork(); }
 
+/* [v3.8] 노트 편집기 학습 보강 — ① 처음 정식 상품명을 붙이는 품목도 학습
+   (기존엔 이미 상품명이 있던 품목만 학습) ② 차량 변경 시 기본 차량 저장 여부 확인
+   ③ 학습 후 실시간 전파(meta/masterVer)로 주문방 화면도 즉시 갱신. 최근 수정이 우선. */
 /* [v3.7] 품목 표시 반전 — 학습(매칭)된 품목은 정식 상품명(브랜드)을 크게,
    채팅 원문은 (괄호)로 작게. 미학습 품목은 기존처럼 원문 그대로. */
 /* [v3.6] 전산처리 표시 개편 — 취소선 대신 전산 실측값 표시:
@@ -2897,15 +2900,22 @@ async function saveOrderEdit(){
       const price=tr.querySelector('.ed-price').value.trim();
       if(!text) return;
       (byOid[oid]=byOid[oid]||[]).push({product:prod, text, price});
-      // 상품명 학습 (원래 카톡 표현 → 새 상품명)
-      const was=tr.querySelector('.ed-prod').dataset.was||'';
+      // 상품명 학습 (카톡 표현 → 정식 상품명) — v3.8: 처음 붙이는 경우도 학습
       const it0=(ORDERS[oid]&&ORDERS[oid].items||[])[tr.dataset.idx];
-      if(prod && it0 && was && prod!==it0.product){
+      const was=(tr.querySelector('.ed-prod').dataset.was||'') || (it0?itemText(it0):'') || text;
+      if(prod && it0 && was && prod!==(it0.product||'')){
         LEARN_QUEUE.push({client:newCli||ORDERS[oid].client, katok:was, item:prod});
       }
     });
 
     const sk=newCli?(matchClient(newCli)||newCli):'';
+    // v3.8: 차량을 바꿨고 마스터 기본 차량과 다르면 저장 여부 확인 (다음 주문부터 자동)
+    if(sk && newVeh!=='미지정' && MASTER[sk] && normVeh(MASTER[sk].vehicle||'미지정')!==newVeh){
+      if(confirm(sk+'의 기본 차량을 "'+newVeh+'"(으)로 저장할까요?\n(예: 앞으로 이 거래처 주문에 자동 적용 / 아니오: 이번 주문만)')){
+        MASTER[sk].vehicle=newVeh;
+        try{ await gsCall('setVehicle',{client:sk, vehicle:newVeh}); }catch(e){ alert('차량 저장 실패: '+e.message); }
+      }
+    }
     for(const id of EDIT_IDS){
       const o=ORDERS[id]; if(!o) continue;
       const items=byOid[id]||[];
@@ -2926,6 +2936,8 @@ async function saveOrderEdit(){
         LEARNED.perCustomer[q.client][q.katok]=q.item;
       }catch(e){ console.warn('addLearned',e); }
     }
+    // v3.8: 학습 실시간 전파 — 주문방 등 다른 화면이 마스터를 다시 읽음
+    try{ if(fbReady) db.ref('meta/masterVer').set(Date.now()); }catch(e){}
     closeOrderEditor();
     renderAll();
   } finally {
