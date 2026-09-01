@@ -2467,6 +2467,10 @@ function firstDate(){
 function setNoteDate(d){ noteDate=d; renderNote(); }
 function setWorkDate(d){ workDate=d; renderWork(); }
 
+/* [v3.6] 전산처리 표시 개편 — 취소선 대신 전산 실측값 표시:
+   전산대조가 품목에 기록한 ERP 중량·이력끝4자리를 "15.15kg(1514)" 초록
+   태그로 표시. 대조 전(체크만 된 상태)은 ✔ 로 표시. 이후 추가 품목은
+   표시가 없어 재처리 대상이 한눈에 보입니다. */
 /* [v3.4] 월별 달력형 날짜 선택 — 칸의 숫자 = 그날 거래처 수 */
 const CAL_YM={};   // elId -> 'YYYY-MM' (보고 있는 달)
 function todayStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
@@ -2593,7 +2597,8 @@ function buildNoteTable(wrap, date, workMode){
       html+='<thead><tr><th>거래처</th><th>품목 / 원산지 / 중량</th><th class="work">작업</th></tr></thead><tbody>';
       clients.forEach(c=>{
         const orders=g[vv][c];
-        const allItems=[];orders.forEach(o=>(o.items||[]).forEach(it=>allItems.push({...it,oid:o.id})));
+        const allItems=[];orders.forEach(o=>(o.items||[]).forEach(it=>allItems.push({...it,oid:o.id,
+          _erp:!!(o.erpAt && (!it.at || it.at<=o.erpAt))})));   // [v3.5] 전산처리 시각 이전 품목 = 처리됨
         const oid0=orders[0].id;
         const isDone=orders.every(o=>o.done);
         const noCli=orders.some(o=>o.needClient);
@@ -2620,12 +2625,21 @@ function buildNoteTable(wrap, date, workMode){
                 t+='<span class="guess" title="최근 구매이력 추측 — 후보: '+esc(it.cands.join(', '))+'">추측<span class="q">?</span></span>';
               }
             }
+            if(it.erpKg || it.erpTail){
+              const kg=it.erpKg?(String(it.erpKg).replace(/\.0+$/,''))+'kg':'';
+              t+=' <span title="전산 실측 (중량·이력끝4자리)" style="font-size:11px;font-weight:800;color:#1f6b3a;background:#e7f2ea;border-radius:4px;padding:1px 5px">'+kg+(it.erpTail?'('+esc(it.erpTail)+')':'')+'</span>';
+            }else if(it._erp){
+              t+=' <span title="전산처리 체크됨 (대조 전)" style="font-size:11px;font-weight:800;color:#1f6b3a">✔</span>';
+            }
             return '<span class="item-cell'+((it.dup)?' dup':'')+'">'+t+'</span>';
           });
           itemHtml='<div class="item-grid">'+cells.join('')+'</div>';
         }
         html+='<tr data-ids="'+esc(ids)+'"'+(isDone?' class="done"':'')+(noCli?' class="nocli"':'')+'>';
-        html+='<td class="cli"><span class="cli-edit" onclick="openOrderEditor(\''+esc(ids)+'\')">'+esc(c||'(미지정)')+'<i class="pen">✎</i></span></td>';
+        const allErp=allItems.length && allItems.every(it=>it._erp||it.erpKg||it.erpTail);
+        html+='<td class="cli"><span class="cli-edit" onclick="openOrderEditor(\''+esc(ids)+'\')">'+esc(c||'(미지정)')
+          +(allErp?' <span style="font-size:10px;font-weight:800;color:#1f6b3a" title="전산처리 완료">✔전산</span>':'')
+          +'<i class="pen">✎</i></span></td>';
         html+='<td class="items">'+(itemHtml||'<span style="color:#b71c1c;font-size:12px">⚠ 품목 없음 (분석 중단 등으로 손상된 주문) — 거래처명을 클릭해 삭제하세요</span>')+'</td>';
         html+='<td class="work"><span class="worktag '+(isDone?'done':'wait')+'" onclick="toggleDone(\''+esc(ids)+'\')">'+(isDone?'완료':'대기')+'</span></td>';
         html+='</tr>';
@@ -2638,6 +2652,7 @@ function buildNoteTable(wrap, date, workMode){
   if(!uniqVeh.length) html+='<div class="empty">이 날짜에 주문이 없습니다</div>';
   html+='<div class="legend no-print"><span><i style="background:var(--wait-soft)"></i><b>대기</b> 미작업</span>'
       +'<span><i style="background:var(--ok-soft)"></i><b>완료</b> 작업완료(클릭 토글)</span>'
+      +'<span><span style="font-size:11px;font-weight:800;color:#1f6b3a;background:#e7f2ea;border-radius:4px;padding:1px 5px">15.15kg(1514)</span> 전산 실측값(대조 완료) · <b style="color:#1f6b3a">✔</b> 전산처리 체크됨 · 표시 없음=미처리/추가분</span>'
       +'<span>거래처명을 클릭하면 수정·삭제할 수 있습니다</span></div>';
   wrap.innerHTML=html;
   if(!workMode) fillBlankRows(wrap);
