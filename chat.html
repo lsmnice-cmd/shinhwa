@@ -11,7 +11,14 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v2.6 — 2026-09-01
+  신화미트 주문방 (chat.html) v2.8 — 2026-09-01
+  · v2.8: 학습 실시간 전파 — 차량 지정·별칭·학습사전·신규 거래처가 저장되면
+    접속 중인 모든 화면이 마스터를 자동으로 다시 읽습니다.
+    (한 화면에서 차량을 지정했는데 다른 화면/다음 주문에서 또 미지정으로
+    뜨던 문제 해결. 차량 마스터 저장 실패 시 알림 표시.)
+  · v2.7: 확인방 품목 짝짓기 개선 — 드롭다운 선택값이 화면 갱신에도 유지되고,
+    줄마다 저장 대신 [💾 선택한 짝 모두 저장] 한 번으로 일괄 학습·적용.
+    (저장 중 다른 선택이 리셋되던 문제 해결)
   · v2.6: 미처리 카드에서 직접 수정 + 학습
     - 거래처명 클릭 → 수정 (마스터 자동완성, 잘못 잡힌 이름은 별칭으로 학습되어
       다음부터 그 표현이 오면 자동으로 올바른 거래처에 붙습니다)
@@ -741,11 +748,28 @@ async function onSignedIn(u){
       ALLOWED = IS_ADMIN || ((access.emails||[]).indexOf((u.email||'').toLowerCase())>=0);
     }catch(e){ console.warn('getAccess',e); }
     loadMaster();
+    watchMasterVer();   // 📡 다른 화면의 학습을 실시간 수신
   })();
 }
 function renderWhoami(u){
   document.getElementById('whoami').innerHTML=esc(u.email||'')+' <button class="hbtn" style="padding:2px 8px" onclick="signOut()">로그아웃</button>';
 }
+/* 📡 학습 실시간 전파 — 뭔가 학습되면 모든 화면이 마스터를 다시 읽습니다 */
+let MASTER_VER=0, _mvT=null;
+function bumpMasterVer(){
+  try{ if(db) db.ref('meta/masterVer').set(Date.now()).catch(()=>{}); }catch(e){}
+}
+function watchMasterVer(){
+  if(!db) return;
+  db.ref('meta/masterVer').on('value',s=>{
+    const v=Number(s.val()||0);
+    if(!v || v===MASTER_VER){ MASTER_VER=v; return; }
+    MASTER_VER=v;
+    clearTimeout(_mvT);
+    _mvT=setTimeout(loadMaster, 1200);   // 연속 학습 시 몰아서 1번만
+  });
+}
+
 async function loadMaster(){
   try{
     const j=await gsCall('getMaster');
@@ -1669,13 +1693,13 @@ async function fixClient(id, name, btn){
       if(!confirm('"'+sk+'"는 마스터에 없는 거래처입니다.\n신규 거래처로 등록할까요?')){ if(btn){btn.disabled=false;btn.textContent='저장';} return; }
       MASTER[sk]={vehicle:'', single:'', specs:[]};
       _clientIndex=null;
-      gsCall('saveClient',{client:sk, vehicle:'', rows:'[]', single:''}).catch(e=>console.warn('saveClient',e));
+      gsCall('saveClient',{client:sk, vehicle:'', rows:'[]', single:''}).then(bumpMasterVer).catch(e=>console.warn('saveClient',e));
     }
     // 📚 별칭 학습: 원래 잘못 잡힌 이름이 있고, 그게 마스터의 다른 거래처가 아니면
     const wrong=String(o.client||'').trim();
     if(wrong && wrong!==sk && MASTER[wrong]===undefined && !o.needClient){
       ALIASES[wrong]=sk;
-      gsCall('addAlias',{katok:wrong, client:sk}).catch(e=>console.warn('addAlias',e));
+      gsCall('addAlias',{katok:wrong, client:sk}).then(bumpMasterVer).catch(e=>console.warn('addAlias',e));
     }
     // 품목을 이 거래처의 학습사전으로 재교정
     const items=(o.items||[]).map(it=>{
@@ -1710,7 +1734,7 @@ async function editItem(id, idx){
     const orig=String(it.wasProduct||it.product||it.text||'').trim();
     if(orig && o.client && !o.needClient && learnKey(orig)!==learnKey(nv)){
       if(confirm('학습할까요?\n앞으로 '+o.client+'의 "'+orig+'" 는 자동으로 "'+nv+'" 로 바뀝니다.')){
-        gsCall('addLearned',{client:o.client, katok:orig, item:nv}).catch(e=>console.warn('addLearned',e));
+        gsCall('addLearned',{client:o.client, katok:orig, item:nv}).then(bumpMasterVer).catch(e=>console.warn('addLearned',e));
         if(!LEARNED.perCustomer[o.client]) LEARNED.perCustomer[o.client]={};
         LEARNED.perCustomer[o.client][orig]=nv;
         LEARNED.perCustomer[o.client][learnKey(orig)]=nv;
@@ -1766,7 +1790,9 @@ async function setVehicleFor(id, veh){
     // 마스터에 학습 → 다음 주문부터 자동
     MASTER[sk]=MASTER[sk]||{vehicle:'',single:'',specs:[]};
     MASTER[sk].vehicle=veh;
-    gsCall('setVehicle',{client:sk, vehicle:veh}).catch(e=>console.warn('setVehicle',e));
+    gsCall('setVehicle',{client:sk, vehicle:veh})
+      .then(bumpMasterVer)
+      .catch(e=>alert('⚠ 차량이 마스터에 저장되지 않았습니다: '+e.message+'\n(이 주문에는 적용됐지만 다음 주문에 자동으로 안 붙을 수 있음 — 다시 시도하세요)'));
     renderSide();
   }catch(e){ alert('저장 실패: '+e.message); }
 }
@@ -1838,8 +1864,16 @@ function renderConf(conf){
           pw.style.cssText='margin-top:7px;padding:8px 9px;background:#fbf7ec;border:1px solid #e2d3a8;border-radius:6px';
           const t=document.createElement('div');
           t.style.cssText='font-size:11.5px;color:#7a5a00;font-weight:800;margin-bottom:6px';
-          t.textContent='🔗 품목 짝짓기 — 이 거래처의 채팅 표현을 ERP 품목과 연결하면 학습되어 다음부터 자동 반영됩니다';
+          t.textContent='🔗 품목 짝짓기 — 채팅 표현을 ERP 품목과 연결하면 학습되어 다음부터 자동 반영됩니다';
           pw.appendChild(t);
+          if(!PAIR_SEL[o.id]) PAIR_SEL[o.id]={};
+          const psel=PAIR_SEL[o.id];
+          // 💾 일괄 저장 버튼 (맨 위)
+          const saveAll=document.createElement('button');
+          saveAll.textContent='💾 선택한 짝 모두 저장 (학습·적용)';
+          saveAll.style.cssText='display:block;width:100%;border:none;background:#1f6b3a;color:#fff;border-radius:6px;padding:8px;font-weight:800;font-size:13px;cursor:pointer;margin-bottom:7px';
+          saveAll.onclick=()=>pairLearnAll(o.id, saveAll);
+          pw.appendChild(saveAll);
           o.recon.missItems.forEach(mi=>{
             const row=document.createElement('div');
             row.style.cssText='display:flex;gap:6px;align-items:center;margin-bottom:5px;flex-wrap:wrap';
@@ -1852,11 +1886,9 @@ function renderConf(conf){
             [...new Set(o.recon.erpItems)].forEach(e=>{
               const op=document.createElement('option'); op.value=e; op.textContent=e; sel.appendChild(op);
             });
-            const b=document.createElement('button');
-            b.textContent='학습·적용';
-            b.style.cssText='border:none;background:#1f6b3a;color:#fff;border-radius:5px;padding:6px 11px;font-weight:800;font-size:12px;cursor:pointer';
-            b.onclick=()=>{ if(!sel.value){alert('ERP 품목을 선택하세요.');return;} pairLearn(o.id, mi.i, mi.name, sel.value, b); };
-            row.append(nm,sel,b);
+            if(psel[mi.i]) sel.value=psel[mi.i];                    // 화면이 다시 그려져도 선택 유지
+            sel.onchange=()=>{ psel[mi.i]=sel.value; };
+            row.append(nm,sel);
             pw.appendChild(row);
           });
           const pass=document.createElement('button');
@@ -1918,16 +1950,65 @@ async function mapErpCode(id, code, btn){
   finally{ if(btn){ btn.disabled=false; btn.textContent='매칭'; } }
 }
 
-/* 🔗 품목 짝짓기 — 채팅 표현을 ERP 품목과 연결.
-   ① 학습사전 등록 (거래처별) → 파서가 다음 입력부터 실시간 자동 교정
-   ② 이 주문의 해당 품목명도 즉시 교체 (주문노트 반영)
-   ③ 남은 미매칭이 없으면 자동 통과 (확인방에서 제거) */
+/* 🔗 품목 짝짓기 — 선택값 저장소 (화면이 다시 그려져도 선택 유지) */
+const PAIR_SEL={};   // orderId -> {missIdx: erpItem}
+
+/* 💾 선택한 짝 전부 일괄 저장:
+   ① 각각 학습사전 등록 (거래처별) → 다음 입력부터 실시간 자동 교정
+   ② 이 주문의 품목명 일괄 교체 (주문노트 반영)
+   ③ 전부 짝지어지면 자동 통과 — 화면 갱신은 마지막에 한 번만 */
+async function pairLearnAll(id, btn){
+  const o=ORDERS[id]; if(!o) return;
+  const psel=PAIR_SEL[id]||{};
+  const miss=((o.recon&&o.recon.missItems)||[]);
+  const chosen=miss.filter(m=>psel[m.i]);
+  if(!chosen.length){ alert('먼저 각 품목의 ERP 품목을 드롭다운에서 선택하세요.\n(선택 안 한 줄은 남겨두고 나중에 해도 됩니다)'); return; }
+  if(btn){ btn.disabled=true; btn.textContent='저장 중…'; }
+  try{
+    const items=(o.items||[]).slice();
+    for(const m of chosen){
+      const erp=psel[m.i];
+      await gsCall('addLearned',{client:o.client, katok:m.name, item:erp});
+      if(!LEARNED.perCustomer[o.client]) LEARNED.perCustomer[o.client]={};
+      LEARNED.perCustomer[o.client][m.name]=erp;
+      LEARNED.perCustomer[o.client][learnKey(m.name)]=erp;
+      if(items[m.i]){
+        items[m.i]=Object.assign({}, items[m.i], {wasProduct:items[m.i].product||m.name, product:erp, fixed:1, via:'짝짓기'});
+      }
+    }
+    const remain=miss.filter(m=>!psel[m.i]);
+    const upd={items:items};
+    if(remain.length){
+      upd['recon/missItems']=remain;
+      const names=remain.map(m=>m.name);
+      upd['recon/reason']='품목 짝짓기 필요: '+names.slice(0,3).join(', ')+(names.length>3?' 외 '+(names.length-3):'');
+    }else{
+      upd['recon/missItems']=null;
+      upd['recon/status']='ok';
+      upd['recon/via']='짝짓기 완료';
+      upd['confirm']='done';
+      upd['reconAt']=Date.now();
+    }
+    await db.ref('orders/'+id).update(upd);
+    o.items=items;
+    if(!o.recon) o.recon={};
+    if(remain.length){ o.recon.missItems=remain; }
+    else { o.recon.missItems=null; o.recon.status='ok'; o.confirm='done'; }
+    delete PAIR_SEL[id];
+    bumpMasterVer();
+    renderSide();
+  }catch(e){ alert('저장 실패: '+e.message); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent='💾 선택한 짝 모두 저장 (학습·적용)'; } }
+}
+
+/* (구버전 호환) 한 줄 짝짓기 */
 async function pairLearn(id, idx, katok, erpItem, btn){
   const o=ORDERS[id]; if(!o) return;
   if(btn){ btn.disabled=true; btn.textContent='저장중'; }
   try{
     // ① 학습사전 등록
     await gsCall('addLearned',{client:o.client, katok:katok, item:erpItem});
+    bumpMasterVer();
     if(!LEARNED.perCustomer[o.client]) LEARNED.perCustomer[o.client]={};
     LEARNED.perCustomer[o.client][katok]=erpItem;
     LEARNED.perCustomer[o.client][learnKey(katok)]=erpItem;
