@@ -2467,6 +2467,8 @@ function firstDate(){
 function setNoteDate(d){ noteDate=d; renderNote(); }
 function setWorkDate(d){ workDate=d; renderWork(); }
 
+/* [v3.7] 품목 표시 반전 — 학습(매칭)된 품목은 정식 상품명(브랜드)을 크게,
+   채팅 원문은 (괄호)로 작게. 미학습 품목은 기존처럼 원문 그대로. */
 /* [v3.6] 전산처리 표시 개편 — 취소선 대신 전산 실측값 표시:
    전산대조가 품목에 기록한 ERP 중량·이력끝4자리를 "15.15kg(1514)" 초록
    태그로 표시. 대조 전(체크만 된 상태)은 ✔ 로 표시. 이후 추가 품목은
@@ -2606,7 +2608,16 @@ function buildNoteTable(wrap, date, workMode){
         let itemHtml='';
         if(allItems.length){
           const cells=allItems.map(it=>{
-            let t=esc(itemText(it));
+            // [v3.7] 학습된 품목: 정식 상품명 크게 + (채팅 원문) 작게
+            const rawTxt=itemText(it);
+            let t;
+            if(it.product && it.product!==rawTxt){
+              const q=(it.text||'').match(/[\d\.]+\s*(키로|킬로|kg|박스|팩|봉지|개|장|줄|판|리|두|마리|덩이|짝|p|b)?/i);
+              t='<b>'+esc(it.product)+'</b>'+(q&&q[0].trim()?' '+esc(q[0].trim()):'')
+                +' <span style="font-size:11px;color:#9a9384">('+esc(rawTxt)+')</span>';
+            }else{
+              t=esc(rawTxt);
+            }
             if(it.price) t+=' <span class="price">'+esc(it.price)+'</span>';
             if(workMode){
               const sk=matchClient(c);
@@ -2618,9 +2629,6 @@ function buildNoteTable(wrap, date, workMode){
                 else t+='<span class="wraw">'+esc(row.status)+'</span>';
               }
             } else {
-              if(it.product && it.product!==itemText(it)){
-                t+=' <span class="spec" style="background:#eef;border-radius:3px">'+esc(it.product)+'</span>';
-              }
               if(it.fixed && it.via==='최근' && it.cands && it.cands.length>1){
                 t+='<span class="guess" title="최근 구매이력 추측 — 후보: '+esc(it.cands.join(', '))+'">추측<span class="q">?</span></span>';
               }
