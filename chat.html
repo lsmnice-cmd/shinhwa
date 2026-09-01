@@ -11,7 +11,17 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v3.4 — 2026-09-01
+  신화미트 주문방 (chat.html) v3.6 — 2026-09-02
+  · v3.6: 🤖 자동처리 모드 (봇 PC 상시 화면용) — 주소 뒤에 ?runner=1
+    - 아무도 화면을 안 열어둔 시간에도 주문이 처리되도록, 봇 PC 크롬에
+      이 모드로 상시 열어두면 20초 안에 갇힌 메시지를 이어받습니다
+    - 30초마다 전체 재점검(타이머가 느려지는 백그라운드 탭 대비), 알림 소리 없음,
+      접속인원에 "🤖 자동처리"로 표시
+  · v3.5: 재시도 사각지대 제거
+    ① "분석중…"에 90초 넘게 갇힌 메시지는 관리자가 아니어도, 열려 있는
+       아무 화면이 이어받아 처리 (기존: 관리자 화면만, 3분 후)
+    ② 주문처럼 생겼는데(수량·날짜·차량 패턴) 주문 0건으로 끝나면 ✓ 대신
+       ⚠로 표시하고 자동 재시도 (모델이 잡담으로 오판한 경우 구제)
   · v3.4: 신규 직원 접속 신청 수정 — 승인 전에는 공유 설정을 못 읽어
     신청이 접수되지 않던 문제. 서버 주소 기본값을 내장해 설정 없이도
     접속 신청이 들어갑니다 (Code.gs v2.5의 토큰 면제와 한 쌍).
@@ -777,6 +787,15 @@ async function onSignedIn(u){
     }catch(e){ console.warn('getAccess',e); }
     loadMaster();
     watchMasterVer();   // 📡 다른 화면의 학습을 실시간 수신
+    if(IS_RUNNER){
+      MYNAME='🤖 자동처리'; renderPresence();
+      document.title='🤖 자동처리 중 — 신화미트 주문방';
+      // 백그라운드 탭은 타이머가 1분 단위로 느려지므로 30초마다 전체 재점검
+      setInterval(()=>{
+        for(const id in CHAT){ const m=CHAT[id]; if(m && m.status==='parsing') rescueIfStale(id, m); }
+        for(const id in CHAT){ const m=CHAT[id]; if(m && m.status==='error') scheduleAutoRetry(id, m); }
+      }, 30*1000);
+    }
   })();
 }
 function renderWhoami(u){
@@ -979,6 +998,7 @@ function beep(){
   }catch(e){}
 }
 function notifyNew(m){
+  if(IS_RUNNER) return;
   if(!ALERT_ON || !m || m.sys) return;
   if((m.ts||0)<=BOOT_TS) return;                 // 접속 전에 온 과거 메시지 제외
   if(ME && m.uid===ME.uid) return;               // 내가 보낸 건 제외
@@ -1374,6 +1394,15 @@ function compressImage(file){
    메시지 → 주문 생성 (주문노트 processChunk 이식, 단일 메시지판)
    글쓴이 브라우저에서 실행됩니다. 봇·상시 PC 불필요.
    ============================================================ */
+/* 주문처럼 생긴 메시지인지 — 수량 단위 또는 날짜/차량 머리말 패턴 */
+function looksLikeOrder(text){
+  const t=String(text||'');
+  if(/\d\s*(키|kg|㎏|박스|팩|봉|개|장|줄|판|마리|두|짝|박|b|p)(?![a-z가-힣])/i.test(t)) return true;
+  const lines=t.split(/\n/).map(x=>x.trim()).filter(Boolean);
+  const hasHead=lines.some(x=>/^\d{3,4}$/.test(x) || /^\d{1,2}[.\/]\d{1,2}\.?$/.test(x));
+  return hasHead && lines.length>=3;
+}
+
 async function processMessage(msgId, m){
   if(!m.text){ return; }
   const mref=db.ref('chat/'+msgId);
@@ -1386,6 +1415,10 @@ async function processMessage(msgId, m){
     }
     const isEdit=/수정/.test(String(m.text||'').split(/\n/).slice(0,2).join(' '));
     const tot=await createOrders(m.text, forced, msgId, m.name||'', isEdit);
+    const got=(tot.ids||[]).length + (tot.dup||0);
+    if(!got && looksLikeOrder(m.text)){
+      throw new Error('주문으로 인식하지 못했습니다 — 자동으로 다시 분석합니다');
+    }
     await mref.update({status:'done', orders:tot.ids});
 
     // 결과를 시스템 답장으로
@@ -1639,11 +1672,14 @@ function checkSuspicion(m, tot){
 /* ---------- 분석중 상태로 방치된 메시지 구조 (관리자 브라우저) ----------
    글쓴이가 전송 직후 브라우저를 닫으면 status=parsing 으로 남습니다.
    관리자 화면이 3분 지난 parsing 메시지를 transaction으로 선점해 대신 처리합니다. */
+const IS_RUNNER=/[?&]runner=1/.test(location.search);   // v3.6 봇 PC 상시 화면
+const STALE_MS=IS_RUNNER ? 20*1000 : 90*1000;   // 자동처리 화면은 20초, 일반 화면은 90초
 async function rescueIfStale(id, m){
-  if(!IS_ADMIN || !m || m.sys || !m.text) return;
+  if(!m || m.sys || !m.text) return;
   if(m.status!=='parsing') return;
-  if(Date.now()-(m.ts||0) < 3*60*1000){
-    setTimeout(()=>{ const cur=CHAT[id]; if(cur) rescueIfStale(id, cur); }, 3*60*1000+5000);
+  const left=STALE_MS-(Date.now()-(m.ts||0));
+  if(left>0){
+    setTimeout(()=>{ const cur=CHAT[id]; if(cur) rescueIfStale(id, cur); }, left+Math.floor(Math.random()*4000));
     return;
   }
   try{
