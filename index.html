@@ -2459,26 +2459,78 @@ function renderAll(){renderNote();renderWork();renderMaster();updateGapBadge();}
 let noteDate=null, workDate=null;
 function dateExists(d){ return !!ordersByDate()[d]; }
 function firstDate(){
+  const t=todayStr();
+  if(ordersByDate()[t]) return t;                 // [v3.4] 오늘 주문이 있으면 오늘 우선
   const ds=Object.keys(ordersByDate()).sort().reverse();
   return ds[0]||null;
 }
 function setNoteDate(d){ noteDate=d; renderNote(); }
 function setWorkDate(d){ workDate=d; renderWork(); }
 
+/* [v3.4] 월별 달력형 날짜 선택 — 칸의 숫자 = 그날 거래처 수 */
+const CAL_YM={};   // elId -> 'YYYY-MM' (보고 있는 달)
+function todayStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function renderDateBar(elId, cur, onPick){
   const el=document.getElementById(elId);
   const g=ordersByDate();
-  const dates=Object.keys(g).sort().reverse();
-  el.innerHTML='';
-  dates.forEach(d=>{
-    const b=document.createElement('button');
-    b.className='pill'+(d===cur?' active':'');
-    const n=g[d].reduce((s,o)=>s+(o.items||[]).length,0);
-    b.textContent=d.slice(5).replace('-','.')+' ('+n+')';
-    b.onclick=()=>onPick(d);
-    el.appendChild(b);
+  const dates=Object.keys(g).sort();
+  const today=todayStr();
+  if(!CAL_YM[elId]) CAL_YM[elId]=(cur||today).slice(0,7);
+  const ym=CAL_YM[elId];
+  const [Y,M]=ym.split('-').map(Number);
+  const first=new Date(Y, M-1, 1);
+  const startDow=first.getDay();
+  const days=new Date(Y, M, 0).getDate();
+
+  let h='<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
+    +'<button class="pill" onclick="calNav(\''+elId+'\',-1)">◀</button>'
+    +'<b style="font-size:14px">'+Y+'년 '+M+'월</b>'
+    +'<button class="pill" onclick="calNav(\''+elId+'\',1)">▶</button>'
+    +'<button class="pill" onclick="calToday(\''+elId+'\')">오늘</button>'
+    +'<span style="font-size:11px;color:var(--muted)">칸의 숫자 = 거래처 수</span>'
+    +'</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;max-width:520px">';
+  ['일','월','화','수','목','금','토'].forEach((w,i)=>{
+    h+='<div style="text-align:center;font-size:11px;font-weight:800;color:'+(i===0?'#b23b32':i===6?'#2456a5':'var(--muted)')+'">'+w+'</div>';
   });
-  return dates;
+  for(let i=0;i<startDow;i++) h+='<div></div>';
+  for(let d=1;d<=days;d++){
+    const ds=ym+'-'+String(d).padStart(2,'0');
+    const cnt=g[ds]?g[ds].length:0;                       // 거래처 수 (그날 주문 카드 수)
+    const isCur=ds===cur, isToday=ds===today;
+    let st='position:relative;text-align:center;padding:7px 2px 5px;border:1px solid var(--line);border-radius:6px;'
+      +'cursor:'+(cnt?'pointer':'default')+';background:'+(isCur?'var(--accent)':cnt?'#fff':'#f5f2ea')+';'
+      +'color:'+(isCur?'#fff':cnt?'var(--ink)':'#c0bab0')+';'
+      +(isToday&&!isCur?'box-shadow:inset 0 0 0 2px var(--accent);':'');
+    h+='<div style="'+st+'" '+(cnt||isToday?('onclick="calPick(\''+elId+'\',\''+ds+'\')"'):'')+'>'
+      +'<div style="font-weight:800;font-size:13px;line-height:1">'+d+'</div>'
+      +'<div style="font-size:10px;font-weight:800;'+(isCur?'color:#ffd9d4':'color:#8a1c1c')+'">'+(cnt?cnt+'곳':'&nbsp;')+'</div>'
+      +'</div>';
+  }
+  h+='</div>';
+  el.innerHTML=h;
+  el.dataset.onpick=elId;
+  CAL_PICK[elId]=onPick;
+  return Object.keys(g).sort().reverse();
+}
+const CAL_PICK={};
+function calNav(elId, d){
+  const [Y,M]=CAL_YM[elId].split('-').map(Number);
+  const nd=new Date(Y, M-1+d, 1);
+  CAL_YM[elId]=nd.getFullYear()+'-'+String(nd.getMonth()+1).padStart(2,'0');
+  redrawCal(elId);
+}
+function calToday(elId){
+  CAL_YM[elId]=todayStr().slice(0,7);
+  const t=todayStr();
+  if(CAL_PICK[elId] && dateExists(t)) CAL_PICK[elId](t); else redrawCal(elId);
+}
+function calPick(elId, ds){
+  if(CAL_PICK[elId]) CAL_PICK[elId](ds);
+}
+function redrawCal(elId){
+  if(elId==='noteDates') renderNote();
+  else if(elId==='workDates') renderWork();
 }
 
 function renderNote(){
