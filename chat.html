@@ -11,7 +11,13 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v3.0 — 2026-09-01
+  신화미트 주문방 (chat.html) v3.2 — 2026-09-01
+  · v3.2: 푸시 등록 진단 — 🔔을 켤 때 등록 결과를 화면에 표시.
+    성공: "이 기기가 알림에 등록되었습니다" / 실패: 단계별 원인
+    (수신기 파일 없음 / 권한 거부 / 토큰 발급 실패 / 저장 권한 등)
+  · v3.1: 전산처리 시각(erpAt) 기록 — 주문노트가 "그 시각 이전 품목"에만
+    취소선을 긋는 근거. 이후 추가된 품목은 선 없이 남아 재처리 대상이 보임.
+    (추가 주문으로 확인방에서 복귀해도 erpAt은 유지)
   · v3.0: ① 미처리 카드에서 날짜(📅) 클릭 수정 — 의심 주문(먼 미래 날짜 등)을
     그 자리에서 올바른 날짜로 고치면 주문노트에 즉시 반영
     ② 아이폰 로그인 오류 수정 — "missing initial state" 화면의 원인이던
@@ -433,7 +439,7 @@ const SITE_URL=location.origin+location.pathname;   // 텔레그램 알림에 �
 const PUSH_VAPID='BLuWBs8cLrBPcRgQ8CxlovHnkx0kr2t29kFqzV9uxShoFdVU-eAPKLs5JB_zvcji0KRVmxHjEN5GRISqWOrz63I';
 const PUSH_SENDER_ID='491535051004';
 const PUSH_APP_ID='1:491535051004:web:34325f3045a2ec6dc88f79';
-let SW_REG=null, PUSH_TOKEN=null;
+let SW_REG=null, PUSH_TOKEN=null, SW_REG_ERR='';
 function pushReady(){ return !!(PUSH_SENDER_ID && PUSH_APP_ID && 'serviceWorker' in navigator && window.firebase && firebase.messaging); }
 
 /* ---------- 공용 유틸 (주문노트와 동일 로직) ---------- */
@@ -582,7 +588,7 @@ function initFirebase(){
         +'&pid='+encodeURIComponent(cfg.fbProj)+'&sid='+encodeURIComponent(PUSH_SENDER_ID)
         +'&aid='+encodeURIComponent(PUSH_APP_ID))
         .then(r=>{ SW_REG=r; })
-        .catch(e=>console.warn('SW 등록 실패', e));
+        .catch(e=>{ SW_REG_ERR=String(e&&e.message||e); console.warn('SW 등록 실패', e); });
     }
     setStat(false,'로그인 필요');
     gateMsgSet('로그인 상태 확인 중…',true);
@@ -885,8 +891,8 @@ function toggleAlert(){
     // 사용자 터치 시점에 오디오 준비 (브라우저 정책상 여기서만 가능)
     try{ if(!AC) AC=new (window.AudioContext||window.webkitAudioContext)(); if(AC.state==='suspended') AC.resume(); }catch(e){}
     if(window.Notification && Notification.permission==='default'){
-      Notification.requestPermission().then(()=>enablePush()).catch(()=>{});
-    }else enablePush();
+      Notification.requestPermission().then(()=>enablePush(true)).catch(()=>{});
+    }else enablePush(true);
     beep(); if(navigator.vibrate) navigator.vibrate(120);
   }else{
     disablePush();
@@ -896,24 +902,46 @@ function toggleAlert(){
 
 /* ── 📲 이 기기를 푸시에 등록/해제 ── */
 function tokKey(t){ let h=0; const s=String(t); for(let i=0;i<s.length;i++){h=(h*31+s.charCodeAt(i))|0;} return 'd'+(h>>>0).toString(36); }
-async function enablePush(){
-  if(!ME || !db) return;
+async function enablePush(loud){
+  const say=msg=>{ if(loud) alert(msg); else console.warn(msg); };
+  if(!ME || !db){ say('푸시 등록 실패: 로그인 정보가 아직 준비되지 않았습니다. 잠시 후 🔔을 껐다 다시 켜보세요.'); return; }
   if(!pushReady()){
-    if(!PUSH_SENDER_ID||!PUSH_APP_ID) console.warn('푸시 설정(PUSH_SENDER_ID/APP_ID)이 비어 있습니다 — 파일 상단에 채우세요');
+    say('푸시 등록 실패: 푸시 구성요소를 사용할 수 없습니다.\n'+(SW_REG_ERR?('수신기 오류: '+SW_REG_ERR):'(이 브라우저가 푸시 미지원이거나 설정 누락)'));
     return;
   }
-  if(!window.Notification || Notification.permission!=='granted') return;
+  if(!window.Notification){ say('푸시 등록 실패: 이 브라우저는 알림을 지원하지 않습니다.'); return; }
+  if(Notification.permission==='denied'){
+    say('푸시 등록 실패: 알림 권한이 차단되어 있습니다.\n폰 설정 → 앱 → 브라우저(Chrome/Safari) → 알림 → 허용으로 바꾼 뒤 🔔을 다시 켜세요.');
+    return;
+  }
+  if(Notification.permission!=='granted'){ say('알림 권한 창에서 "허용"을 눌러야 등록됩니다.'); return; }
   try{
-    if(!SW_REG) SW_REG=await navigator.serviceWorker.ready;
+    if(!SW_REG){
+      if(SW_REG_ERR){ say('푸시 등록 실패: 수신기(firebase-messaging-sw.js) 등록 오류\n'+SW_REG_ERR); return; }
+      SW_REG=await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error('수신기 준비 시간 초과 — firebase-messaging-sw.js가 같은 폴더에 있는지 확인')),8000))
+      ]);
+    }
     const t=await firebase.messaging().getToken({vapidKey:PUSH_VAPID, serviceWorkerRegistration:SW_REG});
-    if(!t) return;
+    if(!t){ say('푸시 등록 실패: 토큰을 받지 못했습니다. 잠시 후 다시 시도하세요.'); return; }
     PUSH_TOKEN=t;
     await db.ref('push_tokens/'+ME.uid+'/'+tokKey(t)).set({
       token:t, at:Date.now(), name:MYNAME,
       ua:(navigator.userAgent||'').slice(0,60)
     });
+    if(loud) alert('📲 이 기기가 알림에 등록되었습니다!\n이제 브라우저를 꺼도 새 주문 알림이 옵니다. (평일 07~18시)');
     console.log('📲 푸시 등록 완료');
-  }catch(e){ console.warn('푸시 등록 실패', e); }
+  }catch(e){
+    const em=String(e&&e.message||e);
+    if(/permission|PERMISSION/i.test(em)){
+      say('푸시 등록 실패: 저장 권한이 없습니다.\n대표님 승인(allow 명단) 상태를 확인해야 합니다 — 이 문구를 대표님께 보여주세요.');
+    }else if(/applicationServerKey|VAPID/i.test(em)){
+      say('푸시 등록 실패: 서버 키(VAPID) 불일치 — 관리자에게 문의하세요.');
+    }else{
+      say('푸시 등록 실패: '+em.slice(0,180));
+    }
+  }
 }
 async function disablePush(){
   try{
@@ -1951,8 +1979,8 @@ async function toggleChk(id, key, on){
       const el=document.getElementById('oc_'+id);
       if(el) el.classList.add('gone');
       setTimeout(async()=>{
-        o.confirm='wait'; o.confirmAt=Date.now();
-        await db.ref('orders/'+id).update({confirm:'wait', confirmAt:o.confirmAt}).catch(()=>{});
+        o.confirm='wait'; o.confirmAt=Date.now(); o.erpAt=o.confirmAt;
+        await db.ref('orders/'+id).update({confirm:'wait', confirmAt:o.confirmAt, erpAt:o.erpAt}).catch(()=>{});
         renderSide();
       },330);
       return;
