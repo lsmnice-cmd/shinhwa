@@ -11,7 +11,13 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v3.8 — 2026-09-02
+  신화미트 주문방 (chat.html) v3.10 — 2026-09-03
+  · v3.10: ⚖ 생산 실측을 박스 단위로 — 품목마다 [+박스]로 줄을 늘려
+    박스별 중량·식별번호 끝4자리 입력 (박스마다 값이 다른 경우 대응).
+    태그는 "⚖3박스 45.2kg(1514·2231·0087)" 형태. 합계는 자동.
+  · v3.9: 사진 저장 계정 분리 — 아래 PHOTO_URL/PHOTO_TOKEN을 채우면 사진을
+    별도 계정의 드라이브(사진저장_Code.gs 배포)로 보냅니다. 비워두면 기존처럼
+    Apps Script 계정 드라이브에 저장. 표시 방식은 동일(드라이브 파일 ID).
   · v3.8: ⚖ 생산 실측 입력 — 미처리 카드에서 [주문확인]/[생산확인]을 켜면
     품목마다 중량(kg)·식별번호 끝4자리 입력칸이 펼쳐짐. 품목 옆 ⚖ 버튼으로
     언제든 다시 열 수 있음. 저장값은 파란 ⚖ 태그로 미처리 카드·주문노트에
@@ -583,6 +589,22 @@ function itemText(it){ return it.text||it.product||''; }
    접속 신청은 서버가 토큰 없이 받아주므로(Code v2.5) 이 주소만으로 충분합니다.
    ※ 배포를 새로 만들어 주소가 바뀌면 이 값도 갱신해 주세요. */
 const GS_DEFAULT_URL='https://script.google.com/macros/s/AKfycbyt7vccpdQMOh2eyrk_o81OS_clL3LSenGwj52bmRJ-brtbsun22OEX63DEWTisANGZ/exec';
+
+/* ── 📷 사진 저장 서버 (v3.9) — 용량 많은 계정에 배포한 사진저장_Code.gs
+   PHOTO_URL: 그 배포의 /exec 주소, PHOTO_TOKEN: 그 스크립트 속성 PHOTO_TOKEN 값
+   둘 다 비우면 기존 방식(주문 서버 계정 드라이브)으로 저장합니다. */
+const PHOTO_URL='';
+const PHOTO_TOKEN='';
+async function photoUpload(b64, name){
+  if(PHOTO_URL && PHOTO_TOKEN){
+    const body=new URLSearchParams({action:'photo', token:PHOTO_TOKEN, data:b64, name:name, by:MYNAME});
+    const res=await fetch(PHOTO_URL,{method:'POST',body});
+    const j=await res.json();
+    if(!j.ok) throw new Error(j.error||'사진 서버 오류');
+    return j;
+  }
+  return gsCall('chatPhoto',{data:b64, name:name, by:MYNAME});
+}
 
 async function gsCall(action, payload={}){
   const url=cfg.gsUrl||GS_DEFAULT_URL;
@@ -1459,7 +1481,7 @@ async function sendPhoto(input){
   btn.disabled=true; btn.textContent='…';
   try{
     const b64=await compressImage(file);
-    const r=await gsCall('chatPhoto',{data:b64, name:file.name||'photo.jpg', by:MYNAME});
+    const r=await photoUpload(b64, file.name||'photo.jpg');
     const msg={uid:ME.uid, name:MYNAME, text:'', photo:{id:r.id}, ts:Date.now(), status:'done'};
     if(REPLY_TO){ msg.replyTo=REPLY_TO; clearReply(); }
     await db.ref('chat').push().set(msg);
@@ -1903,8 +1925,9 @@ function buildOrderCard(o){
       +'<span onclick="openMeasure(\''+esc(o.id)+'\')" title="생산 실측(중량·식별번호) 입력" style="cursor:pointer;font-size:11px;opacity:.65;padding-left:2px">⚖</span>';
     let meas='';
     if(it.prodKg || it.prodTail){
+      const nb=(it.boxes||[]).length;
       meas=' <span title="생산 실측 (현장 입력)" style="font-size:11px;font-weight:800;color:#1a4f9c;background:#e4edf9;border-radius:4px;padding:1px 5px">⚖'
-        +(it.prodKg?String(it.prodKg).replace(/\.0+$/,'')+'kg':'')+(it.prodTail?'('+esc(it.prodTail)+')':'')+'</span>';
+        +(nb>1?nb+'박스 ':'')+(it.prodKg?String(it.prodKg).replace(/\.0+$/,'')+'kg':'')+(it.prodTail?'('+esc(it.prodTail)+')':'')+'</span>';
     }
     if(it.erpKg || it.erpTail){
       meas+=' <span title="전산 실제값 (대조 결과)" style="font-size:11px;font-weight:800;color:#1f6b3a;background:#e7f2ea;border-radius:4px;padding:1px 5px">'
@@ -1957,50 +1980,76 @@ function buildOrderCard(o){
    ✏ 미처리 카드 직접 수정 + 학습 (v2.6)
    ============================================================ */
 
-/* ⚖ 생산 실측 입력 — 품목별 중량(kg)·식별번호 끝4자리 */
-const MEAS_OPEN={};
+/* ⚖ 생산 실측 입력 — 품목별 · 박스별 중량(kg)·식별번호 끝4자리 (v3.10) */
+const MEAS_OPEN={}, BOX_EDIT={}, MEAS_T={};
+function boxesOf(it){
+  if(it && Array.isArray(it.boxes) && it.boxes.length) return it.boxes.map(b=>({kg:b.kg||'', tail:b.tail||''}));
+  if(it && (it.prodKg||it.prodTail)) return [{kg:it.prodKg||'', tail:it.prodTail||''}];
+  return [{kg:'', tail:''}];
+}
 function openMeasure(id, keepState){
   const o=ORDERS[id]; if(!o) return;
   const box=document.getElementById('meas_'+id); if(!box) return;
-  if(!keepState && box.style.display!=='none'){ box.style.display='none'; box.innerHTML=''; delete MEAS_OPEN[id]; return; }
+  if(!keepState && box.style.display!=='none'){ box.style.display='none'; box.innerHTML=''; delete MEAS_OPEN[id]; delete BOX_EDIT[id]; return; }
   MEAS_OPEN[id]=true;
+  if(!BOX_EDIT[id]) BOX_EDIT[id]=(o.items||[]).map(boxesOf);
   box.style.display='';
   box.style.cssText+=';margin:4px 0 7px;padding:7px 9px;background:#eef3fb;border:1px solid #b9cbe4;border-radius:6px';
-  let h='<div style="font-size:11.5px;font-weight:800;color:#1a4f9c;margin-bottom:5px">⚖ 생산 실측 — 중량(kg) · 식별번호 끝 4자리 <span style="font-weight:400;color:var(--muted)">(입력 후 칸을 벗어나면 저장)</span></div>';
+  renderMeasure(id);
+}
+function renderMeasure(id){
+  const o=ORDERS[id]; const box=document.getElementById('meas_'+id); if(!o||!box) return;
+  const ed=BOX_EDIT[id];
+  let h='<div style="font-size:11.5px;font-weight:800;color:#1a4f9c;margin-bottom:5px">⚖ 생산 실측 — 박스별 중량(kg) · 식별번호 끝 4자리 <span style="font-weight:400;color:var(--muted)">(입력하면 자동 저장)</span></div>';
   (o.items||[]).forEach((it,idx)=>{
-    h+='<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;flex-wrap:wrap">'
-      +'<span style="font-size:12px;min-width:90px;flex:1">'+esc(itemText(it))+'</span>'
-      +'<input type="number" step="0.01" inputmode="decimal" placeholder="kg" value="'+esc(it.prodKg||'')+'" '
-      +'onchange="saveMeasure(\''+esc(id)+'\','+idx+',\'prodKg\',this.value)" style="width:78px;padding:6px;border:1px solid var(--line);border-radius:5px;font-size:13px;font-family:var(--mono)">'
-      +'<input type="text" inputmode="numeric" maxlength="4" placeholder="끝4자리" value="'+esc(it.prodTail||'')+'" '
-      +'onchange="saveMeasure(\''+esc(id)+'\','+idx+',\'prodTail\',this.value)" style="width:72px;padding:6px;border:1px solid var(--line);border-radius:5px;font-size:13px;font-family:var(--mono)">'
+    const rows=ed[idx]||[{kg:'',tail:''}];
+    const sum=rows.reduce((a,b)=>a+(Number(b.kg)||0),0);
+    h+='<div style="margin-bottom:6px;padding-bottom:4px;border-bottom:1px dashed #c9d6ea">'
+      +'<div style="font-size:12px;font-weight:800;margin-bottom:3px">'+esc(itemText(it))
+      +(rows.length>1?' <span style="color:#1a4f9c;font-weight:400">'+rows.length+'박스 · 합계 '+(Math.round(sum*100)/100)+'kg</span>':'')+'</div>';
+    rows.forEach((b,bi)=>{
+      h+='<div style="display:flex;gap:6px;align-items:center;margin-bottom:3px">'
+        +'<span style="font-size:11px;color:var(--muted);width:26px">'+(bi+1)+'박스</span>'
+        +'<input type="number" step="0.01" inputmode="decimal" placeholder="kg" value="'+esc(b.kg)+'" '
+        +'oninput="boxIn(\''+esc(id)+'\','+idx+','+bi+',\'kg\',this.value)" style="width:78px;padding:6px;border:1px solid var(--line);border-radius:5px;font-size:13px;font-family:var(--mono)">'
+        +'<input type="text" inputmode="numeric" maxlength="4" placeholder="끝4자리" value="'+esc(b.tail)+'" '
+        +'oninput="boxIn(\''+esc(id)+'\','+idx+','+bi+',\'tail\',this.value)" style="width:72px;padding:6px;border:1px solid var(--line);border-radius:5px;font-size:13px;font-family:var(--mono)">'
+        +(rows.length>1?'<span onclick="boxDel(\''+esc(id)+'\','+idx+','+bi+')" style="cursor:pointer;opacity:.6;font-size:12px">✕</span>':'')
+        +'</div>';
+    });
+    h+='<button onclick="boxAdd(\''+esc(id)+'\','+idx+')" style="border:1px dashed #1a4f9c;background:#fff;color:#1a4f9c;border-radius:5px;padding:3px 9px;font-size:11.5px;font-weight:800;cursor:pointer">+ 박스 추가</button>'
       +'</div>';
   });
   h+='<button onclick="openMeasure(\''+esc(id)+'\')" style="border:1px solid var(--line);background:#fff;border-radius:5px;padding:4px 10px;font-size:11.5px;font-weight:800;cursor:pointer">닫기</button>';
   box.innerHTML=h;
-  // 입력칸들을 다 벗어난 뒤에만 카드를 다시 그림 (입력 중 커서 튐 방지)
-  box.addEventListener('focusout', ()=>{
-    setTimeout(()=>{
-      if(!box.contains(document.activeElement) && MEAS_DIRTY[id]){ delete MEAS_DIRTY[id]; renderSide(); }
-    }, 80);
-  });
 }
-const MEAS_DIRTY={};
-async function saveMeasure(id, idx, field, val){
-  const o=ORDERS[id]; if(!o||!o.items||!o.items[idx]) return;
-  let v=String(val||'').trim();
-  if(field==='prodKg'){ v=v?Number(v):null; if(v!==null && !(v>=0)) return; }
-  else { v=v.replace(/[^0-9]/g,'').slice(-4)||null; }
+function boxIn(id, idx, bi, field, val){
+  const ed=BOX_EDIT[id]; if(!ed||!ed[idx]||!ed[idx][bi]) return;
+  ed[idx][bi][field]= field==='tail' ? String(val||'').replace(/[^0-9]/g,'').slice(-4) : val;
+  clearTimeout(MEAS_T[id]); MEAS_T[id]=setTimeout(()=>saveBoxes(id, idx), 700);
+}
+function boxAdd(id, idx){ const ed=BOX_EDIT[id]; if(!ed) return; (ed[idx]=ed[idx]||[]).push({kg:'',tail:''}); renderMeasure(id); }
+function boxDel(id, idx, bi){ const ed=BOX_EDIT[id]; if(!ed||!ed[idx]) return; ed[idx].splice(bi,1); if(!ed[idx].length) ed[idx]=[{kg:'',tail:''}]; renderMeasure(id); saveBoxes(id, idx); }
+async function saveBoxes(id, idx){
+  const o=ORDERS[id]; const ed=BOX_EDIT[id]; if(!o||!o.items||!o.items[idx]||!ed) return;
+  const rows=(ed[idx]||[]).map(b=>({kg:(b.kg!==''&&Number(b.kg)>=0)?Number(b.kg):null, tail:b.tail||''}))
+                          .filter(b=>b.kg!==null||b.tail);
   const items=o.items.slice();
-  items[idx]=Object.assign({}, items[idx]); 
-  if(v===null||v==='') delete items[idx][field]; else items[idx][field]=v;
-  items[idx].measBy=MYNAME; items[idx].measAt=Date.now();
+  const it=Object.assign({}, items[idx]);
+  if(rows.length){
+    it.boxes=rows.map(b=>({kg:b.kg===null?null:b.kg, tail:b.tail||null}));
+    const sum=rows.reduce((a,b)=>a+(b.kg||0),0);
+    it.prodKg=sum?Math.round(sum*100)/100:null;
+    it.prodTail=rows.map(b=>b.tail).filter(Boolean).join('·')||null;
+  }else{ it.boxes=null; it.prodKg=null; it.prodTail=null; }
+  it.measBy=MYNAME; it.measAt=Date.now();
+  items[idx]=it;
   try{
     await db.ref('orders/'+id).update({items:items});
     o.items=items;
+    // 태그만 조용히 갱신 (패널은 그대로) — 카드 전체는 패널 닫을 때 다시 그림
     const box=document.getElementById('meas_'+id);
-    if(box && box.contains(document.activeElement)) MEAS_DIRTY[id]=true;   // 아직 입력 중 → 나중에
-    else renderSide();
+    if(box && !box.contains(document.activeElement)) renderSide();
   }catch(e){ alert('저장 실패: '+e.message); }
 }
 
