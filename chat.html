@@ -11,7 +11,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v4.12 — 2026-09-03
+  신화미트 주문방 (chat.html) v4.13 — 2026-09-03
+  · v4.13: 🔁 무한 새로고침 수정 — 버전 비교를 소수(4.10=4.1<4.9)로 하던 실수를
+    정수 빌드번호(APP_BUILD)로 교체. meta/appBuild 사용, 옛 화면용 meta/appVer는
+    5로 고정해 옛 화면들이 마지막으로 한 번 새로고침하고 새 코드로 넘어오게 함.
   · v4.12: 압축 규칙 교체 — "긴 변 기준"이 세로로 긴 표 캡처의 가로를 짓뭉개던
     문제(673×4445 → 212×1400). 총 화소(6MP) 기준으로 바꿔 폭이 유지되고,
     작은 이미지는 아예 손대지 않음. 화질 우선 방은 원본 그대로(v4.11).
@@ -950,10 +953,12 @@ function renderWhoami(u){
 let _reloadT=null;
 function watchAppVer(){
   if(!db) return;
-  db.ref('meta/appVer').on('value', s=>{
+  // 옛 화면(v4.4~4.12)용 신호: 5로 고정 → 그 화면들은 한 번 새로고침하고 새 코드로 넘어옴
+  db.ref('meta/appVer').once('value').then(s=>{ if(Number(s.val()||0)!==5) db.ref('meta/appVer').set(5).catch(()=>{}); });
+  db.ref('meta/appBuild').on('value', s=>{
     const remote=Number(s.val()||0);
-    if(!remote || remote<APP_VER){ db.ref('meta/appVer').set(APP_VER).catch(()=>{}); return; }
-    if(remote>APP_VER) scheduleReload();
+    if(!remote || remote<APP_BUILD){ db.ref('meta/appBuild').set(APP_BUILD).catch(()=>{}); return; }
+    if(remote>APP_BUILD) scheduleReload();
   });
 }
 function scheduleReload(){
@@ -2177,7 +2182,8 @@ let ROOM_LISTENERS=[], LAST_READ={}, ROOM_LAST={}, ROOM_UNREAD={};
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER=4.12;   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='4.13';
+const APP_BUILD=413;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
