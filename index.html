@@ -2478,6 +2478,8 @@ function firstDate(){
 function setNoteDate(d){ noteDate=d; renderNote(); }
 function setWorkDate(d){ workDate=d; renderWork(); }
 
+/* [v3.11] 품목 표시 순서 되돌림 — 채팅 원문(두께·개수 등 현장 지시 포함)을 앞에 굵게,
+   정식 상품명(브랜드)은 뒤에 (괄호) 작게. 수량 추출로 세부가 사라지던 문제 해결. */
 /* [v3.10] ① 주문 편집기에 ⚖ 박스별 중량·식별번호 입력 (품목마다 [+박스])
    ② 편집기 저장 시 기존 품목 정보(전산값·출처 등)를 지우던 문제 수정(병합 저장)
    ③ 모바일 화면 정리 — 품목 한 줄 배치, 버튼 가로 유지, 헤더 줄바꿈 */
@@ -2629,13 +2631,9 @@ function buildNoteTable(wrap, date, workMode){
           const cells=allItems.map(it=>{
             // [v3.7] 학습된 품목: 정식 상품명 크게 + (채팅 원문) 작게
             const rawTxt=itemText(it);
-            let t;
+            let t='<b>'+esc(rawTxt)+'</b>';
             if(it.product && it.product!==rawTxt){
-              const q=(it.text||'').match(/[\d\.]+\s*(키로|킬로|kg|박스|팩|봉지|개|장|줄|판|리|두|마리|덩이|짝|p|b)?/i);
-              t='<b>'+esc(it.product)+'</b>'+(q&&q[0].trim()?' '+esc(q[0].trim()):'')
-                +' <span style="font-size:11px;color:#9a9384">('+esc(rawTxt)+')</span>';
-            }else{
-              t=esc(rawTxt);
+              t+=' <span style="font-size:11px;color:#1a4f9c">('+esc(it.product)+')</span>';
             }
             if(it.price) t+=' <span class="price">'+esc(it.price)+'</span>';
             if(workMode){
