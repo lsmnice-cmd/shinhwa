@@ -239,10 +239,21 @@
     table.note thead{ display:table-header-group; }   /* 여러 장 넘어가도 헤더 반복 */
   }
   @media (max-width:640px){
-    main{padding:10px}
-    td.cli{font-size:13px}
+    main{padding:8px}
+    td.cli{font-size:13px;width:28%;word-break:keep-all}
     .vp-veh{font-size:22px}
-    .note-head .d{font-size:18px}
+    .note-head{flex-wrap:wrap;gap:6px 10px;align-items:center}
+    .note-head .d{font-size:18px;letter-spacing:1px}
+    .note-head .meta{width:100%;order:3}
+    .note-head .actions{margin-left:0;width:100%;order:4;flex-wrap:wrap;gap:6px}
+    .note-head .actions .btn, header.top button, .btn{white-space:nowrap;padding:8px 12px;font-size:13px;writing-mode:horizontal-tb}
+    .item-grid{grid-template-columns:1fr;gap:2px 0}
+    .item-cell{font-size:13px;line-height:1.35}
+    header.top{flex-wrap:wrap;gap:6px 10px}
+    header.top .brand{font-size:16px;white-space:nowrap}
+    #whoami{font-size:11px}
+    table.note td{padding:6px 5px}
+    .modal-card{max-width:100vw;border-radius:0}
   }
 </style>
 </head>
@@ -2467,6 +2478,9 @@ function firstDate(){
 function setNoteDate(d){ noteDate=d; renderNote(); }
 function setWorkDate(d){ workDate=d; renderWork(); }
 
+/* [v3.10] ① 주문 편집기에 ⚖ 박스별 중량·식별번호 입력 (품목마다 [+박스])
+   ② 편집기 저장 시 기존 품목 정보(전산값·출처 등)를 지우던 문제 수정(병합 저장)
+   ③ 모바일 화면 정리 — 품목 한 줄 배치, 버튼 가로 유지, 헤더 줄바꿈 */
 /* [v3.9] ⚖ 생산 실측 표시 — 주문방 미처리 카드에서 입력한 중량·식별번호 끝4자리를
    파란 ⚖ 태그로 품목 옆에 표시 (초록 태그 = 전산 실제값과 구분) */
 /* [v3.8] 노트 편집기 학습 보강 — ① 처음 정식 상품명을 붙이는 품목도 학습
@@ -2640,7 +2654,8 @@ function buildNoteTable(wrap, date, workMode){
             }
             if(it.prodKg || it.prodTail){
               const pk=it.prodKg?(String(it.prodKg).replace(/\.0+$/,''))+'kg':'';
-              t+=' <span title="생산 실측 (현장 입력)" style="font-size:11px;font-weight:800;color:#1a4f9c;background:#e4edf9;border-radius:4px;padding:1px 5px">⚖'+pk+(it.prodTail?'('+esc(it.prodTail)+')':'')+'</span>';
+              const nb=(it.boxes||[]).length;
+              t+=' <span title="생산 실측 (현장 입력)" style="font-size:11px;font-weight:800;color:#1a4f9c;background:#e4edf9;border-radius:4px;padding:1px 5px">⚖'+(nb>1?nb+'박스 ':'')+pk+(it.prodTail?'('+esc(it.prodTail)+')':'')+'</span>';
             }
             if(it.erpKg || it.erpTail){
               const kg=it.erpKg?(String(it.erpKg).replace(/\.0+$/,''))+'kg':'';
@@ -2873,11 +2888,39 @@ function openOrderEditor(idsStr){
        +'<td><input type="text" class="specin ed-price" value="'+esc(it.price||'')+'"></td>'
        +'<td style="text-align:center"><button type="button" onclick="this.closest(\'tr\').classList.toggle(\'killed\')">✕</button></td>';
       tb.appendChild(tr);
+      // ⚖ 박스별 실측 입력 행 (v3.10)
+      const br=document.createElement('tr'); br.className='box-row'; br.dataset.oid=id; br.dataset.idx=ii;
+      const boxes=(Array.isArray(it.boxes)&&it.boxes.length)?it.boxes:((it.prodKg||it.prodTail)?[{kg:it.prodKg,tail:it.prodTail}]:[]);
+      br.innerHTML='<td colspan="4" style="padding:2px 6px 8px 18px;background:#f4f7fc">'
+        +'<div style="font-size:11px;color:#1a4f9c;font-weight:800;margin-bottom:3px">⚖ 박스별 중량(kg) · 식별번호 끝4자리</div>'
+        +'<div class="box-list"></div>'
+        +'<button type="button" onclick="boxRowAdd(this)" style="border:1px dashed #1a4f9c;background:#fff;color:#1a4f9c;border-radius:5px;padding:2px 9px;font-size:11px;font-weight:800;cursor:pointer">+ 박스 추가</button>'
+        +'</td>';
+      tb.appendChild(br);
+      const bl=br.querySelector('.box-list');
+      (boxes.length?boxes:[{kg:'',tail:''}]).forEach(b=>bl.appendChild(boxLine(b.kg,b.tail)));
     });
   });
   document.getElementById('orderModal').classList.add('open');
 }
 function closeOrderEditor(){ document.getElementById('orderModal').classList.remove('open'); EDIT_IDS=[]; }
+function boxLine(kg,tail){
+  const d=document.createElement('div');
+  d.className='box-line'; d.style.cssText='display:flex;gap:6px;align-items:center;margin-bottom:3px';
+  d.innerHTML='<input type="number" step="0.01" inputmode="decimal" class="bx-kg" placeholder="kg" value="'+esc(kg==null?'':kg)+'" style="width:84px;padding:5px;font-family:var(--mono)">'
+    +'<input type="text" inputmode="numeric" maxlength="4" class="bx-tail" placeholder="끝4자리" value="'+esc(tail||'')+'" style="width:76px;padding:5px;font-family:var(--mono)">'
+    +'<button type="button" onclick="this.parentNode.remove()" style="border:none;background:none;cursor:pointer;opacity:.6">✕</button>';
+  return d;
+}
+function boxRowAdd(btn){ btn.parentNode.querySelector('.box-list').appendChild(boxLine('','')); }
+function collectBoxes(oid, idx){
+  const br=[...document.querySelectorAll('#edItems tr.box-row')].find(r=>r.dataset.oid===String(oid)&&r.dataset.idx===String(idx));
+  if(!br) return null;
+  return [...br.querySelectorAll('.box-line')].map(l=>({
+    kg:(l.querySelector('.bx-kg').value.trim()!==''&&Number(l.querySelector('.bx-kg').value)>=0)?Number(l.querySelector('.bx-kg').value):null,
+    tail:l.querySelector('.bx-tail').value.replace(/[^0-9]/g,'').slice(-4)||null
+  })).filter(b=>b.kg!==null||b.tail);
+}
 
 async function deleteOrdersInEditor(){
   if(!confirm('이 주문을 삭제할까요? (휴지통으로 이동)')) return;
@@ -2899,13 +2942,27 @@ async function saveOrderEdit(){
     const byOid={};
     document.querySelectorAll('#edItems tr').forEach(tr=>{
       const oid=tr.dataset.oid;
+      if(tr.classList.contains('box-row')) return;           // 박스 행은 품목 행에서 함께 수집
       if(tr.classList.contains('killed')) return;
       const text=tr.querySelector('.ed-text').value.trim();
       let prod=tr.querySelector('.ed-prod').value.trim();
       if(PRODBYCODE[prod]) prod=PRODBYCODE[prod];
       const price=tr.querySelector('.ed-price').value.trim();
       if(!text) return;
-      (byOid[oid]=byOid[oid]||[]).push({product:prod, text, price});
+      // v3.10: 기존 품목 정보(전산값·출처·실측 등)를 지우지 않고 병합
+      const it0b=(ORDERS[oid]&&ORDERS[oid].items||[])[tr.dataset.idx]||{};
+      const merged=Object.assign({}, it0b, {product:prod, text, price});
+      const bx=collectBoxes(oid, tr.dataset.idx);
+      if(bx){
+        if(bx.length){
+          merged.boxes=bx;
+          const sum=bx.reduce((a,b)=>a+(b.kg||0),0);
+          merged.prodKg=sum?Math.round(sum*100)/100:null;
+          merged.prodTail=bx.map(b=>b.tail).filter(Boolean).join('·')||null;
+          merged.measAt=Date.now();
+        }else{ merged.boxes=null; merged.prodKg=null; merged.prodTail=null; }
+      }
+      (byOid[oid]=byOid[oid]||[]).push(merged);
       // 상품명 학습 (카톡 표현 → 정식 상품명) — v3.8: 처음 붙이는 경우도 학습
       const it0=(ORDERS[oid]&&ORDERS[oid].items||[])[tr.dataset.idx];
       const was=(tr.querySelector('.ed-prod').dataset.was||'') || (it0?itemText(it0):'') || text;
