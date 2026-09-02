@@ -11,7 +11,15 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v3.10 — 2026-09-03
+  신화미트 주문방 (chat.html) v4.1 — 2026-09-03
+  · v4.1: ① 사진 저장 서버 설정 완료(용량 계정) ② 📷촬영 / 🖼앨범·파일 버튼 분리,
+    PC 드래그&드롭·클립보드 붙여넣기 업로드, 사진 외 파일(PDF·엑셀 등)도 첨부(📎)
+    ③ 배송방 상단 차량 탭(0966·6506·1982·택배·사무실) → 당일 차량별 주문노트 패널
+  · v4.0: 🗂 다중 방 — 상단 탭으로 방 전환: 주문방 · 온라인 · 생산 · 배송 · 입출고
+    - 주문 파싱(🤖·미처리·확인방)은 주문방에서만. 나머지는 대화·사진·답장·검색·수정·삭제
+    - 안 보는 방에 새 글이 오면 탭에 안 읽은 개수, 소리·푸시 알림은 방 이름 붙여 발송
+    - 저장: 주문방은 기존 chat 그대로, 다른 방은 rooms/{방}/chat (Firebase 규칙에 rooms 추가 필요)
+    - 사진은 방별 하위 폴더. 주소 ?room=online 으로 특정 방 바로 열기
   · v3.10: ⚖ 생산 실측을 박스 단위로 — 품목마다 [+박스]로 줄을 늘려
     박스별 중량·식별번호 끝4자리 입력 (박스마다 값이 다른 경우 대응).
     태그는 "⚖3박스 45.2kg(1514·2231·0087)" 형태. 합계는 자동.
@@ -207,6 +215,23 @@
     #chatPane{border-right:1px solid var(--line)}
   }
 
+  #wrap.dropping{outline:3px dashed var(--accent);outline-offset:-6px}
+  /* 🚚 배송방 차량 탭·패널 */
+  #vehBar{display:none;gap:5px;padding:6px 8px;background:#fff8dc;border-bottom:1px solid #e2d3a8;overflow-x:auto;white-space:nowrap}
+  #vehBar.on{display:flex}
+  #vehBar button{border:1px solid var(--line);background:#fff;border-radius:14px;padding:5px 12px;font-family:var(--mono);font-weight:800;font-size:13px;cursor:pointer}
+  #vehBar button.cur{background:var(--ink);color:#fff}
+  #vehPanel{display:none;max-height:45vh;overflow:auto;background:#fffdf7;border-bottom:2px solid var(--line-strong);padding:8px 10px}
+  #vehPanel.on{display:block}
+  .vp-row{display:flex;gap:8px;padding:6px 4px;border-bottom:1px dashed var(--line);font-size:13px;align-items:flex-start}
+  .vp-row .c{min-width:90px;font-weight:800}
+  .vp-row .i{flex:1;color:#333}
+  .vp-row .s{font-size:11px;white-space:nowrap}
+  /* 🗂 방 탭 */
+  #roomTabs{display:flex;gap:4px;padding:6px 8px 0;background:#f7f4ec;border-bottom:1px solid var(--line);overflow-x:auto;white-space:nowrap}
+  #roomTabs button{position:relative;border:1px solid var(--line);border-bottom:none;background:#ece8dd;border-radius:8px 8px 0 0;padding:7px 12px;font-size:13px;font-weight:800;cursor:pointer;font-family:var(--sans);color:#6b655a}
+  #roomTabs button.cur{background:#fff;color:var(--ink);border-color:var(--line-strong)}
+  #roomTabs .badge{display:inline-block;min-width:16px;padding:0 5px;margin-left:5px;background:var(--accent);color:#fff;border-radius:9px;font-size:11px;line-height:16px;text-align:center}
   /* 🔍 검색 */
   #searchBar{display:none;gap:6px;align-items:center;padding:6px 10px;background:#fff8dc;border-bottom:1px solid #e2d3a8}
   #searchBar.on{display:flex}
@@ -399,6 +424,9 @@
 <div id="wrap">
   <!-- ===== 왼쪽: 채팅 ===== -->
   <section class="pane" id="chatPane">
+    <div id="roomTabs"></div>
+    <div id="vehBar"></div>
+    <div id="vehPanel"></div>
     <div id="presenceBar"><span class="names">접속 확인 중…</span></div>
     <div id="searchBar">
       <span>🔍</span>
@@ -413,8 +441,10 @@
     <div id="inputBar">
       <div id="replyBar"><span>↩</span><span class="rt" id="replyTxt"></span><button onclick="clearReply()">✕</button></div>
       <div class="in-row">
-        <button class="ibtn" title="사진 올리기" onclick="document.getElementById('photoIn').click()">📷</button>
-        <input type="file" id="photoIn" accept="image/*" style="display:none" onchange="sendPhoto(this)">
+        <button class="ibtn" title="바로 촬영" onclick="document.getElementById('camIn').click()">📷</button>
+        <button class="ibtn" title="앨범·파일 선택 (PC: 드래그해서 놓기 / 붙여넣기 가능)" onclick="document.getElementById('photoIn').click()">🖼</button>
+        <input type="file" id="camIn" accept="image/*" capture="environment" style="display:none" onchange="sendFiles(this.files);this.value=''">
+        <input type="file" id="photoIn" accept="image/*,.pdf,.xlsx,.xls,.docx,.hwp,.txt,.csv" multiple style="display:none" onchange="sendFiles(this.files);this.value=''">
         <textarea id="chatInput" placeholder="주문을 카톡에 쓰듯 그대로 입력하세요&#10;예) 0828  /  소들녘  /  삼겹살 3키로 2봉지"></textarea>
         <button class="ibtn" id="sendBtn" onclick="sendMsg()">전송</button>
       </div>
@@ -593,17 +623,26 @@ const GS_DEFAULT_URL='https://script.google.com/macros/s/AKfycbyt7vccpdQMOh2eyrk
 /* ── 📷 사진 저장 서버 (v3.9) — 용량 많은 계정에 배포한 사진저장_Code.gs
    PHOTO_URL: 그 배포의 /exec 주소, PHOTO_TOKEN: 그 스크립트 속성 PHOTO_TOKEN 값
    둘 다 비우면 기존 방식(주문 서버 계정 드라이브)으로 저장합니다. */
-const PHOTO_URL='';
-const PHOTO_TOKEN='';
+const PHOTO_URL='https://script.google.com/macros/s/AKfycbyUue0ngzFYeQO6_Ya5XutOVFYkpZFr6cNhuYlefcbYSDcCjI2Ibr6RgAeI8ltLiiwl/exec';
+const PHOTO_TOKEN='photo2026shinhwa';
 async function photoUpload(b64, name){
   if(PHOTO_URL && PHOTO_TOKEN){
-    const body=new URLSearchParams({action:'photo', token:PHOTO_TOKEN, data:b64, name:name, by:MYNAME});
+    const body=new URLSearchParams({action:'photo', token:PHOTO_TOKEN, data:b64, name:name, by:MYNAME, room:CUR_ROOM.name});
     const res=await fetch(PHOTO_URL,{method:'POST',body});
     const j=await res.json();
     if(!j.ok) throw new Error(j.error||'사진 서버 오류');
     return j;
   }
   return gsCall('chatPhoto',{data:b64, name:name, by:MYNAME});
+}
+/* 📎 일반 파일 업로드 (PDF·엑셀 등) — 사진 서버가 설정된 경우만 */
+async function fileUpload(b64, name, mime){
+  if(!(PHOTO_URL && PHOTO_TOKEN)) throw new Error('파일 첨부는 사진 서버 설정 후 가능합니다');
+  const body=new URLSearchParams({action:'file', token:PHOTO_TOKEN, data:b64, name:name, mime:mime||'application/octet-stream', by:MYNAME, room:CUR_ROOM.name});
+  const res=await fetch(PHOTO_URL,{method:'POST',body});
+  const j=await res.json();
+  if(!j.ok) throw new Error(j.error||'파일 서버 오류');
+  return j;
 }
 
 async function gsCall(action, payload={}){
@@ -953,7 +992,7 @@ async function loadOlder(){
   const btn=[...document.querySelectorAll('#searchBar button')].find(b=>b.textContent.indexOf('옛 대화')>=0);
   if(btn){ btn.disabled=true; btn.textContent='불러오는 중…'; }
   try{
-    const ss=await db.ref('chat').orderByChild('ts').endAt(oldest-1).limitToLast(300).once('value');
+    const ss=await roomRef().orderByChild('ts').endAt(oldest-1).limitToLast(300).once('value');
     const arr=[]; ss.forEach(c=>{ arr.push([c.key,c.val()]); });
     const box=document.getElementById('chatScroll');
     const keepH=box.scrollHeight;
@@ -1029,9 +1068,10 @@ function sendPushOut(text){
   try{
     if(isQuiet()) return;
     gsCall('push',{
-      title:'주문방 · '+MYNAME,
+      title:CUR_ROOM.name+' · '+MYNAME,
       body:String(text||'').replace(/\s+/g,' ').slice(0,90),
-      from:(ME&&ME.uid)||''
+      from:(ME&&ME.uid)||'',
+      url:'./chat.html?room='+CUR_ROOM.id
     }).catch(e=>console.warn('push',e));
   }catch(e){}
 }
@@ -1120,6 +1160,7 @@ function beep(){
 }
 function notifyNew(m){
   if(IS_RUNNER) return;
+  if(m && m._roomName && !m._titled){ m=Object.assign({}, m, {name:'['+m._roomName+'] '+(m.name||''), _titled:1}); }
   if(!ALERT_ON || !m || m.sys) return;
   if((m.ts||0)<=BOOT_TS) return;                 // 접속 전에 온 과거 메시지 제외
   if(ME && m.uid===ME.uid) return;               // 내가 보낸 건 제외
@@ -1154,9 +1195,106 @@ let CHAT_STARTED=false, lastDaySep='';
 function startChat(){
   if(CHAT_STARTED || !db) return;
   CHAT_STARTED=true;
-  const ref=db.ref('chat').limitToLast(200);
-  ref.on('child_added', s=>{ CHAT[s.key]=s.val(); appendMsg(s.key, s.val()); rescueIfStale(s.key, s.val()); notifyNew(s.val()); scheduleAutoRetry(s.key, s.val()); });
-  ref.on('child_changed', s=>{ CHAT[s.key]=s.val(); updateMsg(s.key, s.val()); scheduleAutoRetry(s.key, s.val()); });
+  subscribeRoom();
+  watchRoomsUnread();
+  renderRoomTabs();
+  renderVehBar();
+}
+
+/* 🗂 현재 방 구독 (v4.0) */
+function subscribeRoom(){
+  ROOM_LISTENERS.forEach(r=>{ try{ r.off(); }catch(e){} }); ROOM_LISTENERS=[];
+  for(const k in CHAT) delete CHAT[k];
+  document.getElementById('chatScroll').innerHTML='';
+  clearReply();
+  const ref=roomRef().limitToLast(200);
+  const rid=CUR_ROOM.id;
+  ref.on('child_added', s=>{
+    const m=s.val(); if(!m) return; m._room=rid; CHAT[s.key]=m;
+    appendMsg(s.key, m);
+    if(CUR_ROOM.parse){ rescueIfStale(s.key, m); scheduleAutoRetry(s.key, m); }
+    notifyNew(m);
+    markRead(rid);
+  });
+  ref.on('child_changed', s=>{ const m=s.val(); if(!m) return; m._room=rid; CHAT[s.key]=m; updateMsg(s.key, m); if(CUR_ROOM.parse) scheduleAutoRetry(s.key, m); });
+  ROOM_LISTENERS.push(ref);
+  document.title=(IS_RUNNER?'🤖 자동처리 중 — ':'')+'신화미트 '+CUR_ROOM.name;
+}
+function switchRoom(id){
+  const r=ROOMS.find(x=>x.id===id); if(!r||r===CUR_ROOM) return;
+  CUR_ROOM=r;
+  try{ history.replaceState(null,'',location.pathname+'?room='+r.id+(IS_RUNNER?'&runner=1':'')); }catch(e){}
+  subscribeRoom(); renderRoomTabs();
+  markRead(r.id);
+  renderVehBar();
+}
+function renderRoomTabs(){
+  const el=document.getElementById('roomTabs'); if(!el) return;
+  el.innerHTML=ROOMS.map(r=>{
+    const n=ROOM_UNREAD[r.id]||0;
+    return '<button class="'+(r===CUR_ROOM?'cur':'')+'" onclick="switchRoom(\''+r.id+'\')">'+r.icon+' '+r.name
+      +(n&&r!==CUR_ROOM?'<span class="badge">'+(n>99?'99+':n)+'</span>':'')+'</button>';
+  }).join('');
+}
+/* 🚚 배송방: 당일 차량별 주문노트 패널 (v4.1) */
+const VEH_TABS=['0966','6506','1982','택배','사무실'];
+let VEH_CUR='';
+function todayKST(){ const d=new Date(Date.now()+9*3600*1000); return d.toISOString().slice(0,10); }
+function renderVehBar(){
+  const bar=document.getElementById('vehBar'), panel=document.getElementById('vehPanel');
+  if(!bar||!panel) return;
+  const on=CUR_ROOM.id==='deliv';
+  bar.classList.toggle('on', on);
+  if(!on){ panel.classList.remove('on'); return; }
+  const t=todayKST();
+  const cnt={}; Object.values(ORDERS).forEach(o=>{ if(o&&o.date===t){ const v=normVeh(o.vehicle||'미지정'); cnt[v]=(cnt[v]||0)+1; } });
+  bar.innerHTML='<span style="font-size:11px;color:var(--muted);align-self:center;font-family:var(--sans)">📋 오늘('+t.slice(5).replace('-','.')+') 차량별</span>'
+    +VEH_TABS.map(v=>'<button class="'+(VEH_CUR===v?'cur':'')+'" onclick="vehPick(\''+v+'\')">'+v+(cnt[v]?' <span style="font-size:11px;opacity:.75">'+cnt[v]+'</span>':'')+'</button>').join('');
+  panel.classList.toggle('on', !!VEH_CUR);
+  if(VEH_CUR) renderVehPanel();
+}
+function vehPick(v){ VEH_CUR=(VEH_CUR===v)?'':v; renderVehBar(); }
+function renderVehPanel(){
+  const panel=document.getElementById('vehPanel'); if(!panel) return;
+  const t=todayKST();
+  const list=Object.values(ORDERS).filter(o=>o&&o.date===t&&normVeh(o.vehicle||'미지정')===VEH_CUR)
+    .sort((a,b)=>String(a.client||'').localeCompare(String(b.client||''),'ko'));
+  if(!list.length){ panel.innerHTML='<div style="color:var(--muted);font-size:13px;padding:6px">'+VEH_CUR+' — 오늘 주문 없음</div>'; return; }
+  let h='<div style="font-size:12px;color:var(--muted);margin-bottom:4px">'+VEH_CUR+' · 거래처 '+list.length+'곳 <span style="float:right;cursor:pointer" onclick="vehPick(\''+VEH_CUR+'\')">✕ 닫기</span></div>';
+  list.forEach(o=>{
+    const c=o.chk||{};
+    const st=(c.ord?'✔주문 ':'')+(c.prod?'✔생산 ':'')+(c.erp?'✔전산':'');
+    const items=(o.items||[]).map(it=>{
+      let x=esc(itemText(it));
+      if(it.prodKg||it.prodTail) x+=' <span style="color:#1a4f9c;font-weight:800;font-size:11px">⚖'+(it.prodKg?String(it.prodKg).replace(/\.0+$/,'')+'kg':'')+(it.prodTail?'('+esc(it.prodTail)+')':'')+'</span>';
+      return x;
+    }).join('<br>');
+    h+='<div class="vp-row"><div class="c">'+esc(o.client||'(미지정)')+'</div><div class="i">'+items+'</div><div class="s" style="color:'+(c.prod?'#1f6b3a':'var(--muted)')+'">'+(st||'대기')+'</div></div>';
+  });
+  panel.innerHTML=h;
+}
+
+/* 안읽음: 방별 마지막 읽은 시각(users/{uid}/read/{room}) vs 최근 메시지들 */
+function markRead(rid){
+  const now=Date.now();
+  LAST_READ[rid]=now; ROOM_UNREAD[rid]=0;
+  try{ localStorage.setItem('shinwha_read_'+rid, String(now)); if(ME&&db) db.ref('users/'+ME.uid+'/read/'+rid).set(now); }catch(e){}
+  renderRoomTabs();
+}
+function watchRoomsUnread(){
+  ROOMS.forEach(r=>{
+    LAST_READ[r.id]=Number(localStorage.getItem('shinwha_read_'+r.id)||0);
+    db.ref(r.path).limitToLast(30).on('value', s=>{
+      if(r===CUR_ROOM) return;
+      let n=0, latest=null;
+      s.forEach(c=>{ const m=c.val(); if(m&&!m.sys&&!m.deleted&&(m.ts||0)>(LAST_READ[r.id]||0)&&!(ME&&m.uid===ME.uid)){ n++; latest=m; } });
+      const prev=ROOM_UNREAD[r.id]||0;
+      ROOM_UNREAD[r.id]=n;
+      renderRoomTabs();
+      if(n>prev && latest && (latest.ts||0)>BOOT_TS) notifyNew(Object.assign({}, latest, {_roomName:r.name}));
+    });
+  });
+  if(ME&&db) db.ref('users/'+ME.uid+'/read').once('value').then(s=>{ const v=s.val()||{}; for(const k in v){ if(v[k]>(LAST_READ[k]||0)) LAST_READ[k]=v[k]; } });
 }
 
 function chatScrollBottom(){
@@ -1239,7 +1377,7 @@ function scheduleAutoRetry(id, m){
     const cur=CHAT[id];
     if(!cur || cur.status!=='error') return;
     try{
-      const tr=await db.ref('chat/'+id).transaction(c=>{
+      const tr=await msgRef(id).transaction(c=>{
         if(!c || c.status!=='error') return;         // 다른 화면이 먼저 잡음
         c.status='parsing'; c.retries=(c.retries||0)+1;
         return c;
@@ -1256,7 +1394,7 @@ async function retryMsg(id){
   const m=CHAT[id];
   if(!m || m.sys || !m.text) return;
   try{
-    const tr=await db.ref('chat/'+id+'/status').transaction(cur=>{
+    const tr=await msgRef(id).child('status').transaction(cur=>{
       if(cur!=='error') return;      // 이미 누가 재시도 중
       return 'parsing';
     });
@@ -1281,6 +1419,11 @@ function bubbleHtml(id,m){
     body+='<img class="ph" src="https://drive.google.com/thumbnail?id='+esc(m.photo.id)+'&sz=w480" '
         +'onclick="event.stopPropagation();window.open(\'https://drive.google.com/file/d/'+esc(m.photo.id)+'/view\',\'_blank\')" '
         +'onerror="this.replaceWith(Object.assign(document.createElement(\'a\'),{href:\'https://drive.google.com/file/d/'+esc(m.photo.id)+'/view\',target:\'_blank\',textContent:\'📷 사진 열기\'}))">';
+  }
+  if(m.file && m.file.id){
+    body+='<a href="https://drive.google.com/file/d/'+esc(m.file.id)+'/view" target="_blank" onclick="event.stopPropagation()" '
+        +'style="display:inline-block;padding:8px 10px;background:#f4f1ea;border:1px solid var(--line);border-radius:8px;text-decoration:none;color:var(--ink);font-weight:700">📎 '
+        +esc(m.file.name||'파일')+(m.file.size?' <span style="font-weight:400;color:var(--muted);font-size:11px">'+Math.round(m.file.size/1024)+'KB</span>':'')+'</a>';
   }
   if(m.text) body+=esc(m.text);
   return '<div class="bubble-wrap">'
@@ -1378,7 +1521,7 @@ async function delMsg(id){
   if(!confirm('이 메시지를 삭제할까요?\n이 메시지로 등록된 주문·추가 품목도 주문노트에서 함께 삭제됩니다(휴지통).')) return;
   try{
     await rollbackMsg(id);
-    await db.ref('chat/'+id).update({deleted:1, status:null, orders:null});
+    await msgRef(id).update({deleted:1, status:null, orders:null});
   }catch(e){ alert('삭제 실패: '+e.message); }
 }
 
@@ -1404,7 +1547,7 @@ async function saveEditMsg(id){
   if(nv===m.text) return;
   try{
     await rollbackMsg(id);
-    await db.ref('chat/'+id).update({text:nv, edited:1, status:'parsing', orders:null});
+    await msgRef(id).update({text:nv, edited:1, status:(roomOf(id).parse?'parsing':null), orders:null});
     await processMessage(id, Object.assign({}, m, {text:nv}));
   }catch(e){ alert('수정 실패: '+e.message); }
 }
@@ -1422,6 +1565,7 @@ const HDR_VEH=['0966','6506','1982','4232','택배','사무실','마포','방문
 /* 미리보기: 날짜(0901/9.1)·차량 머리말 줄은 건너뛰고 거래처·내용 줄을 보여줍니다 */
 function replyPreview(m){
   if(m.photo && !m.text) return '📷 사진';
+  if(m.file && !m.text) return '📎 '+(m.file.name||'파일');
   const lines=String(m.text||'').split(/\n/).map(x=>x.trim()).filter(Boolean);
   const body=lines.filter(x=>!(/^\d{3,4}$/.test(x) || /^\d{1,2}[.\/]\d{1,2}\.?$/.test(x) || HDR_VEH.indexOf(x)>=0));
   const src=body.length?body:lines;
@@ -1460,9 +1604,9 @@ async function sendMsg(){
   if(!fbReady){ alert('아직 서버에 연결되지 않았습니다.'); return; }
   const btn=document.getElementById('sendBtn');
   btn.disabled=true;
-  const msg={uid:ME.uid, name:MYNAME, text, ts:Date.now(), status:'parsing'};
+  const msg={uid:ME.uid, name:MYNAME, text, ts:Date.now(), status:(CUR_ROOM.parse?'parsing':null)};
   if(REPLY_TO) msg.replyTo=REPLY_TO;
-  const ref=db.ref('chat').push();
+  const ref=roomRef().push();
   try{
     await ref.set(msg);
   }catch(e){ alert('전송 실패: '+e.message); btn.disabled=false; return; }
@@ -1470,28 +1614,55 @@ async function sendMsg(){
   const rTo=REPLY_TO; clearReply();
   btn.disabled=false;
   sendPushOut(text);                                                    // 📲 다른 기기들에 시스템 푸시
-  processMessage(ref.key, Object.assign({},msg,{replyTo:rTo||null}));   // 글쓴이 브라우저가 즉시 파싱
+  if(CUR_ROOM.parse) processMessage(ref.key, Object.assign({},msg,{replyTo:rTo||null}));   // 주문방만 파싱
 }
 
-async function sendPhoto(input){
-  const file=input.files && input.files[0];
-  input.value='';
-  if(!file || !fbReady) return;
+async function sendFiles(files){
+  const list=[...(files||[])]; if(!list.length || !fbReady) return;
   const btn=document.getElementById('sendBtn');
   btn.disabled=true; btn.textContent='…';
   try{
-    const b64=await compressImage(file);
-    const r=await photoUpload(b64, file.name||'photo.jpg');
-    const msg={uid:ME.uid, name:MYNAME, text:'', photo:{id:r.id}, ts:Date.now(), status:'done'};
-    if(REPLY_TO){ msg.replyTo=REPLY_TO; clearReply(); }
-    await db.ref('chat').push().set(msg);
-    sendPushOut('📷 사진');
+    for(const file of list){
+      if(file.size>12*1024*1024){ alert(file.name+' — 12MB 이하만 첨부할 수 있습니다'); continue; }
+      const isImg=/^image\//.test(file.type||'');
+      let msg;
+      if(isImg){
+        const b64=await compressImage(file);
+        const r=await photoUpload(b64, file.name||'photo.jpg');
+        msg={uid:ME.uid, name:MYNAME, text:'', photo:{id:r.id}, ts:Date.now(), status:null};
+      }else{
+        const b64=await fileToB64(file);
+        const r=await fileUpload(b64, file.name||'file', file.type);
+        msg={uid:ME.uid, name:MYNAME, text:'', file:{id:r.id, name:file.name||'file', size:file.size}, ts:Date.now(), status:null};
+      }
+      if(REPLY_TO){ msg.replyTo=REPLY_TO; clearReply(); }
+      await roomRef().push().set(msg);
+      sendPushOut(isImg?'📷 사진':'📎 '+(file.name||'파일'));
+    }
   }catch(e){
-    alert('사진 업로드 실패: '+e.message);
+    alert('업로드 실패: '+e.message);
   }finally{
     btn.disabled=false; btn.textContent='전송';
   }
 }
+async function sendPhoto(input){ await sendFiles(input.files); input.value=''; }
+function fileToB64(file){
+  return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(',')[1]||''); r.onerror=()=>rej(new Error('파일을 읽을 수 없습니다')); r.readAsDataURL(file); });
+}
+/* 드래그&드롭 · 클립보드 붙여넣기 (PC) */
+(function(){
+  const zone=document.getElementById('wrap')||document.body;
+  let over=0;
+  ['dragenter','dragover'].forEach(ev=>zone.addEventListener(ev,e=>{ if(!e.dataTransfer||![...e.dataTransfer.types].includes('Files')) return; e.preventDefault(); zone.classList.add('dropping'); }));
+  ['dragleave','drop'].forEach(ev=>zone.addEventListener(ev,e=>{ zone.classList.remove('dropping'); }));
+  zone.addEventListener('drop',e=>{ if(!e.dataTransfer||!e.dataTransfer.files.length) return; e.preventDefault(); sendFiles(e.dataTransfer.files); });
+  document.addEventListener('paste',e=>{
+    const items=[...((e.clipboardData&&e.clipboardData.items)||[])].filter(it=>it.kind==='file');
+    if(!items.length) return;
+    e.preventDefault();
+    sendFiles(items.map(it=>it.getAsFile()).filter(Boolean));
+  });
+})();
 function compressImage(file){
   return new Promise((res,rej)=>{
     const img=new Image();
@@ -1526,7 +1697,7 @@ function looksLikeOrder(text){
 
 async function processMessage(msgId, m){
   if(!m.text){ return; }
-  const mref=db.ref('chat/'+msgId);
+  const mref=msgRef(msgId);
   try{
     // 답장이면 원본 메시지가 만든 주문에서 거래처·날짜를 확정
     let forced=null;
@@ -1794,6 +1965,22 @@ function checkSuspicion(m, tot){
    글쓴이가 전송 직후 브라우저를 닫으면 status=parsing 으로 남습니다.
    관리자 화면이 3분 지난 parsing 메시지를 transaction으로 선점해 대신 처리합니다. */
 const IS_RUNNER=/[?&]runner=1/.test(location.search);   // v3.6 봇 PC 상시 화면
+
+/* ── 🗂 방 정의 (v4.0) ── parse:true 인 방만 🤖 주문 파싱 */
+const ROOMS=[
+  {id:'order',  name:'주문방', icon:'💬', path:'chat',              parse:true},
+  {id:'online', name:'온라인', icon:'🛒', path:'rooms/online/chat', parse:false},
+  {id:'prod',   name:'생산',   icon:'🏭', path:'rooms/prod/chat',   parse:false},
+  {id:'deliv',  name:'배송',   icon:'🚚', path:'rooms/deliv/chat',  parse:false},
+  {id:'io',     name:'입출고', icon:'📦', path:'rooms/io/chat',     parse:false}
+];
+let CUR_ROOM=ROOMS[0];
+(function(){ const m=location.search.match(/[?&]room=([a-z]+)/); if(m){ const r=ROOMS.find(x=>x.id===m[1]); if(r) CUR_ROOM=r; } if(IS_RUNNER) CUR_ROOM=ROOMS[0]; })();
+function roomOf(id){ const m=CHAT[id]; const rid=(m&&m._room)||CUR_ROOM.id; return ROOMS.find(r=>r.id===rid)||CUR_ROOM; }
+function roomRef(){ return db.ref(CUR_ROOM.path); }                  // 현재 방
+function msgRef(id){ return db.ref(roomOf(id).path+'/'+id); }         // 메시지가 속한 방
+const ORDER_ROOM=ROOMS[0];
+let ROOM_LISTENERS=[], LAST_READ={}, ROOM_LAST={}, ROOM_UNREAD={};
 const STALE_MS=IS_RUNNER ? 20*1000 : 90*1000;   // 자동처리 화면은 20초, 일반 화면은 90초
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -1804,7 +1991,7 @@ async function rescueIfStale(id, m){
     return;
   }
   try{
-    const tr=await db.ref('chat/'+id+'/status').transaction(cur=>{
+    const tr=await msgRef(id).child('status').transaction(cur=>{
       if(cur!=='parsing') return;
       return 'retrying';
     });
@@ -1845,6 +2032,7 @@ function pendListFor(date){
 }
 function toggleShowAll(){ SHOW_ALL=!SHOW_ALL; renderSide(); }
 function renderSide(){
+  try{ if(CUR_ROOM && CUR_ROOM.id==='deliv') renderVehBar(); }catch(e){}
   document.getElementById('curDate').textContent=mmdd(PANEL_DATE)||'--.--';
   // 뱃지: 오늘 미처리 / 확인방 대기
   const nToday=pendListFor(todayStr()).length;
