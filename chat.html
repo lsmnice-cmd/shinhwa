@@ -11,7 +11,11 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v4.6 — 2026-09-03
+  신화미트 주문방 (chat.html) v4.8 — 2026-09-03
+  · v4.8: 사진 크게 보기에서 두 손가락 확대·이동, 두 번 탭 확대/원복 (자체 구현 —
+    화면 확대 잠금 설정과 무관하게 동작)
+  · v4.7: 완료(done)된 메시지의 재처리 원천 차단 + 🤖 답장에 처리 화면 표시
+    (예: "· 처리: 🤖 자동처리" / "· 처리: 이승민") — 중복 처리 시 출처 추적용
   · v4.6: 🖼 사진을 누르면 앱 안에서 크게 보기(드라이브 앱·계정 선택 창으로
     안 넘어감). 핀치 확대, 배경 탭·✕로 닫기, [원본 열기] 버튼은 따로.
   · v4.5: 🛤 처리 통로 단일화 — 봇 PC 자동처리 화면이 살아 있으면(20초마다
@@ -239,8 +243,8 @@
   #lightbox .lb-top{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;color:#fff}
   #lightbox .lb-top a{color:#ddd;font-size:13px;text-decoration:none;border:1px solid #666;border-radius:6px;padding:6px 10px}
   #lightbox .lb-top button{background:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:800;cursor:pointer}
-  #lightbox .lb-body{flex:1;overflow:auto;display:flex;align-items:center;justify-content:center;touch-action:pinch-zoom}
-  #lightbox img{max-width:100%;max-height:100%;object-fit:contain}
+  #lightbox .lb-body{flex:1;overflow:hidden;display:flex;align-items:center;justify-content:center;touch-action:none;position:relative}
+  #lightbox img{max-width:100%;max-height:100%;object-fit:contain;transform-origin:0 0;will-change:transform;user-select:none;-webkit-user-drag:none}
   /* 🚚 배송방 차량 탭·패널 */
   #vehBar{display:none;gap:5px;padding:6px 8px;background:#fff8dc;border-bottom:1px solid #e2d3a8;overflow-x:auto;white-space:nowrap}
   #vehBar.on{display:flex}
@@ -1418,7 +1422,7 @@ function updateMsg(id, m){
     el.innerHTML=bubbleHtml(id,m);
   }
 }
-function sysHtml(m){ return '<span class="tag">🤖</span> '+esc(m.text||''); }
+function sysHtml(m){ return '<span class="tag">🤖</span> '+esc(m.text||'')+(m.by?' <span style="font-size:10px;color:#aaa">· 처리: '+esc(m.by)+'</span>':''); }
 function stateHtml(id,m){
   if(m.status==='parsing'||m.status==='retrying') return '<span class="m-state parsing">분석중…</span>';
   if(m.status==='error')   return '<span class="m-state error" style="cursor:pointer;text-decoration:underline" '
@@ -1514,7 +1518,63 @@ function openLightbox(id){
   document.getElementById('lbOpen').href='https://drive.google.com/file/d/'+encodeURIComponent(id)+'/view';
   lb.classList.add('on');
 }
-function closeLightbox(){ const lb=document.getElementById('lightbox'); if(lb){ lb.classList.remove('on'); document.getElementById('lbImg').src=''; } }
+function closeLightbox(){ const lb=document.getElementById('lightbox'); if(lb){ lb.classList.remove('on'); document.getElementById('lbImg').src=''; lbReset(); } }
+/* 🔍 두 손가락 확대·이동 / 두 번 탭 — 자체 구현 */
+let LB={s:1,x:0,y:0,base:null,lastTap:0,p:{}};
+function lbApply(){ const img=document.getElementById('lbImg'); if(img) img.style.transform='translate('+LB.x+'px,'+LB.y+'px) scale('+LB.s+')'; }
+function lbReset(){ LB.s=1; LB.x=0; LB.y=0; LB.base=null; LB.p={}; lbApply(); }
+(function(){
+  const body=document.querySelector('#lightbox .lb-body'); if(!body) return;
+  const img=document.getElementById('lbImg');
+  const pts=()=>Object.values(LB.p);
+  body.addEventListener('pointerdown',e=>{
+    e.preventDefault(); body.setPointerCapture(e.pointerId);
+    LB.p[e.pointerId]={x:e.clientX,y:e.clientY};
+    const arr=pts();
+    if(arr.length===1){
+      const now=Date.now();
+      if(now-LB.lastTap<300){        // 두 번 탭: 2.5배 ↔ 원복
+        if(LB.s>1){ lbReset(); }
+        else{ const r=body.getBoundingClientRect(); const cx=e.clientX-r.left, cy=e.clientY-r.top; LB.s=2.5; LB.x=cx-(cx-LB.x)*2.5; LB.y=cy-(cy-LB.y)*2.5; lbApply(); }
+        LB.lastTap=0; return;
+      }
+      LB.lastTap=now;
+      LB.base={mode:'pan', sx:e.clientX, sy:e.clientY, x:LB.x, y:LB.y, moved:false};
+    }else if(arr.length===2){
+      const d=Math.hypot(arr[0].x-arr[1].x, arr[0].y-arr[1].y);
+      const r=body.getBoundingClientRect();
+      LB.base={mode:'pinch', d:d, s:LB.s, x:LB.x, y:LB.y, cx:(arr[0].x+arr[1].x)/2-r.left, cy:(arr[0].y+arr[1].y)/2-r.top};
+    }
+  });
+  body.addEventListener('pointermove',e=>{
+    if(!LB.p[e.pointerId]) return;
+    LB.p[e.pointerId]={x:e.clientX,y:e.clientY};
+    const arr=pts(); const b=LB.base; if(!b) return;
+    if(b.mode==='pinch' && arr.length===2){
+      const d=Math.hypot(arr[0].x-arr[1].x, arr[0].y-arr[1].y);
+      const ns=Math.min(6, Math.max(1, b.s*d/b.d));
+      const k=ns/b.s;
+      LB.s=ns; LB.x=b.cx-(b.cx-b.x)*k; LB.y=b.cy-(b.cy-b.y)*k; lbApply();
+    }else if(b.mode==='pan' && arr.length===1 && LB.s>1){
+      const dx=e.clientX-b.sx, dy=e.clientY-b.sy;
+      if(Math.abs(dx)>3||Math.abs(dy)>3) b.moved=true;
+      LB.x=b.x+dx; LB.y=b.y+dy; lbApply();
+    }
+  });
+  const up=e=>{
+    delete LB.p[e.pointerId];
+    const b=LB.base;
+    if(pts().length===0){
+      // 확대 안 된 상태에서 움직임 없이 탭 → 닫기 (두 번 탭 대기 시간 후)
+      if(b && b.mode==='pan' && !b.moved && LB.s<=1){ setTimeout(()=>{ if(Date.now()-LB.lastTap>=300 && LB.s<=1) closeLightbox(); }, 320); }
+      if(LB.s<=1.02) { LB.s=1; LB.x=0; LB.y=0; lbApply(); }
+      LB.base=null;
+    }else if(pts().length===1){ const a=pts()[0]; LB.base={mode:'pan', sx:a.x, sy:a.y, x:LB.x, y:LB.y, moved:true}; }
+  };
+  body.addEventListener('pointerup',up); body.addEventListener('pointercancel',up);
+  body.addEventListener('wheel',e=>{ e.preventDefault(); const r=body.getBoundingClientRect(); const cx=e.clientX-r.left, cy=e.clientY-r.top; const ns=Math.min(6,Math.max(1, LB.s*(e.deltaY<0?1.15:0.87))); const k=ns/LB.s; LB.x=cx-(cx-LB.x)*k; LB.y=cy-(cy-LB.y)*k; LB.s=ns; if(ns===1){LB.x=0;LB.y=0;} lbApply(); },{passive:false});
+  body.addEventListener('click',e=>e.stopPropagation());   // 배경 탭 닫기는 위 up 로직이 담당
+})();
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeLightbox(); });
 
 /* ---------- 꾹 누르기(길게) → 카톡식 메뉴 ---------- */
@@ -1808,10 +1868,11 @@ async function processMessage(msgId, m, tok){
   try{
     const tr=await mref.transaction(c=>{
       if(!c) return;
+      if(c.status==='done' || c.deleted) return;                                       // 이미 완료 — 재처리 금지
       if(c.lock && c.lock!==tok && c.lockAt && Date.now()-c.lockAt<LOCK_TTL) return;   // 남이 처리 중
       c.lock=tok; c.lockAt=Date.now(); return c;
     });
-    if(!tr.committed){ console.log('🔒 다른 화면이 처리 중 — 건너뜀', msgId); return; }
+    if(!tr.committed){ console.log('🔒 완료됐거나 다른 화면이 처리 중 — 건너뜀', msgId); return; }
   }catch(e){ console.warn('lock',e); }
   const guard=async()=>{ try{ return (await mref.child('lock').once('value')).val()===tok; }catch(e){ return true; } };
   try{
@@ -1842,7 +1903,7 @@ async function processMessage(msgId, m, tok){
     if(tot.newClients.length) lines.push('🆕 신규 거래처: '+tot.newClients.join(', '));
     if(!tot.ids.length && !tot.dup) lines.push('🚨 주문으로 인식하지 못했습니다 — 형식을 확인하거나 관리자에게 문의하세요');
     const kind = (!tot.ids.length && !tot.dup) ? 'err' : (tot.needClient?'warn':'');
-    await db.ref('chat').push().set({sys:1, kind, ref:msgId, ts:Date.now(), text:lines.join('\n')});
+    await db.ref('chat').push().set({sys:1, kind, ref:msgId, ts:Date.now(), text:lines.join('\n'), by:(IS_RUNNER?'🤖 자동처리':MYNAME)});
 
     // 학습 대기 적재
     if(tot.pending && tot.pending.length){
@@ -2102,7 +2163,7 @@ let ROOM_LISTENERS=[], LAST_READ={}, ROOM_LAST={}, ROOM_UNREAD={};
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER=4.6;   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER=4.8;   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
