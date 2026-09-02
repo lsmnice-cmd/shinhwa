@@ -2467,6 +2467,8 @@ function firstDate(){
 function setNoteDate(d){ noteDate=d; renderNote(); }
 function setWorkDate(d){ workDate=d; renderWork(); }
 
+/* [v3.9] ⚖ 생산 실측 표시 — 주문방 미처리 카드에서 입력한 중량·식별번호 끝4자리를
+   파란 ⚖ 태그로 품목 옆에 표시 (초록 태그 = 전산 실제값과 구분) */
 /* [v3.8] 노트 편집기 학습 보강 — ① 처음 정식 상품명을 붙이는 품목도 학습
    (기존엔 이미 상품명이 있던 품목만 학습) ② 차량 변경 시 기본 차량 저장 여부 확인
    ③ 학습 후 실시간 전파(meta/masterVer)로 주문방 화면도 즉시 갱신. 최근 수정이 우선. */
@@ -2636,6 +2638,10 @@ function buildNoteTable(wrap, date, workMode){
                 t+='<span class="guess" title="최근 구매이력 추측 — 후보: '+esc(it.cands.join(', '))+'">추측<span class="q">?</span></span>';
               }
             }
+            if(it.prodKg || it.prodTail){
+              const pk=it.prodKg?(String(it.prodKg).replace(/\.0+$/,''))+'kg':'';
+              t+=' <span title="생산 실측 (현장 입력)" style="font-size:11px;font-weight:800;color:#1a4f9c;background:#e4edf9;border-radius:4px;padding:1px 5px">⚖'+pk+(it.prodTail?'('+esc(it.prodTail)+')':'')+'</span>';
+            }
             if(it.erpKg || it.erpTail){
               const kg=it.erpKg?(String(it.erpKg).replace(/\.0+$/,''))+'kg':'';
               t+=' <span title="전산 실측 (중량·이력끝4자리)" style="font-size:11px;font-weight:800;color:#1f6b3a;background:#e7f2ea;border-radius:4px;padding:1px 5px">'+kg+(it.erpTail?'('+esc(it.erpTail)+')':'')+'</span>';
@@ -2663,7 +2669,7 @@ function buildNoteTable(wrap, date, workMode){
   if(!uniqVeh.length) html+='<div class="empty">이 날짜에 주문이 없습니다</div>';
   html+='<div class="legend no-print"><span><i style="background:var(--wait-soft)"></i><b>대기</b> 미작업</span>'
       +'<span><i style="background:var(--ok-soft)"></i><b>완료</b> 작업완료(클릭 토글)</span>'
-      +'<span><span style="font-size:11px;font-weight:800;color:#1f6b3a;background:#e7f2ea;border-radius:4px;padding:1px 5px">15.15kg(1514)</span> 전산 실측값(대조 완료) · <b style="color:#1f6b3a">✔</b> 전산처리 체크됨 · 표시 없음=미처리/추가분</span>'
+      +'<span><span style="font-size:11px;font-weight:800;color:#1a4f9c;background:#e4edf9;border-radius:4px;padding:1px 5px">⚖15.15kg(1514)</span> 생산 실측(현장 입력) · <span style="font-size:11px;font-weight:800;color:#1f6b3a;background:#e7f2ea;border-radius:4px;padding:1px 5px">15.15kg(1514)</span> 전산 실제값(대조) · <b style="color:#1f6b3a">✔</b> 전산처리 체크됨</span>'
       +'<span>거래처명을 클릭하면 수정·삭제할 수 있습니다</span></div>';
   wrap.innerHTML=html;
   if(!workMode) fillBlankRows(wrap);
