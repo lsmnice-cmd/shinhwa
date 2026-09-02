@@ -11,7 +11,11 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v4.2 — 2026-09-03
+  신화미트 주문방 (chat.html) v4.3 — 2026-09-03
+  · v4.3: 🔒 처리 잠금 — 같은 메시지를 두 화면(보낸 사람 + 자동처리 화면)이
+    동시에 처리해 ✅와 "중복 건너뜀"이 같이 뜨거나 품목이 두 번 추가되던 문제.
+    메시지마다 처리 주인(lock)을 두고, 결과를 쓰기 직전에 자기 잠금이 유효한지
+    확인해 아니면 조용히 버림. 자동처리 화면의 이어받기도 45초로 완화.
   · v4.2: 사진에 거래처명 붙이기 — 사진 올린 뒤 3분 안에 같은 사람이 짧은 글
     (거래처명)을 치면 사진 설명으로 붙고 드라이브 파일명에도 들어감
     (20260903_배송_김만수_미소다.jpg). 글을 먼저 쓰고 📷를 눌러도 동일.
@@ -1387,13 +1391,14 @@ function scheduleAutoRetry(id, m){
     const cur=CHAT[id];
     if(!cur || cur.status!=='error') return;
     try{
+      const tok=newTok();
       const tr=await msgRef(id).transaction(c=>{
         if(!c || c.status!=='error') return;         // 다른 화면이 먼저 잡음
-        c.status='parsing'; c.retries=(c.retries||0)+1;
+        c.status='parsing'; c.retries=(c.retries||0)+1; c.lock=tok; c.lockAt=Date.now();
         return c;
       });
       if(tr.committed && tr.snapshot && tr.snapshot.val()){
-        await processMessage(id, tr.snapshot.val());
+        await processMessage(id, tr.snapshot.val(), tok);
       }
     }catch(e){ console.warn('autoRetry', e); }
   }, AUTO_RETRY_DELAYS[Math.min(r,2)]);
@@ -1404,12 +1409,13 @@ async function retryMsg(id){
   const m=CHAT[id];
   if(!m || m.sys || !m.text) return;
   try{
-    const tr=await msgRef(id).child('status').transaction(cur=>{
-      if(cur!=='error') return;      // 이미 누가 재시도 중
-      return 'parsing';
+    const tok=newTok();
+    const tr=await msgRef(id).transaction(c=>{
+      if(!c || c.status!=='error') return;      // 이미 누가 재시도 중
+      c.status='parsing'; c.lock=tok; c.lockAt=Date.now(); return c;
     });
     if(!tr.committed) return;
-    await processMessage(id, m);
+    await processMessage(id, tr.snapshot.val()||m, tok);
   }catch(e){ alert('재시도 실패: '+e.message); }
 }
 function bubbleHtml(id,m){
@@ -1557,8 +1563,9 @@ async function saveEditMsg(id){
   if(nv===m.text) return;
   try{
     await rollbackMsg(id);
-    await msgRef(id).update({text:nv, edited:1, status:(roomOf(id).parse?'parsing':null), orders:null});
-    await processMessage(id, Object.assign({}, m, {text:nv}));
+    const tok=newTok();
+    await msgRef(id).update({text:nv, edited:1, status:(roomOf(id).parse?'parsing':null), orders:null, lock:tok, lockAt:Date.now()});
+    if(roomOf(id).parse) await processMessage(id, Object.assign({}, m, {text:nv}), tok);
   }catch(e){ alert('수정 실패: '+e.message); }
 }
 
@@ -1627,7 +1634,8 @@ async function sendMsg(){
       }catch(e){ /* 실패하면 일반 메시지로 */ }
     }
   }
-  const msg={uid:ME.uid, name:MYNAME, text, ts:Date.now(), status:(CUR_ROOM.parse?'parsing':null)};
+  const tok=newTok();
+  const msg={uid:ME.uid, name:MYNAME, text, ts:Date.now(), status:(CUR_ROOM.parse?'parsing':null), lock:(CUR_ROOM.parse?tok:null), lockAt:(CUR_ROOM.parse?Date.now():null)};
   if(REPLY_TO) msg.replyTo=REPLY_TO;
   const ref=roomRef().push();
   try{
@@ -1637,7 +1645,7 @@ async function sendMsg(){
   const rTo=REPLY_TO; clearReply();
   btn.disabled=false;
   sendPushOut(text);                                                    // 📲 다른 기기들에 시스템 푸시
-  if(CUR_ROOM.parse) processMessage(ref.key, Object.assign({},msg,{replyTo:rTo||null}));   // 주문방만 파싱
+  if(CUR_ROOM.parse) processMessage(ref.key, Object.assign({},msg,{replyTo:rTo||null}), tok);   // 주문방만 파싱
 }
 
 async function sendFiles(files){
@@ -1722,9 +1730,21 @@ function looksLikeOrder(text){
   return hasHead && lines.length>=3;
 }
 
-async function processMessage(msgId, m){
+const LOCK_TTL=120*1000;   // 이 시간 안의 잠금은 남의 것으로 존중
+async function processMessage(msgId, m, tok){
   if(!m.text){ return; }
   const mref=msgRef(msgId);
+  tok=tok||newTok();
+  // 🔒 처리 잠금 획득 — 다른 화면이 최근에 잡고 있으면 물러남
+  try{
+    const tr=await mref.transaction(c=>{
+      if(!c) return;
+      if(c.lock && c.lock!==tok && c.lockAt && Date.now()-c.lockAt<LOCK_TTL) return;   // 남이 처리 중
+      c.lock=tok; c.lockAt=Date.now(); return c;
+    });
+    if(!tr.committed){ console.log('🔒 다른 화면이 처리 중 — 건너뜀', msgId); return; }
+  }catch(e){ console.warn('lock',e); }
+  const guard=async()=>{ try{ return (await mref.child('lock').once('value')).val()===tok; }catch(e){ return true; } };
   try{
     // 답장이면 원본 메시지가 만든 주문에서 거래처·날짜를 확정
     let forced=null;
@@ -1733,7 +1753,8 @@ async function processMessage(msgId, m){
       if(oo && oo.client && !oo.needClient) forced={client:oo.client, date:oo.date};
     }
     const isEdit=/수정/.test(String(m.text||'').split(/\n/).slice(0,2).join(' '));
-    const tot=await createOrders(m.text, forced, msgId, m.name||'', isEdit);
+    const tot=await createOrders(m.text, forced, msgId, m.name||'', isEdit, guard);
+    if(tot.aborted){ console.log('🔒 처리 중 잠금 빼앗김 — 결과 버림', msgId); return; }
     const got=(tot.ids||[]).length + (tot.dup||0);
     if(!got && looksLikeOrder(m.text)){
       throw new Error('주문으로 인식하지 못했습니다 — 자동으로 다시 분석합니다');
@@ -1778,10 +1799,11 @@ async function processMessage(msgId, m){
   }
 }
 
-async function createOrders(text, forced, msgId, senderName, isEdit){
+async function createOrders(text, forced, msgId, senderName, isEdit, guard){
   const baseDate = forced ? forced.date : todayStr();
   const tot={ids:[], lines:[], dup:0, fixed:0, trimmed:0, needClient:0, newClients:[], pending:[], dates:[]};
   const j=await gsCall('parse',{text, baseDate});
+  if(guard && !(await guard())){ tot.aborted=true; return tot; }   // 🔒 파싱 동안 잠금을 빼앗겼으면 쓰지 않음
   let parsed=j.orders||[];
   if(!parsed.length) return tot;
 
@@ -2008,22 +2030,25 @@ function roomRef(){ return db.ref(CUR_ROOM.path); }                  // 현재 �
 function msgRef(id){ return db.ref(roomOf(id).path+'/'+id); }         // 메시지가 속한 방
 const ORDER_ROOM=ROOMS[0];
 let ROOM_LISTENERS=[], LAST_READ={}, ROOM_LAST={}, ROOM_UNREAD={};
-const STALE_MS=IS_RUNNER ? 20*1000 : 90*1000;   // 자동처리 화면은 20초, 일반 화면은 90초
+const STALE_MS=IS_RUNNER ? 45*1000 : 120*1000;  // 자동처리 화면은 45초, 일반 화면은 120초
+function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
   if(m.status!=='parsing') return;
-  const left=STALE_MS-(Date.now()-(m.ts||0));
+  const left=STALE_MS-(Date.now()-(m.lockAt||m.ts||0));
   if(left>0){
     setTimeout(()=>{ const cur=CHAT[id]; if(cur) rescueIfStale(id, cur); }, left+Math.floor(Math.random()*4000));
     return;
   }
   try{
-    const tr=await msgRef(id).child('status').transaction(cur=>{
-      if(cur!=='parsing') return;
-      return 'retrying';
+    const tok=newTok();
+    const tr=await msgRef(id).transaction(c=>{
+      if(!c || c.status!=='parsing') return;
+      if(c.lockAt && Date.now()-c.lockAt<STALE_MS) return;     // 아직 남이 살아서 처리 중
+      c.status='retrying'; c.lock=tok; c.lockAt=Date.now(); return c;
     });
     if(!tr.committed) return;
-    await processMessage(id, m);
+    await processMessage(id, tr.snapshot.val()||m, tok);
   }catch(e){ console.warn('rescue',e); }
 }
 
