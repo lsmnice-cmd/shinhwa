@@ -11,7 +11,17 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v4.8 — 2026-09-03
+  신화미트 주문방 (chat.html) v4.12 — 2026-09-03
+  · v4.12: 압축 규칙 교체 — "긴 변 기준"이 세로로 긴 표 캡처의 가로를 짓뭉개던
+    문제(673×4445 → 212×1400). 총 화소(6MP) 기준으로 바꿔 폭이 유지되고,
+    작은 이미지는 아예 손대지 않음. 화질 우선 방은 원본 그대로(v4.11).
+  · v4.11: 방별 사진 화질 — 온라인·생산·배송·입출고는 원본 그대로 저장(압축 없음,
+    표·전표·라벨 글씨 보존), 주문방은 2400px·92%. 크게 보기는 최대 해상도로.
+  · v4.10: 접속 바에 버전 표시(v4.10) — 어느 기기가 옛 버전인지 확인용.
+    옛 버전(v4.6 이하) 화면은 자동 새로고침을 못 받으므로 기기마다 1회
+    완전 종료 후 재실행 필요. 접속인원에 자동처리 화면은 🤖로 따로 표시.
+  · v4.9: 사진 화질 개선 — 업로드 압축 완화(긴 변 2400px·JPEG 92%, 이전 1400px·82%),
+    채팅 미리보기 800px, 크게 보기는 2400px 고해상도. (용량 계정으로 옮겨 여유 있음)
   · v4.8: 사진 크게 보기에서 두 손가락 확대·이동, 두 번 탭 확대/원복 (자체 구현 —
     화면 확대 잠금 설정과 무관하게 동작)
   · v4.7: 완료(done)된 메시지의 재처리 원천 차단 + 🤖 답장에 처리 화면 표시
@@ -1010,6 +1020,7 @@ function renderPresence(){
   const uniq=[...new Set(list)];
   bar.innerHTML='<span>👥</span>'
     +'<span class="names"><b>'+uniq.length+'명 접속</b>'+(uniq.length?' — '+esc(uniq.join(', ')):'')+'</span>'
+    +'<span title="이 화면의 버전" style="font-size:10px;color:var(--muted);white-space:nowrap">v'+APP_VER+'</span>'
     +'<button onclick="toggleAlert()" title="새 메시지 소리·진동·알림 (주말·공휴일·평일 18~07시는 매너타임으로 조용)">'+(ALERT_ON?(isQuiet()?'🌙 매너타임':'🔔 알림'):'🔕 알림')+'</button>'
     +'<button onclick="changeName()">✏ 내 이름: '+esc(MYNAME)+'</button>'
     +'<button onclick="toggleSearch()" title="채팅 검색">🔍</button>';
@@ -1492,7 +1503,7 @@ function bubbleHtml(id,m){
   }
   let body='';
   if(m.photo && m.photo.id){
-    body+='<img class="ph" src="https://drive.google.com/thumbnail?id='+esc(m.photo.id)+'&sz=w480" '
+    body+='<img class="ph" src="https://drive.google.com/thumbnail?id='+esc(m.photo.id)+'&sz=w800" '
         +'onclick="event.stopPropagation();openLightbox(\''+esc(m.photo.id)+'\')" '
         +'onerror="this.replaceWith(Object.assign(document.createElement(\'a\'),{href:\'https://drive.google.com/file/d/'+esc(m.photo.id)+'/view\',target:\'_blank\',textContent:\'📷 사진 열기\'}))">';
   }
@@ -1513,8 +1524,8 @@ function bubbleHtml(id,m){
 function openLightbox(id){
   const lb=document.getElementById('lightbox'); if(!lb) return;
   const img=document.getElementById('lbImg');
-  img.src='https://drive.google.com/thumbnail?id='+encodeURIComponent(id)+'&sz=w1600';
-  img.onerror=()=>{ img.onerror=null; img.src='https://lh3.googleusercontent.com/d/'+encodeURIComponent(id); };
+  img.src='https://drive.google.com/thumbnail?id='+encodeURIComponent(id)+'&sz=w4000';
+  img.onerror=()=>{ img.onerror=null; img.src='https://lh3.googleusercontent.com/d/'+encodeURIComponent(id)+'=s0'; };
   document.getElementById('lbOpen').href='https://drive.google.com/file/d/'+encodeURIComponent(id)+'/view';
   lb.classList.add('on');
 }
@@ -1791,7 +1802,8 @@ async function sendFiles(files){
       const isImg=/^image\//.test(file.type||'');
       let msg;
       if(isImg){
-        const b64=await compressImage(file);
+        // 📸 화질 우선 방(hq)은 압축 없이 원본 그대로 (표·전표·라벨 글씨 보존)
+        const b64=(CUR_ROOM.hq && file.size<=12*1024*1024) ? await fileToB64(file) : await compressImage(file);
         const r=await photoUpload(b64, file.name||'photo.jpg', cap);
         msg={uid:ME.uid, name:MYNAME, text:cap, photo:{id:r.id}, ts:Date.now(), status:null};
       }else{
@@ -1833,12 +1845,14 @@ function compressImage(file){
     const url=URL.createObjectURL(file);
     img.onload=()=>{
       URL.revokeObjectURL(url);
-      const MAX=1400;
+      // v4.12: 총 화소 예산 기준 (세로로 긴 캡처도 가로 폭 유지). 6MP 이하는 원본 크기 그대로
+      const MAXPIX=6000000, MAXSIDE=8000;
       let w=img.width,h=img.height;
-      if(w>MAX||h>MAX){ const r=Math.min(MAX/w,MAX/h); w=Math.round(w*r); h=Math.round(h*r); }
+      let r=Math.min(1, Math.sqrt(MAXPIX/(w*h)), MAXSIDE/w, MAXSIDE/h);
+      if(r<1){ w=Math.round(w*r); h=Math.round(h*r); }
       const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
       cv.getContext('2d').drawImage(img,0,0,w,h);
-      const dataUrl=cv.toDataURL('image/jpeg',0.82);
+      const dataUrl=cv.toDataURL('image/jpeg',0.92);
       res(dataUrl.slice(dataUrl.indexOf(',')+1));
     };
     img.onerror=()=>{ URL.revokeObjectURL(url); rej(new Error('이미지를 읽을 수 없습니다')); };
@@ -2147,11 +2161,11 @@ const IS_RUNNER=/[?&]runner=1/.test(location.search);   // v3.6 봇 PC 상시 �
 
 /* ── 🗂 방 정의 (v4.0) ── parse:true 인 방만 🤖 주문 파싱 */
 const ROOMS=[
-  {id:'order',  name:'주문방', icon:'💬', path:'chat',              parse:true},
-  {id:'online', name:'온라인', icon:'🛒', path:'rooms/online/chat', parse:false},
-  {id:'prod',   name:'생산',   icon:'🏭', path:'rooms/prod/chat',   parse:false},
-  {id:'deliv',  name:'배송',   icon:'🚚', path:'rooms/deliv/chat',  parse:false},
-  {id:'io',     name:'입출고', icon:'📦', path:'rooms/io/chat',     parse:false}
+  {id:'order',  name:'주문방', icon:'💬', path:'chat',              parse:true,  hq:false},
+  {id:'online', name:'온라인', icon:'🛒', path:'rooms/online/chat', parse:false, hq:true},
+  {id:'prod',   name:'생산',   icon:'🏭', path:'rooms/prod/chat',   parse:false, hq:true},
+  {id:'deliv',  name:'배송',   icon:'🚚', path:'rooms/deliv/chat',  parse:false, hq:true},
+  {id:'io',     name:'입출고', icon:'📦', path:'rooms/io/chat',     parse:false, hq:true}
 ];
 let CUR_ROOM=ROOMS[0];
 (function(){ const m=location.search.match(/[?&]room=([a-z]+)/); if(m){ const r=ROOMS.find(x=>x.id===m[1]); if(r) CUR_ROOM=r; } if(IS_RUNNER) CUR_ROOM=ROOMS[0]; })();
@@ -2163,7 +2177,7 @@ let ROOM_LISTENERS=[], LAST_READ={}, ROOM_LAST={}, ROOM_UNREAD={};
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER=4.8;   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER=4.12;   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
