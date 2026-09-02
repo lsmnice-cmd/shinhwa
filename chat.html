@@ -11,7 +11,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v3.6 — 2026-09-02
+  신화미트 주문방 (chat.html) v3.7 — 2026-09-02
+  · v3.7: 🔍 채팅 검색 — 접속바의 🔍 버튼 → 검색창. 거래처·품목·이름 등
+    글자로 검색, 일치 말풍선 노란 강조 + ▲▼로 이동 + 건수 표시.
+    최근 200건 밖의 옛 대화는 [옛 대화 더 불러오기]로 범위 확장.
   · v3.6: 🤖 자동처리 모드 (봇 PC 상시 화면용) — 주소 뒤에 ?runner=1
     - 아무도 화면을 안 열어둔 시간에도 주문이 처리되도록, 봇 PC 크롬에
       이 모드로 상시 열어두면 20초 안에 갇힌 메시지를 이어받습니다
@@ -193,6 +196,14 @@
     #chatPane{border-right:1px solid var(--line)}
   }
 
+  /* 🔍 검색 */
+  #searchBar{display:none;gap:6px;align-items:center;padding:6px 10px;background:#fff8dc;border-bottom:1px solid #e2d3a8}
+  #searchBar.on{display:flex}
+  #searchBar input{flex:1;min-width:80px;padding:7px 9px;border:1px solid var(--line);border-radius:6px;font-size:14px;font-family:var(--sans)}
+  #searchBar button{border:1px solid var(--line);background:#fff;border-radius:6px;padding:6px 9px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap}
+  #searchBar .cnt{font-size:12px;color:var(--muted);white-space:nowrap}
+  .msg-row.hit .bubble{background:#fff3b0 !important;box-shadow:0 0 0 2px #e0b800}
+  .msg-row.hit-cur .bubble{box-shadow:0 0 0 3px var(--accent)}
   /* 답장 대상 강조 */
   .msg-row.replying .bubble{outline:2px solid var(--accent);outline-offset:2px}
   /* 꾹 누르기 메뉴 (카톡식) */
@@ -378,6 +389,15 @@
   <!-- ===== 왼쪽: 채팅 ===== -->
   <section class="pane" id="chatPane">
     <div id="presenceBar"><span class="names">접속 확인 중…</span></div>
+    <div id="searchBar">
+      <span>🔍</span>
+      <input type="search" id="searchIn" placeholder="거래처·품목·이름 검색" oninput="runSearch()" onkeydown="if(event.key==='Enter'){event.preventDefault();searchNav(event.shiftKey?-1:1)}">
+      <span class="cnt" id="searchCnt"></span>
+      <button onclick="searchNav(-1)" title="이전">▲</button>
+      <button onclick="searchNav(1)" title="다음">▼</button>
+      <button onclick="loadOlder()" title="최근 200건 이전의 옛 대화를 불러옵니다">옛 대화 더</button>
+      <button onclick="toggleSearch(false)">✕</button>
+    </div>
     <div id="chatScroll"></div>
     <div id="inputBar">
       <div id="replyBar"><span>↩</span><span class="rt" id="replyTxt"></span><button onclick="clearReply()">✕</button></div>
@@ -855,7 +875,81 @@ function renderPresence(){
   bar.innerHTML='<span>👥</span>'
     +'<span class="names"><b>'+uniq.length+'명 접속</b>'+(uniq.length?' — '+esc(uniq.join(', ')):'')+'</span>'
     +'<button onclick="toggleAlert()" title="새 메시지 소리·진동·알림 (주말·공휴일·평일 18~07시는 매너타임으로 조용)">'+(ALERT_ON?(isQuiet()?'🌙 매너타임':'🔔 알림'):'🔕 알림')+'</button>'
-    +'<button onclick="changeName()">✏ 내 이름: '+esc(MYNAME)+'</button>';
+    +'<button onclick="changeName()">✏ 내 이름: '+esc(MYNAME)+'</button>'
+    +'<button onclick="toggleSearch()" title="채팅 검색">🔍</button>';
+}
+
+/* ---------- 🔍 채팅 검색 ---------- */
+let SEARCH_HITS=[], SEARCH_CUR=-1, OLDER_LOADED=0;
+function toggleSearch(on){
+  const bar=document.getElementById('searchBar');
+  const want=(on===undefined)?!bar.classList.contains('on'):on;
+  bar.classList.toggle('on', want);
+  if(want){ document.getElementById('searchIn').focus(); runSearch(); }
+  else{ clearSearchMarks(); document.getElementById('searchIn').value=''; }
+}
+function clearSearchMarks(){
+  document.querySelectorAll('.msg-row.hit,.msg-row.hit-cur').forEach(e=>e.classList.remove('hit','hit-cur'));
+  SEARCH_HITS=[]; SEARCH_CUR=-1;
+  const c=document.getElementById('searchCnt'); if(c) c.textContent='';
+}
+function runSearch(){
+  const q=(document.getElementById('searchIn').value||'').trim().toLowerCase();
+  clearSearchMarks();
+  if(!q) return;
+  const ids=Object.keys(CHAT).filter(id=>{
+    const m=CHAT[id]; if(!m||m.deleted) return false;
+    const hay=((m.text||'')+' '+(m.name||'')).toLowerCase();
+    return hay.indexOf(q)>=0;
+  }).sort((a,b)=>(CHAT[a].ts||0)-(CHAT[b].ts||0));
+  SEARCH_HITS=ids;
+  ids.forEach(id=>{ const el=document.getElementById('m_'+id); if(el) el.classList.add('hit'); });
+  document.getElementById('searchCnt').textContent=ids.length?ids.length+'건':'없음';
+  if(ids.length){ SEARCH_CUR=ids.length-1; focusHit(); }
+}
+function searchNav(d){
+  if(!SEARCH_HITS.length) return;
+  SEARCH_CUR=(SEARCH_CUR+d+SEARCH_HITS.length)%SEARCH_HITS.length;
+  focusHit();
+}
+function focusHit(){
+  document.querySelectorAll('.msg-row.hit-cur').forEach(e=>e.classList.remove('hit-cur'));
+  const id=SEARCH_HITS[SEARCH_CUR]; const el=document.getElementById('m_'+id);
+  if(el){ el.classList.add('hit-cur'); el.scrollIntoView({block:'center', behavior:'smooth'}); }
+  document.getElementById('searchCnt').textContent=(SEARCH_CUR+1)+' / '+SEARCH_HITS.length+'건';
+}
+/* 최근 200건 이전의 옛 대화를 300건씩 추가 로드 */
+async function loadOlder(){
+  if(!db) return;
+  const oldest=Math.min(...Object.values(CHAT).map(m=>m&&m.ts||Infinity));
+  if(!isFinite(oldest)) return;
+  const btn=[...document.querySelectorAll('#searchBar button')].find(b=>b.textContent.indexOf('옛 대화')>=0);
+  if(btn){ btn.disabled=true; btn.textContent='불러오는 중…'; }
+  try{
+    const ss=await db.ref('chat').orderByChild('ts').endAt(oldest-1).limitToLast(300).once('value');
+    const arr=[]; ss.forEach(c=>{ arr.push([c.key,c.val()]); });
+    const box=document.getElementById('chatScroll');
+    const keepH=box.scrollHeight;
+    // 오래된 순으로 맨 위에 삽입
+    arr.sort((a,b)=>(a[1].ts||0)-(b[1].ts||0)).reverse().forEach(([id,m])=>{
+      if(CHAT[id]) return;
+      CHAT[id]=m;
+      const row=document.createElement('div');
+      row.id='m_'+id;
+      if(m.sys){
+        row.className='sys-row';
+        row.innerHTML='<div class="sys'+(m.kind==='warn'?' warn':m.kind==='err'?' err':'')+'">'+sysHtml(m)+'</div>';
+      }else{
+        row.className='msg-row'+((ME&&m.uid===ME.uid)?' mine':'');
+        row.innerHTML=bubbleHtml(id,m);
+      }
+      box.insertBefore(row, box.firstChild);
+    });
+    box.scrollTop=box.scrollHeight-keepH;
+    OLDER_LOADED+=arr.length;
+    if(btn){ btn.disabled=false; btn.textContent=arr.length?('옛 대화 더 (+'+arr.length+')'):'더 이상 없음'; }
+    runSearch();
+  }catch(e){ if(btn){ btn.disabled=false; btn.textContent='옛 대화 더'; } alert('불러오기 실패: '+e.message); }
 }
 async function changeName(){
   const v=prompt('채팅에 표시할 이름을 입력하세요 (직원들이 알아보는 이름으로)', MYNAME);
