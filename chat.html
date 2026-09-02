@@ -11,7 +11,11 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v4.1 — 2026-09-03
+  신화미트 주문방 (chat.html) v4.2 — 2026-09-03
+  · v4.2: 사진에 거래처명 붙이기 — 사진 올린 뒤 3분 안에 같은 사람이 짧은 글
+    (거래처명)을 치면 사진 설명으로 붙고 드라이브 파일명에도 들어감
+    (20260903_배송_김만수_미소다.jpg). 글을 먼저 쓰고 📷를 눌러도 동일.
+    (주문방은 제외 — 글은 주문 파싱으로 감)
   · v4.1: ① 사진 저장 서버 설정 완료(용량 계정) ② 📷촬영 / 🖼앨범·파일 버튼 분리,
     PC 드래그&드롭·클립보드 붙여넣기 업로드, 사진 외 파일(PDF·엑셀 등)도 첨부(📎)
     ③ 배송방 상단 차량 탭(0966·6506·1982·택배·사무실) → 당일 차량별 주문노트 패널
@@ -625,9 +629,9 @@ const GS_DEFAULT_URL='https://script.google.com/macros/s/AKfycbyt7vccpdQMOh2eyrk
    둘 다 비우면 기존 방식(주문 서버 계정 드라이브)으로 저장합니다. */
 const PHOTO_URL='https://script.google.com/macros/s/AKfycbyUue0ngzFYeQO6_Ya5XutOVFYkpZFr6cNhuYlefcbYSDcCjI2Ibr6RgAeI8ltLiiwl/exec';
 const PHOTO_TOKEN='photo2026shinhwa';
-async function photoUpload(b64, name){
+async function photoUpload(b64, name, label){
   if(PHOTO_URL && PHOTO_TOKEN){
-    const body=new URLSearchParams({action:'photo', token:PHOTO_TOKEN, data:b64, name:name, by:MYNAME, room:CUR_ROOM.name});
+    const body=new URLSearchParams({action:'photo', token:PHOTO_TOKEN, data:b64, name:name, by:MYNAME, room:CUR_ROOM.name, label:label||''});
     const res=await fetch(PHOTO_URL,{method:'POST',body});
     const j=await res.json();
     if(!j.ok) throw new Error(j.error||'사진 서버 오류');
@@ -635,10 +639,16 @@ async function photoUpload(b64, name){
   }
   return gsCall('chatPhoto',{data:b64, name:name, by:MYNAME});
 }
+/* 🏷 이미 올린 파일에 거래처명 붙이기 (파일명 변경) */
+function fileLabel(id, label){
+  if(!(PHOTO_URL && PHOTO_TOKEN) || !id || !label) return;
+  const body=new URLSearchParams({action:'label', token:PHOTO_TOKEN, id:id, label:label});
+  fetch(PHOTO_URL,{method:'POST',body}).catch(()=>{});
+}
 /* 📎 일반 파일 업로드 (PDF·엑셀 등) — 사진 서버가 설정된 경우만 */
-async function fileUpload(b64, name, mime){
+async function fileUpload(b64, name, mime, label){
   if(!(PHOTO_URL && PHOTO_TOKEN)) throw new Error('파일 첨부는 사진 서버 설정 후 가능합니다');
-  const body=new URLSearchParams({action:'file', token:PHOTO_TOKEN, data:b64, name:name, mime:mime||'application/octet-stream', by:MYNAME, room:CUR_ROOM.name});
+  const body=new URLSearchParams({action:'file', token:PHOTO_TOKEN, data:b64, name:name, mime:mime||'application/octet-stream', by:MYNAME, room:CUR_ROOM.name, label:label||''});
   const res=await fetch(PHOTO_URL,{method:'POST',body});
   const j=await res.json();
   if(!j.ok) throw new Error(j.error||'파일 서버 오류');
@@ -1604,6 +1614,19 @@ async function sendMsg(){
   if(!fbReady){ alert('아직 서버에 연결되지 않았습니다.'); return; }
   const btn=document.getElementById('sendBtn');
   btn.disabled=true;
+  // 🏷 사진·파일 올린 직후(3분 내)의 짧은 글은 그 사진의 설명(거래처명)으로 붙임 — 주문방 제외
+  if(!CUR_ROOM.parse && !REPLY_TO && text.length<=30 && !/\n/.test(text)){
+    const ids=Object.keys(CHAT).filter(k=>CHAT[k]&&!CHAT[k].sys&&!CHAT[k].deleted).sort((x,y)=>(CHAT[x].ts||0)-(CHAT[y].ts||0));
+    const lid=ids[ids.length-1], last=lid&&CHAT[lid];
+    if(last && last.uid===ME.uid && (last.photo||last.file) && !last.text && Date.now()-(last.ts||0)<3*60*1000){
+      try{
+        await msgRef(lid).update({text:text, labeled:1});
+        fileLabel((last.photo&&last.photo.id)||(last.file&&last.file.id), text);
+        inputEl.value=''; inputEl.style.height='auto'; btn.disabled=false;
+        return;
+      }catch(e){ /* 실패하면 일반 메시지로 */ }
+    }
+  }
   const msg={uid:ME.uid, name:MYNAME, text, ts:Date.now(), status:(CUR_ROOM.parse?'parsing':null)};
   if(REPLY_TO) msg.replyTo=REPLY_TO;
   const ref=roomRef().push();
@@ -1621,6 +1644,10 @@ async function sendFiles(files){
   const list=[...(files||[])]; if(!list.length || !fbReady) return;
   const btn=document.getElementById('sendBtn');
   btn.disabled=true; btn.textContent='…';
+  // 입력창에 적어둔 짧은 글(거래처명 등)은 사진 설명 + 파일명 라벨로
+  const ta=document.getElementById('chatInput');
+  let cap='';
+  if(!CUR_ROOM.parse && ta && ta.value.trim() && ta.value.trim().length<=30 && !/\n/.test(ta.value.trim())){ cap=ta.value.trim(); ta.value=''; ta.style.height='auto'; }
   try{
     for(const file of list){
       if(file.size>12*1024*1024){ alert(file.name+' — 12MB 이하만 첨부할 수 있습니다'); continue; }
@@ -1628,12 +1655,12 @@ async function sendFiles(files){
       let msg;
       if(isImg){
         const b64=await compressImage(file);
-        const r=await photoUpload(b64, file.name||'photo.jpg');
-        msg={uid:ME.uid, name:MYNAME, text:'', photo:{id:r.id}, ts:Date.now(), status:null};
+        const r=await photoUpload(b64, file.name||'photo.jpg', cap);
+        msg={uid:ME.uid, name:MYNAME, text:cap, photo:{id:r.id}, ts:Date.now(), status:null};
       }else{
         const b64=await fileToB64(file);
-        const r=await fileUpload(b64, file.name||'file', file.type);
-        msg={uid:ME.uid, name:MYNAME, text:'', file:{id:r.id, name:file.name||'file', size:file.size}, ts:Date.now(), status:null};
+        const r=await fileUpload(b64, file.name||'file', file.type, cap);
+        msg={uid:ME.uid, name:MYNAME, text:cap, file:{id:r.id, name:file.name||'file', size:file.size}, ts:Date.now(), status:null};
       }
       if(REPLY_TO){ msg.replyTo=REPLY_TO; clearReply(); }
       await roomRef().push().set(msg);
