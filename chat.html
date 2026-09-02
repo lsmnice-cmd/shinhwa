@@ -11,7 +11,16 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v4.3 — 2026-09-03
+  신화미트 주문방 (chat.html) v4.6 — 2026-09-03
+  · v4.6: 🖼 사진을 누르면 앱 안에서 크게 보기(드라이브 앱·계정 선택 창으로
+    안 넘어감). 핀치 확대, 배경 탭·✕로 닫기, [원본 열기] 버튼은 따로.
+  · v4.5: 🛤 처리 통로 단일화 — 봇 PC 자동처리 화면이 살아 있으면(20초마다
+    생존 신호) 그 화면만 파싱하고, 보낸 사람 폰은 올리기만 함. 자동처리 화면이
+    죽어 있을 때만 보낸 사람 폰이 처리(안전망). 다른 화면들의 이어받기는 3분 후.
+  · v4.4: 🔄 새 버전 자동 새로고침 — 새 chat.html이 배포되면 열려 있는 모든
+    화면(봇 PC 자동처리 탭·직원 폰)이 스스로 새로고침해 옛 코드가 남지 않음.
+    (열린 화면들이 옛 코드로 돌면서 3중 처리되던 원인 제거)
+    이어받기 대기: 자동처리 90초 / 일반 180초 (잠금이 있어 늦어도 안전)
   · v4.3: 🔒 처리 잠금 — 같은 메시지를 두 화면(보낸 사람 + 자동처리 화면)이
     동시에 처리해 ✅와 "중복 건너뜀"이 같이 뜨거나 품목이 두 번 추가되던 문제.
     메시지마다 처리 주인(lock)을 두고, 결과를 쓰기 직전에 자기 잠금이 유효한지
@@ -224,6 +233,14 @@
   }
 
   #wrap.dropping{outline:3px dashed var(--accent);outline-offset:-6px}
+  /* 🖼 사진 크게 보기 */
+  #lightbox{display:none;position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.92);flex-direction:column}
+  #lightbox.on{display:flex}
+  #lightbox .lb-top{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;color:#fff}
+  #lightbox .lb-top a{color:#ddd;font-size:13px;text-decoration:none;border:1px solid #666;border-radius:6px;padding:6px 10px}
+  #lightbox .lb-top button{background:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:800;cursor:pointer}
+  #lightbox .lb-body{flex:1;overflow:auto;display:flex;align-items:center;justify-content:center;touch-action:pinch-zoom}
+  #lightbox img{max-width:100%;max-height:100%;object-fit:contain}
   /* 🚚 배송방 차량 탭·패널 */
   #vehBar{display:none;gap:5px;padding:6px 8px;background:#fff8dc;border-bottom:1px solid #e2d3a8;overflow-x:auto;white-space:nowrap}
   #vehBar.on{display:flex}
@@ -399,6 +416,13 @@
 <body>
 
 <datalist id="cliList"></datalist>
+<div id="lightbox" onclick="closeLightbox()">
+  <div class="lb-top" onclick="event.stopPropagation()">
+    <a id="lbOpen" href="#" target="_blank" rel="noopener">↗ 원본 열기</a>
+    <button onclick="closeLightbox()">✕ 닫기</button>
+  </div>
+  <div class="lb-body"><img id="lbImg" src="" alt=""></div>
+</div>
 <div id="msgMenuBg" onclick="closeMsgMenu()"><div id="msgMenu" onclick="event.stopPropagation()"></div></div>
 
 <div id="gate" class="gate">
@@ -887,7 +911,12 @@ async function onSignedIn(u){
     }catch(e){ console.warn('getAccess',e); }
     loadMaster();
     watchMasterVer();   // 📡 다른 화면의 학습을 실시간 수신
+    watchAppVer();      // 🔄 새 버전 배포 감지 → 자동 새로고침
+    // 🛤 자동처리 화면 생존 신호 구독 (일반 화면) — 살아 있으면 내 폰은 파싱 안 함
+    if(!IS_RUNNER){ db.ref('meta/runnerAlive').on('value', s2=>{ RUNNER_ALIVE=Number(s2.val()||0); }); }
     if(IS_RUNNER){
+      const beat=()=>db.ref('meta/runnerAlive').set(Date.now()).catch(()=>{});
+      beat(); setInterval(beat, 20*1000);
       MYNAME='🤖 자동처리'; renderPresence();
       document.title='🤖 자동처리 중 — 신화미트 주문방';
       // 백그라운드 탭은 타이머가 1분 단위로 느려지므로 30초마다 전체 재점검
@@ -901,6 +930,29 @@ async function onSignedIn(u){
 function renderWhoami(u){
   document.getElementById('whoami').innerHTML=esc(u.email||'')+' <button class="hbtn" style="padding:2px 8px" onclick="signOut()">로그아웃</button>';
 }
+/* 🔄 새 버전 자동 새로고침 (v4.4)
+   - 새 버전 화면이 접속하면 meta/appVer를 올림 → 옛 버전 화면들은 그 신호를 받아
+     입력 중이 아닐 때 스스로 새로고침. 자동처리 화면은 즉시. */
+let _reloadT=null;
+function watchAppVer(){
+  if(!db) return;
+  db.ref('meta/appVer').on('value', s=>{
+    const remote=Number(s.val()||0);
+    if(!remote || remote<APP_VER){ db.ref('meta/appVer').set(APP_VER).catch(()=>{}); return; }
+    if(remote>APP_VER) scheduleReload();
+  });
+}
+function scheduleReload(){
+  if(_reloadT) return;
+  const tryIt=()=>{
+    const ta=document.getElementById('chatInput');
+    const busy=(ta && ta.value.trim()) || document.querySelector('#msgMenuBg.on') || document.querySelector('#sendBtn[disabled]');
+    if(IS_RUNNER || !busy){ location.reload(); return; }
+    _reloadT=setTimeout(tryIt, 20000);   // 입력 중이면 20초 뒤 다시
+  };
+  _reloadT=setTimeout(tryIt, IS_RUNNER?1500:5000);
+}
+
 /* 📡 학습 실시간 전파 — 뭔가 학습되면 모든 화면이 마스터를 다시 읽습니다 */
 let MASTER_VER=0, _mvT=null;
 function bumpMasterVer(){
@@ -1226,7 +1278,11 @@ function subscribeRoom(){
   ref.on('child_added', s=>{
     const m=s.val(); if(!m) return; m._room=rid; CHAT[s.key]=m;
     appendMsg(s.key, m);
-    if(CUR_ROOM.parse){ rescueIfStale(s.key, m); scheduleAutoRetry(s.key, m); }
+    if(CUR_ROOM.parse){
+      if(IS_RUNNER && m.status==='parsing' && !m.lock && (m.ts||0)>BOOT_TS-5*60*1000){
+        processMessage(s.key, m);                    // 🛤 자동처리 화면이 곧바로 처리
+      }else{ rescueIfStale(s.key, m); scheduleAutoRetry(s.key, m); }
+    }
     notifyNew(m);
     markRead(rid);
   });
@@ -1433,7 +1489,7 @@ function bubbleHtml(id,m){
   let body='';
   if(m.photo && m.photo.id){
     body+='<img class="ph" src="https://drive.google.com/thumbnail?id='+esc(m.photo.id)+'&sz=w480" '
-        +'onclick="event.stopPropagation();window.open(\'https://drive.google.com/file/d/'+esc(m.photo.id)+'/view\',\'_blank\')" '
+        +'onclick="event.stopPropagation();openLightbox(\''+esc(m.photo.id)+'\')" '
         +'onerror="this.replaceWith(Object.assign(document.createElement(\'a\'),{href:\'https://drive.google.com/file/d/'+esc(m.photo.id)+'/view\',target:\'_blank\',textContent:\'📷 사진 열기\'}))">';
   }
   if(m.file && m.file.id){
@@ -1449,6 +1505,18 @@ function bubbleHtml(id,m){
     +'<span>'+stateHtml(id,m)+(m.edited?'<span style="font-size:10px;color:var(--muted)">(수정됨)</span>':'')+'<span class="m-time">'+hhmm(m.ts||Date.now())+'</span></span>'
     +'<button class="rbtn" title="이 메시지에 답장 (추가 주문)" onclick="setReply(\''+esc(id)+'\')">↩</button>';
 }
+/* 🖼 사진 크게 보기 (앱 안에서) */
+function openLightbox(id){
+  const lb=document.getElementById('lightbox'); if(!lb) return;
+  const img=document.getElementById('lbImg');
+  img.src='https://drive.google.com/thumbnail?id='+encodeURIComponent(id)+'&sz=w1600';
+  img.onerror=()=>{ img.onerror=null; img.src='https://lh3.googleusercontent.com/d/'+encodeURIComponent(id); };
+  document.getElementById('lbOpen').href='https://drive.google.com/file/d/'+encodeURIComponent(id)+'/view';
+  lb.classList.add('on');
+}
+function closeLightbox(){ const lb=document.getElementById('lightbox'); if(lb){ lb.classList.remove('on'); document.getElementById('lbImg').src=''; } }
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeLightbox(); });
+
 /* ---------- 꾹 누르기(길게) → 카톡식 메뉴 ---------- */
 let LP_T=null, LP_FIRED=false;
 function bubbleTap(id){
@@ -1635,7 +1703,8 @@ async function sendMsg(){
     }
   }
   const tok=newTok();
-  const msg={uid:ME.uid, name:MYNAME, text, ts:Date.now(), status:(CUR_ROOM.parse?'parsing':null), lock:(CUR_ROOM.parse?tok:null), lockAt:(CUR_ROOM.parse?Date.now():null)};
+  const selfParse=CUR_ROOM.parse && !runnerAlive();   // 🛤 자동처리 화면이 살아 있으면 내가 파싱하지 않음
+  const msg={uid:ME.uid, name:MYNAME, text, ts:Date.now(), status:(CUR_ROOM.parse?'parsing':null), lock:(selfParse?tok:null), lockAt:(selfParse?Date.now():null)};
   if(REPLY_TO) msg.replyTo=REPLY_TO;
   const ref=roomRef().push();
   try{
@@ -1645,7 +1714,7 @@ async function sendMsg(){
   const rTo=REPLY_TO; clearReply();
   btn.disabled=false;
   sendPushOut(text);                                                    // 📲 다른 기기들에 시스템 푸시
-  if(CUR_ROOM.parse) processMessage(ref.key, Object.assign({},msg,{replyTo:rTo||null}), tok);   // 주문방만 파싱
+  if(selfParse) processMessage(ref.key, Object.assign({},msg,{replyTo:rTo||null}), tok);   // 자동처리 화면 없을 때만 내가 파싱
 }
 
 async function sendFiles(files){
@@ -1730,7 +1799,7 @@ function looksLikeOrder(text){
   return hasHead && lines.length>=3;
 }
 
-const LOCK_TTL=120*1000;   // 이 시간 안의 잠금은 남의 것으로 존중
+const LOCK_TTL=180*1000;   // 이 시간 안의 잠금은 남의 것으로 존중
 async function processMessage(msgId, m, tok){
   if(!m.text){ return; }
   const mref=msgRef(msgId);
@@ -2030,7 +2099,10 @@ function roomRef(){ return db.ref(CUR_ROOM.path); }                  // 현재 �
 function msgRef(id){ return db.ref(roomOf(id).path+'/'+id); }         // 메시지가 속한 방
 const ORDER_ROOM=ROOMS[0];
 let ROOM_LISTENERS=[], LAST_READ={}, ROOM_LAST={}, ROOM_UNREAD={};
-const STALE_MS=IS_RUNNER ? 45*1000 : 120*1000;  // 자동처리 화면은 45초, 일반 화면은 120초
+let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
+function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
+const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
+const APP_VER=4.6;   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
