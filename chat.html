@@ -11,7 +11,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v5.3 — 2026-09-03
+  신화미트 주문방 (chat.html) v5.4 — 2026-09-03
+  · v5.4: 앱을 열면(화면 복귀 시) 쌓인 시스템 알림 정리 + 아이콘 배지 지움
+    (수신기 v1.1과 한 쌍 — 알림이 밀린 수만큼 쌓이고 아이콘에 숫자 표시)
   · v5.3: ① 할일 지시 창 — "완료 시 피드백 요청" 체크 → 완료할 때 내용·사진 첨부 필수,
     지시자에게 피드백 표시 ② 🗺 할일지도(관리자 전용 탭) — 날짜별로 누가→누구에게
     무엇을, 상태·피드백·첨부사진 한눈에, 지시자/대상자별 정렬·필터
@@ -1015,6 +1017,18 @@ function scheduleReload(){
   };
   _reloadT=setTimeout(tryIt, IS_RUNNER?1500:5000);
 }
+
+/* 🔔 앱을 열거나 화면에 돌아오면 쌓인 알림·아이콘 배지 정리 (v5.4) */
+async function clearSysNotifs(){
+  try{ if('clearAppBadge' in navigator) await navigator.clearAppBadge(); }catch(e){}
+  try{
+    const reg=SW_REG||(navigator.serviceWorker&&await navigator.serviceWorker.getRegistration());
+    if(reg){ const ns=await reg.getNotifications(); ns.forEach(n=>n.close()); }
+  }catch(e){}
+}
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') clearSysNotifs(); });
+window.addEventListener('focus', clearSysNotifs);
+setTimeout(clearSysNotifs, 3000);
 
 /* 📡 학습 실시간 전파 — 뭔가 학습되면 모든 화면이 마스터를 다시 읽습니다 */
 let MASTER_VER=0, _mvT=null;
@@ -2234,8 +2248,8 @@ let ROOM_LISTENERS=[], LAST_READ={}, ROOM_LAST={}, ROOM_UNREAD={};
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='5.3';
-const APP_BUILD=503;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='5.4';
+const APP_BUILD=504;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
