@@ -11,7 +11,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v5.10 — 2026-09-03
+  신화미트 주문방 (chat.html) v5.11 — 2026-09-03
+  · v5.11: ① 피드백 확인 — "내가 지시한 것"에서 [확인]을 누르면 그 블록은 지시 내용
+    한 줄로 접힘(누르면 펼침) ② 할일지도에 지시 내용 검색창 ③ ⚖ 태그: 식별번호가
+    같은 박스끼리만 합산, 다른 번호는 따로 표시 (예: 19.77kg(828) · 17.04kg(831))
   · v5.10: 미처리 표시 규칙 — 택배·사무실 차량 주문은 인쇄됐어도 전산처리 전까지
     미처리에 계속 표시. 주문노트의 [📋 미처리로] 버튼(forcePend)으로 보낸 주문도 표시.
   · v5.9: ⚖ 실측 입력에 "박스 수" 칸 — 숫자를 넣으면 그만큼 줄이 한 번에 생기고
@@ -1434,7 +1437,7 @@ function renderVehPanel(){
     const st=(c.ord?'✔주문 ':'')+(c.prod?'✔생산 ':'')+(c.erp?'✔전산':'');
     const items=(o.items||[]).map(it=>{
       let x=esc(itemText(it));
-      if(it.prodKg||it.prodTail) x+=' <span style="color:#1a4f9c;font-weight:800;font-size:11px">⚖'+(it.prodKg?String(it.prodKg).replace(/\.0+$/,'')+'kg':'')+(it.prodTail?'('+esc(it.prodTail)+')':'')+'</span>';
+      if(it.prodKg||it.prodTail||it.boxN) x+=' <span style="color:#1a4f9c;font-weight:800;font-size:11px">⚖'+esc(measText(it))+'</span>';
       return x;
     }).join('<br>');
     h+='<div class="vp-row"><div class="c">'+esc(o.client||'(미지정)')+'</div><div class="i">'+items+'</div><div class="s" style="color:'+(c.prod?'#1f6b3a':'var(--muted)')+'">'+(st||'대기')+'</div></div>';
@@ -2342,8 +2345,8 @@ let ROOM_LISTENERS=[], LAST_READ={}, ROOM_LAST={}, ROOM_UNREAD={};
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='5.10';
-const APP_BUILD=510;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='5.11';
+const APP_BUILD=511;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -2463,11 +2466,22 @@ function taskBlock(id, t, mine){
       +'<button style="background:#f3e4e2;color:#8a1c1c" onclick="taskFail(\''+id+'\')">❌ 미완료 (사유)</button></div>';
   }
   if(!mine && ME && t.from===ME.uid){
-    h+='<div class="b">'+(t.status!=='open'?'<button style="background:#eee" onclick="taskReopen(\''+id+'\')">↺ 다시 열기</button>':'')
+    h+='<div class="b">'+(t.status!=='open'&&!t.ack?'<button style="background:#1f6b3a;color:#fff" onclick="taskAck(\''+id+'\')">✔ 확인</button>':'')
+      +(t.status!=='open'?'<button style="background:#eee" onclick="taskReopen(\''+id+'\')">↺ 다시 열기</button>':'')
       +'<button style="background:#eee" onclick="taskDel(\''+id+'\')">🗑 삭제</button></div>';
   }
   return h+'</div>';
 }
+/* 확인한(ack) 지시는 한 줄로 접어 표시 — 누르면 펼침 */
+const TASK_OPENED={};
+function taskMini(id, t){
+  if(TASK_OPENED[id]) return taskBlock(id, t, false);
+  const st=t.status==='done'?'✅':'❌';
+  return '<div class="tk done" onclick="TASK_OPENED[\''+id+'\']=1;renderSide()" style="cursor:pointer;padding:6px 10px;display:flex;gap:8px;align-items:center">'
+    +'<span style="font-size:13px">'+st+'</span><span style="flex:1;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(t.text||'')+'</span>'
+    +'<span style="font-size:11px;color:var(--muted);white-space:nowrap">'+esc(t.toName||'')+'</span></div>';
+}
+async function taskAck(id){ try{ await db.ref('tasks/'+id).update({ack:1, ackAt:Date.now()}); }catch(e){} }
 function renderTasks(){
   const box=document.getElementById('sideScroll'); if(!box) return;
   const ids=Object.keys(TASKS).filter(id=>TASKS[id]).sort((a,b)=>(TASKS[b].ts||0)-(TASKS[a].ts||0));
@@ -2478,7 +2492,7 @@ function renderTasks(){
   h+=mineOpen.length?mineOpen.map(id=>taskBlock(id,TASKS[id],true)).join(''):'<div style="color:var(--muted);font-size:13px;padding:4px">없음 🎉</div>';
   if(mineDone.length) h+='<div class="tk-sec">🗂 내가 처리한 것 (최근)</div>'+mineDone.map(id=>taskBlock(id,TASKS[id],true)).join('');
   h+='<div class="tk-sec">📤 내가 지시한 것 ('+given.filter(id=>TASKS[id].status==='open').length+' 대기)</div>';
-  h+=given.length?given.map(id=>taskBlock(id,TASKS[id],false)).join(''):'<div style="color:var(--muted);font-size:13px;padding:4px">없음 — 👥 직원 목록에서 [+ 할일]로 지시할 수 있습니다</div>';
+  h+=given.length?given.map(id=>(TASKS[id].ack?taskMini(id,TASKS[id]):taskBlock(id,TASKS[id],false))).join(''):'<div style="color:var(--muted);font-size:13px;padding:4px">없음 — 👥 직원 목록에서 [+ 할일]로 지시할 수 있습니다</div>';
   box.innerHTML='<div style="padding:8px 10px">'+h+'</div>';
 }
 async function taskDone(id){
@@ -2533,17 +2547,19 @@ async function taskFail(id){
 async function taskReopen(id){ try{ await db.ref('tasks/'+id).update({status:'open', reason:null, doneAt:null}); }catch(e){} }
 async function taskDel(id){ if(!confirm('이 할일을 삭제할까요?')) return; try{ await db.ref('tasks/'+id).remove(); }catch(e){} }
 /* 🗺 할일지도 (관리자) — 날짜별 · 지시자/대상자 정렬·필터 */
-let MAP_SORT='date', MAP_WHO='';
+let MAP_SORT='date', MAP_WHO='', MAP_Q='';
 function renderTaskMap(){
   const box=document.getElementById('sideScroll'); if(!box) return;
   const all=Object.keys(TASKS).filter(id=>TASKS[id]).map(id=>Object.assign({id}, TASKS[id]));
   const people=[...new Set(all.flatMap(t=>[t.fromName,t.toName]).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ko'));
   let list=MAP_WHO?all.filter(t=>t.fromName===MAP_WHO||t.toName===MAP_WHO):all;
+  if(MAP_Q){ const q=MAP_Q.toLowerCase(); list=list.filter(t=>((t.text||'')+' '+(t.fbText||'')+' '+(t.reason||'')).toLowerCase().indexOf(q)>=0); }
   if(MAP_SORT==='from') list.sort((a,b)=>(a.fromName||'').localeCompare(b.fromName||'','ko')||(b.ts-a.ts));
   else if(MAP_SORT==='to') list.sort((a,b)=>(a.toName||'').localeCompare(b.toName||'','ko')||(b.ts-a.ts));
   else list.sort((a,b)=>b.ts-a.ts);
   const dstr=ts=>{ const d=new Date(ts); return d.getFullYear()+'.'+String(d.getMonth()+1).padStart(2,'0')+'.'+String(d.getDate()).padStart(2,'0'); };
   let h='<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;font-size:12px">'
+    +'<input type="search" placeholder="🔍 지시 내용 검색" value="'+esc(MAP_Q)+'" oninput="MAP_Q=this.value;clearTimeout(window._mq);window._mq=setTimeout(renderTaskMap,250)" style="flex:1;min-width:140px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:13px;font-family:var(--sans)">'
     +'<select onchange="MAP_SORT=this.value;renderTaskMap()" style="padding:5px;border:1px solid var(--line);border-radius:6px"><option value="date"'+(MAP_SORT==='date'?' selected':'')+'>날짜순</option><option value="to"'+(MAP_SORT==='to'?' selected':'')+'>대상자별</option><option value="from"'+(MAP_SORT==='from'?' selected':'')+'>지시자별</option></select>'
     +'<select onchange="MAP_WHO=this.value;renderTaskMap()" style="padding:5px;border:1px solid var(--line);border-radius:6px"><option value="">전체 직원</option>'+people.map(p=>'<option'+(MAP_WHO===p?' selected':'')+'>'+esc(p)+'</option>').join('')+'</select>'
     +'<span style="color:var(--muted)">'+list.length+'건 · 대기 '+list.filter(t=>t.status==='open').length+' · 완료 '+list.filter(t=>t.status==='done').length+' · 미완료 '+list.filter(t=>t.status==='fail').length+'</span></div>';
@@ -2669,9 +2685,8 @@ function buildOrderCard(o){
       +'<span onclick="openMeasure(\''+esc(o.id)+'\')" title="생산 실측(중량·식별번호) 입력" style="cursor:pointer;font-size:11px;opacity:.65;padding-left:2px">⚖</span>';
     let meas='';
     if(it.prodKg || it.prodTail || it.boxN){
-      const nb=it.boxN||(it.boxes||[]).length;
-      meas=' <span title="생산 실측 (현장 입력)" style="font-size:11px;font-weight:800;color:#1a4f9c;background:#e4edf9;border-radius:4px;padding:1px 5px">⚖'
-        +(nb>1?nb+'박스 ':'')+(it.prodKg?String(it.prodKg).replace(/\.0+$/,'')+'kg':'')+(it.prodTail?'('+esc(it.prodTail)+')':'')+'</span>';
+      meas=' <span title="생산 실측 (현장 입력) — 식별번호 같은 박스끼리 합산" style="font-size:11px;font-weight:800;color:#1a4f9c;background:#e4edf9;border-radius:4px;padding:1px 5px">⚖'
+        +esc(measText(it))+'</span>';
     }
     if(it.erpKg || it.erpTail){
       meas+=' <span title="전산 실제값 (대조 결과)" style="font-size:11px;font-weight:800;color:#1f6b3a;background:#e7f2ea;border-radius:4px;padding:1px 5px">'
@@ -2723,6 +2738,20 @@ function buildOrderCard(o){
 /* ============================================================
    ✏ 미처리 카드 직접 수정 + 학습 (v2.6)
    ============================================================ */
+
+/* ⚖ 실측 태그 문자열 — 식별번호가 같은 박스끼리 합산, 다른 번호는 따로 (v5.11) */
+function measText(it){
+  const boxes=(it.boxes||[]).filter(b=>b&&(b.kg!=null&&b.kg!==''||b.tail));
+  const nb=it.boxN||boxes.length;
+  const f=v=>String(Math.round(v*100)/100).replace(/\.0+$/,'');
+  if(!boxes.length){
+    return (nb>1?nb+'박스 ':'')+(it.prodKg?f(it.prodKg)+'kg':'')+(it.prodTail?'('+it.prodTail+')':'');
+  }
+  const g={}; const order=[];
+  boxes.forEach(b=>{ const k=b.tail||'-'; if(!g[k]){ g[k]={kg:0,n:0}; order.push(k); } g[k].kg+=(Number(b.kg)||0); g[k].n++; });
+  const parts=order.map(k=>(g[k].kg?f(g[k].kg)+'kg':'')+'('+(k==='-'?'번호없음':k)+(g[k].n>1?'×'+g[k].n:'')+')');
+  return (nb>1?nb+'박스 ':'')+parts.join(' · ');
+}
 
 /* ⚖ 생산 실측 입력 — 품목별 · 박스별 중량(kg)·식별번호 끝4자리 (v3.10) */
 const MEAS_OPEN={}, BOX_EDIT={}, MEAS_T={};
