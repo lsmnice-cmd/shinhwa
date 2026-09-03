@@ -2490,6 +2490,9 @@ function firstDate(){
 function setNoteDate(d){ noteDate=d; renderNote(); }
 function setWorkDate(d){ workDate=d; renderWork(); }
 
+/* [v4.2] 노트 거래처 옆 [📋 미처리로] 버튼 — 인쇄 후 접수분이 아니어도 주문방 미처리 블록에
+   다시 표시(forcePend). 택배·사무실은 주문방 쪽 규칙으로 인쇄 후에도 계속 미처리에 남음. */
+/* [v4.1] 수정창 ⚖에 "박스 수" 칸 — 숫자를 넣으면 줄이 그만큼 생기고 박스 수(boxN) 저장 */
 /* [v4.0] 모바일 주문 수정창 개편 — 품목마다 카드형(원문 크게, 상품명, 박스별 중량·
    식별번호), 단가는 모바일에서 숨김. 노트 표의 품목 옆 ⚖로 바로 수정창 열기. */
 /* [v3.11] 품목 표시 순서 되돌림 — 채팅 원문(두께·개수 등 현장 지시 포함)을 앞에 굵게,
@@ -2665,9 +2668,9 @@ function buildNoteTable(wrap, date, workMode){
               }
             }
             t+=' <span class="no-print" onclick="event.stopPropagation();openOrderEditor(\''+esc(it.oid)+'\')" title="박스·중량·식별번호 입력" style="cursor:pointer;font-size:11px;opacity:.5">⚖</span>';
-            if(it.prodKg || it.prodTail){
+            if(it.prodKg || it.prodTail || it.boxN){
               const pk=it.prodKg?(String(it.prodKg).replace(/\.0+$/,''))+'kg':'';
-              const nb=(it.boxes||[]).length;
+              const nb=it.boxN||(it.boxes||[]).length;
               t+=' <span title="생산 실측 (현장 입력)" style="font-size:11px;font-weight:800;color:#1a4f9c;background:#e4edf9;border-radius:4px;padding:1px 5px">⚖'+(nb>1?nb+'박스 ':'')+pk+(it.prodTail?'('+esc(it.prodTail)+')':'')+'</span>';
             }
             if(it.erpKg || it.erpTail){
@@ -2682,9 +2685,12 @@ function buildNoteTable(wrap, date, workMode){
         }
         html+='<tr data-ids="'+esc(ids)+'"'+(isDone?' class="done"':'')+(noCli?' class="nocli"':'')+'>';
         const allErp=allItems.length && allItems.every(it=>it._erp||it.erpKg||it.erpTail);
+        const anyPend=orders.some(o=>!o.confirm);
         html+='<td class="cli"><span class="cli-edit" onclick="openOrderEditor(\''+esc(ids)+'\')">'+esc(c||'(미지정)')
           +(allErp?' <span style="font-size:10px;font-weight:800;color:#1f6b3a" title="전산처리 완료">✔전산</span>':'')
-          +'<i class="pen">✎</i></span></td>';
+          +'<i class="pen">✎</i></span>'
+          +(anyPend?'<div class="no-print"><button type="button" onclick="event.stopPropagation();sendToPend(\''+esc(ids)+'\',this)" title="주문방 미처리 블록에 다시 표시" style="margin-top:3px;border:1px solid var(--line);background:#fff;border-radius:5px;padding:2px 7px;font-size:10.5px;font-weight:800;cursor:pointer;color:#8a1c1c">'+(orders.some(o=>o.forcePend)?'📋 미처리에 있음':'📋 미처리로')+'</button></div>':'')
+          +'</td>';
         html+='<td class="items">'+(itemHtml||'<span style="color:#b71c1c;font-size:12px">⚠ 품목 없음 (분석 중단 등으로 손상된 주문) — 거래처명을 클릭해 삭제하세요</span>')+'</td>';
         html+='<td class="work"><span class="worktag '+(isDone?'done':'wait')+'" onclick="toggleDone(\''+esc(ids)+'\')">'+(isDone?'완료':'대기')+'</span></td>';
         html+='</tr>';
@@ -2905,7 +2911,8 @@ function openOrderEditor(idsStr){
       const br=document.createElement('tr'); br.className='box-row'; br.dataset.oid=id; br.dataset.idx=ii;
       const boxes=(Array.isArray(it.boxes)&&it.boxes.length)?it.boxes:((it.prodKg||it.prodTail)?[{kg:it.prodKg,tail:it.prodTail}]:[]);
       br.innerHTML='<td colspan="4" style="padding:2px 6px 8px 18px;background:#f4f7fc">'
-        +'<div style="font-size:11px;color:#1a4f9c;font-weight:800;margin-bottom:3px">⚖ 박스별 중량(kg) · 식별번호 끝4자리</div>'
+        +'<div style="display:flex;align-items:center;gap:8px;font-size:11px;color:#1a4f9c;font-weight:800;margin-bottom:3px;flex-wrap:wrap">⚖ 박스별 중량(kg) · 식별번호 끝4자리'
+        +'<label style="font-weight:400;display:flex;align-items:center;gap:4px">박스 수 <input type="number" class="bx-n" min="1" max="99" inputmode="numeric" value="'+(it.boxN||boxes.length||1)+'" onchange="boxRowSetN(this)" style="width:54px;padding:4px;text-align:center;font-family:var(--mono)"></label></div>'
         +'<div class="box-list"></div>'
         +'<button type="button" onclick="boxRowAdd(this)" style="border:1px dashed #1a4f9c;background:#fff;color:#1a4f9c;border-radius:5px;padding:2px 9px;font-size:11px;font-weight:800;cursor:pointer">+ 박스 추가</button>'
         +'</td>';
@@ -2917,6 +2924,17 @@ function openOrderEditor(idsStr){
   document.getElementById('orderModal').classList.add('open');
 }
 function closeOrderEditor(){ document.getElementById('orderModal').classList.remove('open'); EDIT_IDS=[]; }
+/* 📋 주문방 미처리 블록으로 보내기 (인쇄 도장과 무관하게 표시) */
+async function sendToPend(idsStr, btn){
+  const ids=idsStr.split(',').filter(id=>ORDERS[id]);
+  if(!ids.length) return;
+  try{
+    const upd={};
+    ids.forEach(id=>{ upd['orders/'+id+'/forcePend']=true; if(ORDERS[id]) ORDERS[id].forcePend=true; });
+    await db.ref().update(upd);
+    if(btn){ btn.textContent='📋 미처리에 있음'; }
+  }catch(e){ alert('실패: '+e.message); }
+}
 function boxLine(kg,tail){
   const d=document.createElement('div');
   d.className='box-line'; d.style.cssText='display:flex;gap:6px;align-items:center;margin-bottom:3px';
@@ -2925,7 +2943,18 @@ function boxLine(kg,tail){
     +'<button type="button" onclick="this.parentNode.remove()" style="border:none;background:none;cursor:pointer;opacity:.6">✕</button>';
   return d;
 }
-function boxRowAdd(btn){ btn.parentNode.querySelector('.box-list').appendChild(boxLine('','')); }
+function boxRowAdd(btn){ const td=btn.parentNode; td.querySelector('.box-list').appendChild(boxLine('','')); const n=td.querySelector('.bx-n'); if(n) n.value=td.querySelectorAll('.box-line').length; }
+function boxRowSetN(inp){
+  const td=inp.closest('td'); const list=td.querySelector('.box-list');
+  const n=Math.max(1, Math.min(99, parseInt(inp.value,10)||1)); inp.value=n;
+  const lines=[...list.querySelectorAll('.box-line')];
+  if(lines.length<n){ for(let i=lines.length;i<n;i++) list.appendChild(boxLine('','')); }
+  else if(lines.length>n){
+    const cut=lines.slice(n);
+    if(cut.some(l=>l.querySelector('.bx-kg').value||l.querySelector('.bx-tail').value) && !confirm('입력된 박스 줄이 지워집니다. 줄일까요?')){ inp.value=lines.length; return; }
+    cut.forEach(l=>l.remove());
+  }
+}
 function collectBoxes(oid, idx){
   const br=[...document.querySelectorAll('#edItems tr.box-row')].find(r=>r.dataset.oid===String(oid)&&r.dataset.idx===String(idx));
   if(!br) return null;
@@ -2966,6 +2995,8 @@ async function saveOrderEdit(){
       const it0b=(ORDERS[oid]&&ORDERS[oid].items||[])[tr.dataset.idx]||{};
       const merged=Object.assign({}, it0b, {product:prod, text, price});
       const bx=collectBoxes(oid, tr.dataset.idx);
+      const brN=[...document.querySelectorAll('#edItems tr.box-row')].find(r=>r.dataset.oid===String(oid)&&r.dataset.idx===String(tr.dataset.idx));
+      const nIn=brN&&brN.querySelector('.bx-n'); if(nIn){ const nv=parseInt(nIn.value,10); merged.boxN=nv>0?nv:null; }
       if(bx){
         if(bx.length){
           merged.boxes=bx;
