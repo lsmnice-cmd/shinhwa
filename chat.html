@@ -11,7 +11,14 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v5.0 — 2026-09-03
+  신화미트 주문방 (chat.html) v5.3 — 2026-09-03
+  · v5.3: ① 할일 지시 창 — "완료 시 피드백 요청" 체크 → 완료할 때 내용·사진 첨부 필수,
+    지시자에게 피드백 표시 ② 🗺 할일지도(관리자 전용 탭) — 날짜별로 누가→누구에게
+    무엇을, 상태·피드백·첨부사진 한눈에, 지시자/대상자별 정렬·필터
+  · v5.2: ① "○○ 수정" 인식 개선 — 날짜·차량 뒤 거래처 줄의 "수정"도 인식,
+    품목명이 같으면(수량 무관) 기존 품목을 교체, 기존 1품목·수정 1품목이면 통째 교체
+    ② 모바일 미처리 목록 하단 여백 — 마지막 카드의 체크 버튼이 시스템 바에 가려지던 것
+  · v5.1: 입력창 버튼 세로 가운데 정렬 (두 줄 입력창일 때 버튼이 아래로 처지던 것)
   · v5.0: ① 첫 로그인 때 이름 지정(이후 계속 사용, 계정에 저장)
     ② 모바일 입력창 UI 정돈(둥근 입력창·원형 버튼)
     ③ 👥 접속인원 클릭 → 전체 등록 직원 목록(초록 점=접속 중), 사람별 [+할일]
@@ -375,14 +382,14 @@
   #replyBar.on{display:flex}
   #replyBar .rt{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #replyBar button{background:none;border:none;font-size:14px;cursor:pointer;color:var(--muted)}
-  .in-row{display:flex;gap:6px;align-items:flex-end}
+  .in-row{display:flex;gap:6px;align-items:center}
   #chatInput{flex:1;min-height:44px;max-height:130px;padding:11px 14px;border:1px solid var(--line);
              border-radius:22px;font-family:var(--sans);font-size:16px;line-height:1.4;resize:none;background:#fff;box-shadow:inset 0 1px 2px rgba(0,0,0,.04)}
   #chatInput:focus{outline:none;border-color:var(--accent)}
   .ibtn{width:44px;height:44px;border:none;background:#efece4;border-radius:50%;
         font-size:19px;cursor:pointer;flex:0 0 auto;display:flex;align-items:center;justify-content:center}
   .ibtn:active{background:#e2ddd0}
-  #sendBtn{width:auto;min-width:58px;background:var(--accent);color:#fff;border:none;font-size:14px;font-weight:800;padding:0 16px;border-radius:22px}
+  #sendBtn{width:auto;min-width:58px;height:44px;background:var(--accent);color:#fff;border:none;font-size:14px;font-weight:800;padding:0 16px;border-radius:22px}
   #sendBtn:disabled{background:#b5b0a4}
   .in-hint{font-size:10.5px;color:#a09a8a;margin-top:4px;text-align:right}
 
@@ -397,7 +404,7 @@
   .datebar2 button{border:1px solid var(--line);background:#fff;border-radius:5px;padding:4px 9px;
                    cursor:pointer;font-weight:800;font-size:13px}
   .datebar2 .cur{font-family:var(--mono);font-weight:800;font-size:13px;padding:0 4px;letter-spacing:1px;cursor:pointer}
-  #sideScroll{flex:1;overflow-y:auto;padding:4px 12px 20px;-webkit-overflow-scrolling:touch}
+  #sideScroll{flex:1;overflow-y:auto;padding:4px 12px calc(90px + env(safe-area-inset-bottom));-webkit-overflow-scrolling:touch}
   .side-sum{font-size:11.5px;color:var(--muted);padding:2px 2px 8px}
 
   .veh-h{display:flex;align-items:baseline;gap:8px;margin:12px 2px 6px}
@@ -535,6 +542,7 @@
         <button id="segPend" class="on" onclick="setSide('pend')">📋 미처리 <span id="pendBadge" class="badge" style="display:none">0</span></button>
         <button id="segConf" onclick="setSide('conf')">🔎 확인방 <span id="confBadge" class="badge" style="display:none;background:#1e4f7a">0</span></button>
         <button id="segTask" onclick="setSide('task')">✅ 할일 <span id="taskBadge" class="badge" style="display:none;background:#1f6b3a">0</span></button>
+        <button id="segMap" onclick="setSide('map')" style="display:none">🗺 할일지도</button>
       </div>
       <div class="datebar2" id="dateNav">
         <button onclick="shiftDate(-1)">‹</button>
@@ -702,9 +710,9 @@ const GS_DEFAULT_URL='https://script.google.com/macros/s/AKfycbyt7vccpdQMOh2eyrk
    둘 다 비우면 기존 방식(주문 서버 계정 드라이브)으로 저장합니다. */
 const PHOTO_URL='https://script.google.com/macros/s/AKfycbyUue0ngzFYeQO6_Ya5XutOVFYkpZFr6cNhuYlefcbYSDcCjI2Ibr6RgAeI8ltLiiwl/exec';
 const PHOTO_TOKEN='photo2026shinhwa';
-async function photoUpload(b64, name, label){
+async function photoUpload(b64, name, label, roomName){
   if(PHOTO_URL && PHOTO_TOKEN){
-    const body=new URLSearchParams({action:'photo', token:PHOTO_TOKEN, data:b64, name:name, by:MYNAME, room:CUR_ROOM.name, label:label||''});
+    const body=new URLSearchParams({action:'photo', token:PHOTO_TOKEN, data:b64, name:name, by:MYNAME, room:roomName||CUR_ROOM.name, label:label||''});
     const res=await fetch(PHOTO_URL,{method:'POST',body});
     const j=await res.json();
     if(!j.ok) throw new Error(j.error||'사진 서버 오류');
@@ -1937,7 +1945,7 @@ async function processMessage(msgId, m, tok){
       const oo=ORDERS[CHAT[m.replyTo].orders[0]];
       if(oo && oo.client && !oo.needClient) forced={client:oo.client, date:oo.date};
     }
-    const isEdit=/수정/.test(String(m.text||'').split(/\n/).slice(0,2).join(' '));
+    const isEdit=String(m.text||'').split(/\n/).slice(0,4).some(l=>/(^|\s)수정\s*$|^수정\s/.test(l.trim()));
     const tot=await createOrders(m.text, forced, msgId, m.name||'', isEdit, guard);
     if(tot.aborted){ console.log('🔒 처리 중 잠금 빼앗김 — 결과 버림', msgId); return; }
     const got=(tot.ids||[]).length + (tot.dup||0);
@@ -2095,17 +2103,25 @@ async function createOrders(text, forced, msgId, senderName, isEdit, guard){
     if(existing){
       let repl=0;
       if(isEdit){
-        // ✏ "수정" 메시지: 같은 품목(이름 기준)을 찾아 교체
+        // ✏ "수정" 메시지: 품목명(수량·단위 제외)이 같은 기존 품목을 교체
+        const nameKey=x=>String(x||'').replace(/[\s\d\.\,]+/g,'').replace(/(키로|킬로|kg|박스|팩|봉지|봉|개|장|줄|판|리|두|마리|덩이|짝|파트|p|b|ea)/gi,'').toLowerCase();
+        const used=new Set();
         (o.items||[]).forEach(nit=>{
-          const nk=learnKey(nit.product||nit.text||'');
-          if(!nk) return;
-          const i=(existing.items||[]).findIndex(x=>learnKey(x.product||x.text||'')===nk);
+          const nk=nameKey(nit.product||nit.text||''); if(!nk) return;
+          let i=(existing.items||[]).findIndex((x,ix)=>!used.has(ix)&&nameKey(x.product||x.text||'')===nk);
+          if(i<0) i=(existing.items||[]).findIndex((x,ix)=>!used.has(ix)&&learnKey(x.product||x.text||'')===learnKey(nit.product||nit.text||''));
           if(i>=0){
-            existing.items[i]=Object.assign({}, existing.items[i], nit,
-              {at:Date.now(), src:msgId, edited:1});
+            used.add(i);
+            existing.items[i]=Object.assign({}, existing.items[i], nit, {at:Date.now(), src:msgId, edited:1});
             nit._used=1; repl++;
           }
         });
+        // 기존 1품목 · 수정 1품목인데 이름이 달라도 → 통째로 교체 (예: 품목 자체를 바꾼 수정)
+        const left=(o.items||[]).filter(x=>!x._used);
+        if(!repl && left.length===1 && (existing.items||[]).length===1){
+          existing.items[0]=Object.assign({}, existing.items[0], left[0], {at:Date.now(), src:msgId, edited:1});
+          left[0]._used=1; repl++;
+        }
       }
       const have=new Set((existing.items||[]).map(it=>dedupKey(o.date,sk,it.text)));
       const toAdd=(o.items||[]).filter(it=>{
@@ -2218,8 +2234,8 @@ let ROOM_LISTENERS=[], LAST_READ={}, ROOM_LAST={}, ROOM_UNREAD={};
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='5.0';
-const APP_BUILD=500;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='5.3';
+const APP_BUILD=503;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -2253,6 +2269,7 @@ function setSide(s){
   document.getElementById('segPend').classList.toggle('on', s==='pend');
   document.getElementById('segConf').classList.toggle('on', s==='conf');
   document.getElementById('segTask').classList.toggle('on', s==='task');
+  document.getElementById('segMap').classList.toggle('on', s==='map');
   document.getElementById('dateNav').style.display = s==='pend' ? '' : 'none';
   renderSide();
 }
@@ -2301,14 +2318,24 @@ function renderPeople(){
   });
   box.innerHTML=h;
 }
-async function addTask(toUid){
+function addTask(toUid){
   const nm=userName(toUid);
-  const v=prompt(nm+' 님에게 지시할 일을 적어주세요');
-  if(v===null) return; const text=v.trim(); if(!text) return;
+  const pop=document.getElementById('taskPop');
+  pop.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><b>✅ '+esc(nm)+' 님에게 할일 지시</b><button onclick="closeTaskPop()" style="border:none;background:none;font-size:18px;cursor:pointer">✕</button></div>'
+    +'<textarea id="tkText" placeholder="지시할 내용" style="width:100%;min-height:90px;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:15px;font-family:var(--sans);box-sizing:border-box"></textarea>'
+    +'<label style="display:flex;align-items:center;gap:8px;margin:10px 2px;font-size:14px;cursor:pointer"><input type="checkbox" id="tkFb" style="width:18px;height:18px"> 완료 시 피드백 요청 (내용·사진 첨부 필수)</label>'
+    +'<button onclick="saveTask(\''+esc(toUid)+'\')" style="width:100%;border:none;background:var(--accent);color:#fff;border-radius:8px;padding:11px;font-weight:800;font-size:14px;cursor:pointer">지시하기</button>';
+  document.getElementById('taskPopBg').classList.add('on');
+  setTimeout(()=>{ const t=document.getElementById('tkText'); if(t) t.focus(); }, 50);
+}
+async function saveTask(toUid){
+  const text=(document.getElementById('tkText').value||'').trim(); if(!text){ alert('내용을 적어주세요'); return; }
+  const needFb=document.getElementById('tkFb').checked;
+  const nm=userName(toUid);
   try{
-    await db.ref('tasks').push().set({to:toUid, toName:nm, from:ME.uid, fromName:MYNAME, text, ts:Date.now(), status:'open'});
-    closePeople();
-    if(!toUid.startsWith('__')) sendPushOut('✅ 할일 지시: '+text);
+    await db.ref('tasks').push().set({to:toUid, toName:nm, from:ME.uid, fromName:MYNAME, text, needFb:needFb||null, ts:Date.now(), status:'open'});
+    closeTaskPop(); closePeople();
+    sendPushOut('✅ 할일 지시('+nm+'): '+text);
   }catch(e){ alert('저장 실패: '+e.message); }
 }
 function myOpenTasks(){ return Object.keys(TASKS).filter(id=>TASKS[id]&&ME&&TASKS[id].to===ME.uid&&TASKS[id].status==='open'); }
@@ -2317,7 +2344,10 @@ function taskBlock(id, t, mine){
   let h='<div class="tk '+(t.status==='fail'?'fail':t.status==='done'?'done':'')+'"><div class="t">'+esc(t.text)+'</div>'
     +'<div class="m">'+(mine?'지시: '+esc(t.fromName||''):'대상: '+esc(t.toName||''))+' · '+when
     +(t.status==='done'?' · ✅ 완료'+(t.doneAt?' '+new Date(t.doneAt).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):''):'')
-    +(t.status==='fail'?' · ❌ 미완료: '+esc(t.reason||''):'')+'</div>';
+    +(t.status==='fail'?' · ❌ 미완료: '+esc(t.reason||''):'')
+    +(t.needFb&&t.status==='open'?' · <span style="color:#1a4f9c">📝 피드백 요청</span>':'')+'</div>'
+    +(t.fbText?'<div style="margin-top:5px;padding:6px 8px;background:#f4f7fc;border-radius:6px;font-size:13px;white-space:pre-wrap">📝 '+esc(t.fbText)+'</div>':'')
+    +((t.fbPhotos||[]).length?'<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px">'+(t.fbPhotos||[]).map(pid=>'<img src="https://drive.google.com/thumbnail?id='+esc(pid)+'&sz=w160" onclick="openLightbox(\''+esc(pid)+'\')" style="width:58px;height:58px;object-fit:cover;border-radius:6px;border:1px solid var(--line);cursor:pointer">').join('')+'</div>':'');
   if(mine && t.status==='open'){
     h+='<div class="b"><button style="background:#1f6b3a;color:#fff" onclick="taskDone(\''+id+'\')">✅ 완료</button>'
       +'<button style="background:#f3e4e2;color:#8a1c1c" onclick="taskFail(\''+id+'\')">❌ 미완료 (사유)</button></div>';
@@ -2341,13 +2371,89 @@ function renderTasks(){
   h+=given.length?given.map(id=>taskBlock(id,TASKS[id],false)).join(''):'<div style="color:var(--muted);font-size:13px;padding:4px">없음 — 👥 직원 목록에서 [+ 할일]로 지시할 수 있습니다</div>';
   box.innerHTML='<div style="padding:8px 10px">'+h+'</div>';
 }
-async function taskDone(id){ try{ await db.ref('tasks/'+id).update({status:'done', doneAt:Date.now(), doneBy:MYNAME}); }catch(e){ alert('실패: '+e.message); } }
+async function taskDone(id){
+  const t=TASKS[id]||{};
+  if(t.needFb){ openFeedback(id); return; }
+  try{ await db.ref('tasks/'+id).update({status:'done', doneAt:Date.now(), doneBy:MYNAME}); }catch(e){ alert('실패: '+e.message); }
+}
+/* 📝 피드백 입력 (내용 + 사진) */
+let FB_PHOTOS=[];
+function openFeedback(id){
+  FB_PHOTOS=[];
+  const t=TASKS[id]||{};
+  const pop=document.getElementById('taskPop');
+  pop.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b>📝 완료 피드백</b><button onclick="closeTaskPop()" style="border:none;background:none;font-size:18px;cursor:pointer">✕</button></div>'
+    +'<div style="font-size:13px;color:var(--muted);margin-bottom:8px">'+esc(t.text||'')+'</div>'
+    +'<textarea id="fbText" placeholder="처리 내용을 적어주세요" style="width:100%;min-height:80px;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:15px;font-family:var(--sans);box-sizing:border-box"></textarea>'
+    +'<div style="display:flex;gap:6px;margin:8px 0;align-items:center"><button onclick="document.getElementById(\'fbCam\').click()" style="border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px 12px;font-weight:800;cursor:pointer">📷 촬영</button>'
+    +'<button onclick="document.getElementById(\'fbPick\').click()" style="border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px 12px;font-weight:800;cursor:pointer">🖼 앨범</button>'
+    +'<span id="fbCnt" style="font-size:12px;color:var(--muted)"></span></div>'
+    +'<input type="file" id="fbCam" accept="image/*" capture="environment" style="display:none" onchange="fbAdd(this.files);this.value=\'\'">'
+    +'<input type="file" id="fbPick" accept="image/*" multiple style="display:none" onchange="fbAdd(this.files);this.value=\'\'">'
+    +'<div id="fbThumbs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"></div>'
+    +'<button id="fbSave" onclick="saveFeedback(\''+esc(id)+'\')" style="width:100%;border:none;background:#1f6b3a;color:#fff;border-radius:8px;padding:11px;font-weight:800;font-size:14px;cursor:pointer">✅ 완료 처리</button>';
+  document.getElementById('taskPopBg').classList.add('on');
+}
+async function fbAdd(files){
+  const list=[...(files||[])]; if(!list.length) return;
+  const cnt=document.getElementById('fbCnt'); cnt.textContent='업로드 중…';
+  try{
+    for(const f of list){
+      const b64=await compressImage(f);
+      const r=await photoUpload(b64, f.name||'photo.jpg', '', '할일');
+      FB_PHOTOS.push(r.id);
+    }
+  }catch(e){ alert('사진 업로드 실패: '+e.message); }
+  cnt.textContent=FB_PHOTOS.length?FB_PHOTOS.length+'장 첨부됨':'';
+  document.getElementById('fbThumbs').innerHTML=FB_PHOTOS.map(id=>'<img src="https://drive.google.com/thumbnail?id='+esc(id)+'&sz=w160" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--line)">').join('');
+}
+async function saveFeedback(id){
+  const txt=(document.getElementById('fbText').value||'').trim();
+  if(!txt && !FB_PHOTOS.length){ alert('처리 내용을 적거나 사진을 첨부해 주세요 (피드백 요청된 할일)'); return; }
+  const b=document.getElementById('fbSave'); b.disabled=true; b.textContent='저장 중…';
+  try{
+    await db.ref('tasks/'+id).update({status:'done', doneAt:Date.now(), doneBy:MYNAME, fbText:txt||null, fbPhotos:FB_PHOTOS.length?FB_PHOTOS:null});
+    closeTaskPop();
+  }catch(e){ alert('실패: '+e.message); b.disabled=false; b.textContent='✅ 완료 처리'; }
+}
 async function taskFail(id){
   const r=prompt('미완료 사유를 적어주세요'); if(r===null) return;
   try{ await db.ref('tasks/'+id).update({status:'fail', reason:(r||'').trim()||'(사유 없음)', doneAt:Date.now(), doneBy:MYNAME}); }catch(e){ alert('실패: '+e.message); }
 }
 async function taskReopen(id){ try{ await db.ref('tasks/'+id).update({status:'open', reason:null, doneAt:null}); }catch(e){} }
 async function taskDel(id){ if(!confirm('이 할일을 삭제할까요?')) return; try{ await db.ref('tasks/'+id).remove(); }catch(e){} }
+/* 🗺 할일지도 (관리자) — 날짜별 · 지시자/대상자 정렬·필터 */
+let MAP_SORT='date', MAP_WHO='';
+function renderTaskMap(){
+  const box=document.getElementById('sideScroll'); if(!box) return;
+  const all=Object.keys(TASKS).filter(id=>TASKS[id]).map(id=>Object.assign({id}, TASKS[id]));
+  const people=[...new Set(all.flatMap(t=>[t.fromName,t.toName]).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ko'));
+  let list=MAP_WHO?all.filter(t=>t.fromName===MAP_WHO||t.toName===MAP_WHO):all;
+  if(MAP_SORT==='from') list.sort((a,b)=>(a.fromName||'').localeCompare(b.fromName||'','ko')||(b.ts-a.ts));
+  else if(MAP_SORT==='to') list.sort((a,b)=>(a.toName||'').localeCompare(b.toName||'','ko')||(b.ts-a.ts));
+  else list.sort((a,b)=>b.ts-a.ts);
+  const dstr=ts=>{ const d=new Date(ts); return d.getFullYear()+'.'+String(d.getMonth()+1).padStart(2,'0')+'.'+String(d.getDate()).padStart(2,'0'); };
+  let h='<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;font-size:12px">'
+    +'<select onchange="MAP_SORT=this.value;renderTaskMap()" style="padding:5px;border:1px solid var(--line);border-radius:6px"><option value="date"'+(MAP_SORT==='date'?' selected':'')+'>날짜순</option><option value="to"'+(MAP_SORT==='to'?' selected':'')+'>대상자별</option><option value="from"'+(MAP_SORT==='from'?' selected':'')+'>지시자별</option></select>'
+    +'<select onchange="MAP_WHO=this.value;renderTaskMap()" style="padding:5px;border:1px solid var(--line);border-radius:6px"><option value="">전체 직원</option>'+people.map(p=>'<option'+(MAP_WHO===p?' selected':'')+'>'+esc(p)+'</option>').join('')+'</select>'
+    +'<span style="color:var(--muted)">'+list.length+'건 · 대기 '+list.filter(t=>t.status==='open').length+' · 완료 '+list.filter(t=>t.status==='done').length+' · 미완료 '+list.filter(t=>t.status==='fail').length+'</span></div>';
+  let lastGroup='';
+  list.forEach(t=>{
+    const g=MAP_SORT==='to'?('👤 '+(t.toName||'')):MAP_SORT==='from'?('📤 '+(t.fromName||'')):('📅 '+dstr(t.ts||0));
+    if(g!==lastGroup){ h+='<div class="tk-sec">'+esc(g)+'</div>'; lastGroup=g; }
+    const st=t.status==='done'?'<span style="color:#1f6b3a;font-weight:800">✅ 완료</span>':t.status==='fail'?'<span style="color:#b23b32;font-weight:800">❌ 미완료</span>':'<span style="color:#7a5a00;font-weight:800">⏳ 대기</span>';
+    h+='<div class="tk '+(t.status==='fail'?'fail':t.status==='done'?'done':'')+'"><div class="t">'+esc(t.text)+'</div>'
+      +'<div class="m">'+esc(t.fromName||'')+' → <b>'+esc(t.toName||'')+'</b> · '+new Date(t.ts||0).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+' · '+st
+      +(t.needFb?' · 📝요청':'')+(t.doneAt?' · 처리 '+new Date(t.doneAt).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'')
+      +(t.status==='fail'&&t.reason?'<br>사유: '+esc(t.reason):'')+'</div>'
+      +(t.fbText?'<div style="margin-top:5px;padding:6px 8px;background:#f4f7fc;border-radius:6px;font-size:13px;white-space:pre-wrap">📝 '+esc(t.fbText)+'</div>':'')
+      +((t.fbPhotos||[]).length?'<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px">'+(t.fbPhotos||[]).map(pid=>'<img src="https://drive.google.com/thumbnail?id='+esc(pid)+'&sz=w160" onclick="openLightbox(\''+esc(pid)+'\')" style="width:58px;height:58px;object-fit:cover;border-radius:6px;border:1px solid var(--line);cursor:pointer">').join('')+'</div>':'')
+      +'</div>';
+  });
+  if(!list.length) h+='<div style="color:var(--muted);font-size:13px;padding:6px">할일 기록이 없습니다</div>';
+  box.innerHTML='<div style="padding:8px 10px">'+h+'</div>';
+}
+
 /* 대상자 접속 시 팝업 — 아직 안 본 할일이 있으면 */
 let TASK_SEEN=null;
 function checkTaskPopup(){
@@ -2380,7 +2486,9 @@ function renderSide(){
   cb.style.display=conf.length?'':'none'; cb.textContent=conf.length;
 
   try{ const tb=document.getElementById('taskBadge'); const n=myOpenTasks().length; tb.style.display=n?'':'none'; tb.textContent=n; }catch(e){}
+  try{ document.getElementById('segMap').style.display=IS_ADMIN?'':'none'; }catch(e){}
   if(SIDE==='task'){ renderTasks(); return; }
+  if(SIDE==='map'){ renderTaskMap(); return; }
   if(SIDE==='pend') renderPend();
   else renderConf(conf);
 }
