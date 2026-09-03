@@ -11,7 +11,11 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v5.8 — 2026-09-03
+  신화미트 주문방 (chat.html) v5.10 — 2026-09-03
+  · v5.10: 미처리 표시 규칙 — 택배·사무실 차량 주문은 인쇄됐어도 전산처리 전까지
+    미처리에 계속 표시. 주문노트의 [📋 미처리로] 버튼(forcePend)으로 보낸 주문도 표시.
+  · v5.9: ⚖ 실측 입력에 "박스 수" 칸 — 숫자를 넣으면 그만큼 줄이 한 번에 생기고
+    박스 수(boxN)도 저장. 중량을 다 안 적어도 "4박스"는 태그에 표시.
   · v5.8: 카톡 방식 그대로 — 사진에 답장으로 "9.3 오전 육절기"를 달면 사진 설명·
     파일명으로 붙고, 생산방이면 자동으로 일지 분석(날짜·오전/오후·작업장을 시트에)
   · v5.7: 어느 방에서든 사진 꾹 누르기(PC 우클릭) 메뉴에 [📊 일지로 분석] 추가
@@ -2338,8 +2342,8 @@ let ROOM_LISTENERS=[], LAST_READ={}, ROOM_LAST={}, ROOM_UNREAD={};
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='5.8';
-const APP_BUILD=508;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='5.10';
+const APP_BUILD=510;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -2389,9 +2393,11 @@ function allChecked(o){
   return !!(o.chk && o.chk.ord && o.chk.prod && o.chk.erp);
 }
 function printedAt(date){ return Number(PRINTED&&PRINTED[date])||0; }
+const KEEP_PEND_VEH=['택배','사무실'];   // 인쇄 후에도 미처리에 남기는 차량 (나중에 챙기는 것들)
 function pendListFor(date){
   const cut=SHOW_ALL?0:printedAt(date);
-  return Object.values(ORDERS).filter(o=>o && o.date===date && !o.confirm && (o.ts||0)>cut);
+  return Object.values(ORDERS).filter(o=>o && o.date===date && !o.confirm
+    && ((o.ts||0)>cut || o.forcePend || KEEP_PEND_VEH.indexOf(normVeh(o.vehicle||''))>=0));
 }
 function toggleShowAll(){ SHOW_ALL=!SHOW_ALL; renderSide(); }
 /* ============================================================
@@ -2662,8 +2668,8 @@ function buildOrderCard(o){
       +'<span onclick="delItem(\''+esc(o.id)+'\','+idx+')" title="이 품목만 삭제" style="cursor:pointer;font-size:11px;opacity:.65;padding-left:2px">✕</span>'
       +'<span onclick="openMeasure(\''+esc(o.id)+'\')" title="생산 실측(중량·식별번호) 입력" style="cursor:pointer;font-size:11px;opacity:.65;padding-left:2px">⚖</span>';
     let meas='';
-    if(it.prodKg || it.prodTail){
-      const nb=(it.boxes||[]).length;
+    if(it.prodKg || it.prodTail || it.boxN){
+      const nb=it.boxN||(it.boxes||[]).length;
       meas=' <span title="생산 실측 (현장 입력)" style="font-size:11px;font-weight:800;color:#1a4f9c;background:#e4edf9;border-radius:4px;padding:1px 5px">⚖'
         +(nb>1?nb+'박스 ':'')+(it.prodKg?String(it.prodKg).replace(/\.0+$/,'')+'kg':'')+(it.prodTail?'('+esc(it.prodTail)+')':'')+'</span>';
     }
@@ -2721,7 +2727,12 @@ function buildOrderCard(o){
 /* ⚖ 생산 실측 입력 — 품목별 · 박스별 중량(kg)·식별번호 끝4자리 (v3.10) */
 const MEAS_OPEN={}, BOX_EDIT={}, MEAS_T={};
 function boxesOf(it){
-  if(it && Array.isArray(it.boxes) && it.boxes.length) return it.boxes.map(b=>({kg:b.kg||'', tail:b.tail||''}));
+  if(it && Array.isArray(it.boxes) && it.boxes.length){
+    const r=it.boxes.map(b=>({kg:b.kg||'', tail:b.tail||''}));
+    while(it.boxN && r.length<it.boxN) r.push({kg:'',tail:''});
+    return r;
+  }
+  if(it && it.boxN) return Array.from({length:it.boxN},()=>({kg:'',tail:''}));
   if(it && (it.prodKg||it.prodTail)) return [{kg:it.prodKg||'', tail:it.prodTail||''}];
   return [{kg:'', tail:''}];
 }
@@ -2742,9 +2753,12 @@ function renderMeasure(id){
   (o.items||[]).forEach((it,idx)=>{
     const rows=ed[idx]||[{kg:'',tail:''}];
     const sum=rows.reduce((a,b)=>a+(Number(b.kg)||0),0);
+    const nbox=it.boxN||rows.length;
     h+='<div style="margin-bottom:6px;padding-bottom:4px;border-bottom:1px dashed #c9d6ea">'
-      +'<div style="font-size:12px;font-weight:800;margin-bottom:3px">'+esc(itemText(it))
-      +(rows.length>1?' <span style="color:#1a4f9c;font-weight:400">'+rows.length+'박스 · 합계 '+(Math.round(sum*100)/100)+'kg</span>':'')+'</div>';
+      +'<div style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;margin-bottom:3px;flex-wrap:wrap"><span>'+esc(itemText(it))+'</span>'
+      +'<label style="font-weight:400;color:#1a4f9c;display:flex;align-items:center;gap:4px">박스 수 <input type="number" min="1" max="99" inputmode="numeric" value="'+nbox+'" '
+      +'onchange="boxSetN(\''+esc(id)+'\','+idx+',this.value)" style="width:52px;padding:5px;border:1px solid var(--line);border-radius:5px;font-size:13px;font-family:var(--mono);text-align:center"></label>'
+      +(sum?'<span style="color:#1a4f9c;font-weight:400">합계 '+(Math.round(sum*100)/100)+'kg</span>':'')+'</div>';
     rows.forEach((b,bi)=>{
       h+='<div style="display:flex;gap:6px;align-items:center;margin-bottom:3px">'
         +'<span style="font-size:11px;color:var(--muted);width:26px">'+(bi+1)+'박스</span>'
@@ -2767,6 +2781,21 @@ function boxIn(id, idx, bi, field, val){
   clearTimeout(MEAS_T[id]); MEAS_T[id]=setTimeout(()=>saveBoxes(id, idx), 700);
 }
 function boxAdd(id, idx){ const ed=BOX_EDIT[id]; if(!ed) return; (ed[idx]=ed[idx]||[]).push({kg:'',tail:''}); renderMeasure(id); }
+/* 박스 수 지정 → 줄 수를 맞춤 (줄이면 값 있는 줄은 확인) */
+function boxSetN(id, idx, n){
+  const ed=BOX_EDIT[id]; if(!ed) return;
+  n=Math.max(1, Math.min(99, parseInt(n,10)||1));
+  const rows=ed[idx]=ed[idx]||[];
+  if(rows.length<n){ while(rows.length<n) rows.push({kg:'',tail:''}); }
+  else if(rows.length>n){
+    const cut=rows.slice(n); 
+    if(cut.some(b=>b.kg||b.tail) && !confirm('입력된 박스 줄이 지워집니다. 박스 수를 '+n+'로 줄일까요?')){ renderMeasure(id); return; }
+    rows.length=n;
+  }
+  BOX_N[id]=BOX_N[id]||{}; BOX_N[id][idx]=n;
+  renderMeasure(id); saveBoxes(id, idx);
+}
+const BOX_N={};
 function boxDel(id, idx, bi){ const ed=BOX_EDIT[id]; if(!ed||!ed[idx]) return; ed[idx].splice(bi,1); if(!ed[idx].length) ed[idx]=[{kg:'',tail:''}]; renderMeasure(id); saveBoxes(id, idx); }
 async function saveBoxes(id, idx){
   const o=ORDERS[id]; const ed=BOX_EDIT[id]; if(!o||!o.items||!o.items[idx]||!ed) return;
@@ -2774,12 +2803,14 @@ async function saveBoxes(id, idx){
                           .filter(b=>b.kg!==null||b.tail);
   const items=o.items.slice();
   const it=Object.assign({}, items[idx]);
+  const n=(BOX_N[id]&&BOX_N[id][idx])||(ed[idx]||[]).length||null;
+  it.boxN=n;
   if(rows.length){
     it.boxes=rows.map(b=>({kg:b.kg===null?null:b.kg, tail:b.tail||null}));
     const sum=rows.reduce((a,b)=>a+(b.kg||0),0);
     it.prodKg=sum?Math.round(sum*100)/100:null;
     it.prodTail=rows.map(b=>b.tail).filter(Boolean).join('·')||null;
-  }else{ it.boxes=null; it.prodKg=null; it.prodTail=null; }
+  }else{ it.boxes=null; it.prodKg=null; it.prodTail=null; if(!(BOX_N[id]&&BOX_N[id][idx])) it.boxN=null; }
   it.measBy=MYNAME; it.measAt=Date.now();
   items[idx]=it;
   try{
