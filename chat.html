@@ -11,7 +11,16 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v5.4 — 2026-09-03
+  신화미트 주문방 (chat.html) v5.8 — 2026-09-03
+  · v5.8: 카톡 방식 그대로 — 사진에 답장으로 "9.3 오전 육절기"를 달면 사진 설명·
+    파일명으로 붙고, 생산방이면 자동으로 일지 분석(날짜·오전/오후·작업장을 시트에)
+  · v5.7: 어느 방에서든 사진 꾹 누르기(PC 우클릭) 메뉴에 [📊 일지로 분석] 추가
+    (생산방은 사진 아래 버튼도 그대로). 분석 결과는 그 사진이 있는 방에 답장.
+  · v5.6: ① 업로드 진행 배너("📤 업로드 중 2/3…") + 진행 중 중복 업로드 차단
+    ② 생산방: 사진 설명에 "일지"/"마감"이 있으면 자동 분석, 버튼 강조
+  · v5.5: 📊 생산방 일지 분석 — 생산방의 사진 말풍선 아래 [📊 일지 분석] 버튼.
+    누르면 사진을 읽어(Gemini 비전) 마스터 시트의 "생산일지" 탭에 행으로 추가하고
+    🤖 답장으로 결과 표 요약. (Code v2.9 parseLog + 사진저장 v1.4 get 필요)
   · v5.4: 앱을 열면(화면 복귀 시) 쌓인 시스템 알림 정리 + 아이콘 배지 지움
     (수신기 v1.1과 한 쌍 — 알림이 밀린 수만큼 쌓이고 아이콘에 숫자 표시)
   · v5.3: ① 할일 지시 창 — "완료 시 피드백 요청" 체크 → 완료할 때 내용·사진 첨부 필수,
@@ -264,6 +273,12 @@
   }
 
   #wrap.dropping{outline:3px dashed var(--accent);outline-offset:-6px}
+  /* 📤 업로드 진행 배너 */
+  #upBanner{display:none;position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:420;background:#1a1a1a;color:#fff;
+            padding:10px 16px;border-radius:24px;font-size:14px;font-weight:800;box-shadow:0 6px 20px rgba(0,0,0,.35);white-space:nowrap}
+  #upBanner.on{display:block}
+  #upBanner .bar{display:block;height:4px;background:#444;border-radius:2px;margin-top:6px;overflow:hidden}
+  #upBanner .bar i{display:block;height:100%;background:#2fb54a;width:0;transition:width .3s}
   /* 👥 직원 목록 · ✅ 할일 */
   #peopleBg,#taskPopBg{display:none;position:fixed;inset:0;z-index:350;background:rgba(0,0,0,.4)}
   #peopleBg.on,#taskPopBg.on{display:flex;align-items:center;justify-content:center;padding:16px}
@@ -467,6 +482,7 @@
 <body>
 
 <datalist id="cliList"></datalist>
+<div id="upBanner"></div>
 <div id="peopleBg" onclick="closePeople()"><div id="peopleBox" onclick="event.stopPropagation()"></div></div>
 <div id="taskPopBg" onclick="closeTaskPop()"><div id="taskPop" onclick="event.stopPropagation()"></div></div>
 <div id="lightbox" onclick="closeLightbox()">
@@ -1570,6 +1586,11 @@ function bubbleHtml(id,m){
         +'onclick="event.stopPropagation();openLightbox(\''+esc(m.photo.id)+'\')" '
         +'onerror="this.replaceWith(Object.assign(document.createElement(\'a\'),{href:\'https://drive.google.com/file/d/'+esc(m.photo.id)+'/view\',target:\'_blank\',textContent:\'📷 사진 열기\'}))">';
   }
+  if(m.photo && m.photo.id && roomOf(id).id==='prod' && !m.deleted){
+    body+='<div style="margin-top:4px"><button onclick="event.stopPropagation();analyzeLog(\''+esc(id)+'\')" '
+        +'style="border:none;background:'+(m.logDone?'#e7f2ea':'#1a4f9c')+';color:'+(m.logDone?'#1f6b3a':'#fff')+';border-radius:8px;padding:8px 12px;font-size:13px;font-weight:800;cursor:pointer;width:100%">'
+        +(m.logDone?'📊 일지 분석됨 ('+esc(String(m.logDone))+'행 기록) · 다시 분석':'📊 일지 분석 → 시트에 기록')+'</button></div>';
+  }
   if(m.file && m.file.id){
     body+='<a href="https://drive.google.com/file/d/'+esc(m.file.id)+'/view" target="_blank" onclick="event.stopPropagation()" '
         +'style="display:inline-block;padding:8px 10px;background:#f4f1ea;border:1px solid var(--line);border-radius:8px;text-decoration:none;color:var(--ink);font-weight:700">📎 '
@@ -1583,6 +1604,40 @@ function bubbleHtml(id,m){
     +'<span>'+stateHtml(id,m)+(m.edited?'<span style="font-size:10px;color:var(--muted)">(수정됨)</span>':'')+'<span class="m-time">'+hhmm(m.ts||Date.now())+'</span></span>'
     +'<button class="rbtn" title="이 메시지에 답장 (추가 주문)" onclick="setReply(\''+esc(id)+'\')">↩</button>';
 }
+/* 📊 생산 일지 사진 분석 → 생산일지 시트 (v5.5) */
+const UPLOAD_CACHE={};   // 이 세션에서 올린 사진의 base64 (photoId -> b64)
+async function analyzeLog(msgId){
+  const m=CHAT[msgId]; if(!m||!m.photo||!m.photo.id) return;
+  const pid=m.photo.id;
+  if(m.logDone && !confirm('이미 분석된 사진입니다. 다시 분석하면 시트에 행이 또 추가됩니다. 계속할까요?')) return;
+  const btn=document.querySelector('#m_'+CSS.escape(msgId)+' button'); if(btn){ btn.disabled=true; btn.textContent='📊 읽는 중…'; }
+  upShow('📊 일지를 읽는 중… (10~20초)', 40);
+  try{
+    let b64=UPLOAD_CACHE[pid], mime='image/jpeg';
+    if(!b64){
+      if(!(PHOTO_URL&&PHOTO_TOKEN)) throw new Error('사진 서버 설정이 필요합니다');
+      const body=new URLSearchParams({action:'get', token:PHOTO_TOKEN, id:pid});
+      const res=await fetch(PHOTO_URL,{method:'POST',body}); const j=await res.json();
+      if(!j.ok) throw new Error(j.error||'사진을 가져오지 못했습니다');
+      b64=j.data; mime=j.mime||mime;
+    }
+    const r=await gsCall('parseLog',{data:b64, mime:mime, by:MYNAME, photoId:pid, caption:(CHAT[msgId]&&CHAT[msgId].text)||''});
+    if(!r.ok) throw new Error(r.error||'분석 실패');
+    const lines=['📊 일지 분석 완료 — '+(r.date||'날짜?')+(r.shift?' '+r.shift:'')+(r.place?' '+r.place:'')+(r.team?' · '+r.team:'')+' · '+r.n+'행 시트 기록'];
+    (r.rows||[]).slice(0,25).forEach(x=>{
+      lines.push('· '+(x.origin?'('+x.origin+') ':'')+(x.item||'?')+(x.code?' ('+x.code+')':'')+' 투입 '+(x.input_kg==null?'-':x.input_kg)+(x.output_kg!=null?' → 생산 '+x.output_kg:'')+(x.note?' · '+x.note:''));
+    });
+    if((r.rows||[]).length>25) lines.push('…외 '+((r.rows||[]).length-25)+'행');
+    lines.push('시트: '+(r.sheetUrl||''));
+    await db.ref(roomOf(msgId).path).push().set({sys:1, kind:'ok', ref:msgId, ts:Date.now(), text:lines.join('\n'), by:MYNAME});
+    await msgRef(msgId).update({logDone:r.n});
+    upShow('✅ 시트에 '+r.n+'행 기록', 100); setTimeout(upHide, 1500);
+  }catch(e){
+    upHide();
+    alert('일지 분석 실패: '+e.message);
+  }finally{ if(btn){ btn.disabled=false; btn.textContent='📊 일지 분석 → 시트에 기록'; } }
+}
+
 /* 🖼 사진 크게 보기 (앱 안에서) */
 function openLightbox(id){
   const lb=document.getElementById('lightbox'); if(!lb) return;
@@ -1680,6 +1735,7 @@ function openMsgMenu(id){
   let h='<div class="mm-prev"><b>'+esc(m.name||'')+'</b> · '+esc(replyPreview(m))+'</div>';
   h+='<button onclick="closeMsgMenu();setReply(\''+esc(id)+'\')">↩ 답장 (추가 주문)</button>';
   if(m.text) h+='<button id="mmCopy" onclick="copyMsg(\''+esc(id)+'\')">📋 복사</button>';
+  if(m.photo && m.photo.id) h+='<button onclick="closeMsgMenu();analyzeLog(\''+esc(id)+'\')" style="color:#1a4f9c">📊 일지로 분석 → 생산일지 시트</button>';
   if(m.status==='error') h+='<button onclick="closeMsgMenu();retryMsg(\''+esc(id)+'\')" style="color:var(--accent)">🔄 다시 분석</button>';
   if((m.uid===(ME&&ME.uid) || IS_ADMIN) && !m.deleted){
     if(m.text) h+='<button onclick="closeMsgMenu();openEditMsg(\''+esc(id)+'\')">✏ 수정 (주문노트에 다시 반영)</button>';
@@ -1823,6 +1879,18 @@ async function sendMsg(){
   if(!fbReady){ alert('아직 서버에 연결되지 않았습니다.'); return; }
   const btn=document.getElementById('sendBtn');
   btn.disabled=true;
+  // 🏷 사진에 "답장"으로 짧은 글 → 그 사진의 설명 (카톡 방식: 사진 → 답장 "9.3 오전 육절기")
+  if(!CUR_ROOM.parse && REPLY_TO && CHAT[REPLY_TO] && (CHAT[REPLY_TO].photo||CHAT[REPLY_TO].file) && text.length<=40){
+    const tid=REPLY_TO, tm=CHAT[tid];
+    try{
+      const cap=(tm.text?tm.text+' / ':'')+text.replace(/\n+/g,' ');
+      await msgRef(tid).update({text:cap, labeled:1});
+      fileLabel((tm.photo&&tm.photo.id)||(tm.file&&tm.file.id), text.replace(/\n+/g,' '));
+      inputEl.value=''; inputEl.style.height='auto'; clearReply(); btn.disabled=false;
+      if(CUR_ROOM.id==='prod' && tm.photo && /일지|마감|육절기|골절기|절기/.test(text) && !tm.logDone) setTimeout(()=>analyzeLog(tid), 600);
+      return;
+    }catch(e){ /* 실패하면 일반 메시지로 */ }
+  }
   // 🏷 사진·파일 올린 직후(3분 내)의 짧은 글은 그 사진의 설명(거래처명)으로 붙임 — 주문방 제외
   if(!CUR_ROOM.parse && !REPLY_TO && text.length<=30 && !/\n/.test(text)){
     const ids=Object.keys(CHAT).filter(k=>CHAT[k]&&!CHAT[k].sys&&!CHAT[k].deleted).sort((x,y)=>(CHAT[x].ts||0)-(CHAT[y].ts||0));
@@ -1832,6 +1900,7 @@ async function sendMsg(){
         await msgRef(lid).update({text:text, labeled:1});
         fileLabel((last.photo&&last.photo.id)||(last.file&&last.file.id), text);
         inputEl.value=''; inputEl.style.height='auto'; btn.disabled=false;
+        if(CUR_ROOM.id==='prod' && last.photo && /일지|마감|육절기|골절기|절기/.test(text) && !last.logDone) setTimeout(()=>analyzeLog(lid), 600);
         return;
       }catch(e){ /* 실패하면 일반 메시지로 */ }
     }
@@ -1851,16 +1920,29 @@ async function sendMsg(){
   if(selfParse) processMessage(ref.key, Object.assign({},msg,{replyTo:rTo||null}), tok);   // 자동처리 화면 없을 때만 내가 파싱
 }
 
+let UPLOADING=false;
+function upShow(txt, pct){
+  const b=document.getElementById('upBanner'); if(!b) return;
+  b.innerHTML=esc(txt)+'<span class="bar"><i style="width:'+Math.max(4,Math.round(pct||0))+'%"></i></span>';
+  b.classList.add('on');
+}
+function upHide(){ const b=document.getElementById('upBanner'); if(b) b.classList.remove('on'); }
 async function sendFiles(files){
   const list=[...(files||[])]; if(!list.length || !fbReady) return;
+  if(UPLOADING){ upShow('📤 아직 업로드 중입니다 — 잠시만요', 50); return; }
+  UPLOADING=true;
   const btn=document.getElementById('sendBtn');
   btn.disabled=true; btn.textContent='…';
+  ['camIn','photoIn'].forEach(id=>{ const el=document.getElementById(id); if(el) el.disabled=true; });
   // 입력창에 적어둔 짧은 글(거래처명 등)은 사진 설명 + 파일명 라벨로
   const ta=document.getElementById('chatInput');
   let cap='';
   if(!CUR_ROOM.parse && ta && ta.value.trim() && ta.value.trim().length<=30 && !/\n/.test(ta.value.trim())){ cap=ta.value.trim(); ta.value=''; ta.style.height='auto'; }
   try{
+    let k=0;
     for(const file of list){
+      k++;
+      upShow('📤 업로드 중 '+k+'/'+list.length+(list.length>1?' — '+(file.name||''):''), (k-1)/list.length*100+10);
       if(file.size>12*1024*1024){ alert(file.name+' — 12MB 이하만 첨부할 수 있습니다'); continue; }
       const isImg=/^image\//.test(file.type||'');
       let msg;
@@ -1868,6 +1950,7 @@ async function sendFiles(files){
         // 📸 화질 우선 방(hq)은 압축 없이 원본 그대로 (표·전표·라벨 글씨 보존)
         const b64=(CUR_ROOM.hq && file.size<=12*1024*1024) ? await fileToB64(file) : await compressImage(file);
         const r=await photoUpload(b64, file.name||'photo.jpg', cap);
+        UPLOAD_CACHE[r.id]=b64;
         msg={uid:ME.uid, name:MYNAME, text:cap, photo:{id:r.id}, ts:Date.now(), status:null};
       }else{
         const b64=await fileToB64(file);
@@ -1875,13 +1958,20 @@ async function sendFiles(files){
         msg={uid:ME.uid, name:MYNAME, text:cap, file:{id:r.id, name:file.name||'file', size:file.size}, ts:Date.now(), status:null};
       }
       if(REPLY_TO){ msg.replyTo=REPLY_TO; clearReply(); }
-      await roomRef().push().set(msg);
+      const ref=roomRef().push(); await ref.set(msg);
+      upShow('📤 업로드 중 '+k+'/'+list.length, k/list.length*100);
       sendPushOut(isImg?'📷 사진':'📎 '+(file.name||'파일'));
+      // 📊 생산방: 설명에 일지/마감 → 자동 분석
+      if(isImg && CUR_ROOM.id==='prod' && /일지|마감/.test(cap||'')){ setTimeout(()=>analyzeLog(ref.key), 800); }
     }
+    upShow('✅ 업로드 완료', 100); setTimeout(upHide, 1200);
   }catch(e){
+    upHide();
     alert('업로드 실패: '+e.message);
   }finally{
+    UPLOADING=false;
     btn.disabled=false; btn.textContent='전송';
+    ['camIn','photoIn'].forEach(id=>{ const el=document.getElementById(id); if(el) el.disabled=false; });
   }
 }
 async function sendPhoto(input){ await sendFiles(input.files); input.value=''; }
@@ -2248,8 +2338,8 @@ let ROOM_LISTENERS=[], LAST_READ={}, ROOM_LAST={}, ROOM_UNREAD={};
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='5.4';
-const APP_BUILD=504;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='5.8';
+const APP_BUILD=508;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
