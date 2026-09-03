@@ -11,7 +11,12 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v4.13 — 2026-09-03
+  신화미트 주문방 (chat.html) v5.0 — 2026-09-03
+  · v5.0: ① 첫 로그인 때 이름 지정(이후 계속 사용, 계정에 저장)
+    ② 모바일 입력창 UI 정돈(둥근 입력창·원형 버튼)
+    ③ 👥 접속인원 클릭 → 전체 등록 직원 목록(초록 점=접속 중), 사람별 [+할일]
+    ④ ✅ 할일 탭(미처리 옆) — "내가 해야 할 것 / 내가 지시한 것" 구분,
+       블록마다 [완료]/[미완료(사유)], 대상자 접속 시 팝업. 저장: tasks (규칙 추가 필요)
   · v4.13: 🔁 무한 새로고침 수정 — 버전 비교를 소수(4.10=4.1<4.9)로 하던 실수를
     정수 빌드번호(APP_BUILD)로 교체. meta/appBuild 사용, 옛 화면용 meta/appVer는
     5로 고정해 옛 화면들이 마지막으로 한 번 새로고침하고 새 코드로 넘어오게 함.
@@ -250,6 +255,25 @@
   }
 
   #wrap.dropping{outline:3px dashed var(--accent);outline-offset:-6px}
+  /* 👥 직원 목록 · ✅ 할일 */
+  #peopleBg,#taskPopBg{display:none;position:fixed;inset:0;z-index:350;background:rgba(0,0,0,.4)}
+  #peopleBg.on,#taskPopBg.on{display:flex;align-items:center;justify-content:center;padding:16px}
+  #peopleBox,#taskPop{background:var(--panel);border-radius:12px;width:min(440px,100%);max-height:80vh;overflow:auto;padding:14px;box-shadow:0 8px 30px rgba(0,0,0,.3)}
+  .pp-row{display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid var(--line)}
+  .pp-dot{width:10px;height:10px;border-radius:50%;background:#c9c4b8;flex:0 0 auto}
+  .pp-dot.on{background:#2fb54a;box-shadow:0 0 0 3px #d7f3dd}
+  .pp-name{flex:1;font-weight:700}
+  .pp-sub{font-size:11px;color:var(--muted)}
+  .pp-row button{border:1px solid var(--line);background:#fff;border-radius:6px;padding:5px 9px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap}
+  .tk{border:1px solid var(--line);border-left:4px solid #1f6b3a;border-radius:8px;background:#fff;padding:9px 11px;margin-bottom:8px}
+  .tk.fail{border-left-color:#b23b32;background:#fdf5f4}
+  .tk.done{border-left-color:#9a9384;opacity:.7}
+  .tk .t{font-size:14px;font-weight:700;white-space:pre-wrap}
+  .tk .m{font-size:11px;color:var(--muted);margin-top:3px}
+  .tk .b{display:flex;gap:6px;margin-top:7px}
+  .tk .b button{border:none;border-radius:6px;padding:7px 12px;font-weight:800;font-size:12.5px;cursor:pointer}
+  .tk-sec{font-size:12px;font-weight:800;color:var(--muted);margin:12px 0 6px;padding-top:10px;border-top:2px dashed var(--line)}
+  .tk-sec:first-child{border-top:none;padding-top:0;margin-top:4px}
   /* 🖼 사진 크게 보기 */
   #lightbox{display:none;position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.92);flex-direction:column}
   #lightbox.on{display:flex}
@@ -351,13 +375,14 @@
   #replyBar.on{display:flex}
   #replyBar .rt{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #replyBar button{background:none;border:none;font-size:14px;cursor:pointer;color:var(--muted)}
-  .in-row{display:flex;gap:8px;align-items:flex-end}
-  #chatInput{flex:1;min-height:42px;max-height:130px;padding:10px 12px;border:1px solid var(--line);
-             border-radius:8px;font-family:var(--sans);font-size:16px;line-height:1.45;resize:none;background:#fffef9}
+  .in-row{display:flex;gap:6px;align-items:flex-end}
+  #chatInput{flex:1;min-height:44px;max-height:130px;padding:11px 14px;border:1px solid var(--line);
+             border-radius:22px;font-family:var(--sans);font-size:16px;line-height:1.4;resize:none;background:#fff;box-shadow:inset 0 1px 2px rgba(0,0,0,.04)}
   #chatInput:focus{outline:none;border-color:var(--accent)}
-  .ibtn{width:42px;height:40px;border:1px solid var(--line);background:#fff;border-radius:8px;
-        font-size:18px;cursor:pointer;flex:0 0 auto}
-  #sendBtn{width:auto;min-width:66px;background:var(--accent);color:#fff;border:none;font-size:14px;font-weight:800;padding:0 16px}
+  .ibtn{width:44px;height:44px;border:none;background:#efece4;border-radius:50%;
+        font-size:19px;cursor:pointer;flex:0 0 auto;display:flex;align-items:center;justify-content:center}
+  .ibtn:active{background:#e2ddd0}
+  #sendBtn{width:auto;min-width:58px;background:var(--accent);color:#fff;border:none;font-size:14px;font-weight:800;padding:0 16px;border-radius:22px}
   #sendBtn:disabled{background:#b5b0a4}
   .in-hint{font-size:10.5px;color:#a09a8a;margin-top:4px;text-align:right}
 
@@ -433,6 +458,8 @@
 <body>
 
 <datalist id="cliList"></datalist>
+<div id="peopleBg" onclick="closePeople()"><div id="peopleBox" onclick="event.stopPropagation()"></div></div>
+<div id="taskPopBg" onclick="closeTaskPop()"><div id="taskPop" onclick="event.stopPropagation()"></div></div>
 <div id="lightbox" onclick="closeLightbox()">
   <div class="lb-top" onclick="event.stopPropagation()">
     <a id="lbOpen" href="#" target="_blank" rel="noopener">↗ 원본 열기</a>
@@ -507,6 +534,7 @@
       <div class="seg">
         <button id="segPend" class="on" onclick="setSide('pend')">📋 미처리 <span id="pendBadge" class="badge" style="display:none">0</span></button>
         <button id="segConf" onclick="setSide('conf')">🔎 확인방 <span id="confBadge" class="badge" style="display:none;background:#1e4f7a">0</span></button>
+        <button id="segTask" onclick="setSide('task')">✅ 할일 <span id="taskBadge" class="badge" style="display:none;background:#1f6b3a">0</span></button>
       </div>
       <div class="datebar2" id="dateNav">
         <button onclick="shiftDate(-1)">‹</button>
@@ -919,6 +947,13 @@ async function onSignedIn(u){
     try{
       const nk=await db.ref('users/'+u.uid+'/nick').once('value');
       if(nk.val()){ MYNAME=String(nk.val()).trim()||MYNAME; renderPresence(); }
+      else if(!IS_RUNNER){
+        const v=prompt('채팅에 표시할 이름을 입력하세요 (직원들이 알아보는 이름으로)\n한 번 정하면 이 계정에서 계속 사용됩니다', MYNAME);
+        const nm=(v||'').trim().slice(0,20);
+        if(nm){ MYNAME=nm; await db.ref('users/'+u.uid+'/nick').set(nm).catch(()=>{}); renderPresence(); }
+      }
+      // 👥 등록 직원 목록용 기록
+      db.ref('users/'+u.uid).update({email:(u.email||'').toLowerCase(), name:MYNAME, lastSeen:Date.now()}).catch(()=>{});
     }catch(e){}
     try{
       const j=await gsCall('getAccess');
@@ -929,6 +964,7 @@ async function onSignedIn(u){
     loadMaster();
     watchMasterVer();   // 📡 다른 화면의 학습을 실시간 수신
     watchAppVer();      // 🔄 새 버전 배포 감지 → 자동 새로고침
+    watchUsersTasks();  // 👥 직원 목록 · ✅ 할일
     // 🛤 자동처리 화면 생존 신호 구독 (일반 화면) — 살아 있으면 내 폰은 파싱 안 함
     if(!IS_RUNNER){ db.ref('meta/runnerAlive').on('value', s2=>{ RUNNER_ALIVE=Number(s2.val()||0); }); }
     if(IS_RUNNER){
@@ -1023,7 +1059,7 @@ function renderPresence(){
   if(!bar) return;
   const list=Object.values(PRESENCE||{}).map(p=>p&&p.name).filter(Boolean);
   const uniq=[...new Set(list)];
-  bar.innerHTML='<span>👥</span>'
+  bar.innerHTML='<span onclick="openPeople()" style="cursor:pointer" title="전체 직원 목록 · 할일 지시">👥</span>'
     +'<span class="names"><b>'+uniq.length+'명 접속</b>'+(uniq.length?' — '+esc(uniq.join(', ')):'')+'</span>'
     +'<span title="이 화면의 버전" style="font-size:10px;color:var(--muted);white-space:nowrap">v'+APP_VER+'</span>'
     +'<button onclick="toggleAlert()" title="새 메시지 소리·진동·알림 (주말·공휴일·평일 18~07시는 매너타임으로 조용)">'+(ALERT_ON?(isQuiet()?'🌙 매너타임':'🔔 알림'):'🔕 알림')+'</button>'
@@ -2182,8 +2218,8 @@ let ROOM_LISTENERS=[], LAST_READ={}, ROOM_LAST={}, ROOM_UNREAD={};
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='4.13';
-const APP_BUILD=413;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='5.0';
+const APP_BUILD=500;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -2216,6 +2252,7 @@ function setSide(s){
   SIDE=s;
   document.getElementById('segPend').classList.toggle('on', s==='pend');
   document.getElementById('segConf').classList.toggle('on', s==='conf');
+  document.getElementById('segTask').classList.toggle('on', s==='task');
   document.getElementById('dateNav').style.display = s==='pend' ? '' : 'none';
   renderSide();
 }
@@ -2236,6 +2273,100 @@ function pendListFor(date){
   return Object.values(ORDERS).filter(o=>o && o.date===date && !o.confirm && (o.ts||0)>cut);
 }
 function toggleShowAll(){ SHOW_ALL=!SHOW_ALL; renderSide(); }
+/* ============================================================
+   👥 직원 목록 · ✅ 할일 (v5.0)
+   ============================================================ */
+let USERS={}, TASKS={};
+function watchUsersTasks(){
+  if(!db) return;
+  db.ref('users').on('value', s=>{ USERS=s.val()||{}; if(document.getElementById('peopleBg').classList.contains('on')) renderPeople(); }, ()=>{});
+  db.ref('tasks').on('value', s=>{ TASKS=s.val()||{}; renderSide(); checkTaskPopup(); }, ()=>{});
+}
+function userName(uid){ const u=USERS[uid]||{}; return u.nick||u.name||(u.email||'').split('@')[0]||uid.slice(0,6); }
+function openPeople(){ renderPeople(); document.getElementById('peopleBg').classList.add('on'); }
+function closePeople(){ document.getElementById('peopleBg').classList.remove('on'); }
+function renderPeople(){
+  const box=document.getElementById('peopleBox');
+  const online=new Set(Object.keys(PRESENCE||{}));
+  const list=Object.keys(USERS).filter(uid=>USERS[uid]&&(USERS[uid].email||USERS[uid].nick||USERS[uid].name))
+    .map(uid=>({uid, name:userName(uid), on:online.has(uid), last:USERS[uid].lastSeen||0}))
+    .sort((a,b)=>(b.on-a.on)||a.name.localeCompare(b.name,'ko'));
+  let h='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b>👥 직원 '+list.length+'명 · 접속 중 '+list.filter(x=>x.on).length+'명</b><button onclick="closePeople()" style="border:none;background:none;font-size:18px;cursor:pointer">✕</button></div>';
+  list.forEach(p=>{
+    const me=ME&&p.uid===ME.uid;
+    h+='<div class="pp-row"><span class="pp-dot'+(p.on?' on':'')+'"></span>'
+      +'<span class="pp-name">'+esc(p.name)+(me?' <span style="font-weight:400;color:var(--muted)">(나)</span>':'')
+      +'<div class="pp-sub">'+(p.on?'접속 중':(p.last?'마지막 접속 '+new Date(p.last).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'접속 기록 없음'))+'</div></span>'
+      +'<button onclick="addTask(\''+esc(p.uid)+'\')">+ 할일</button></div>';
+  });
+  box.innerHTML=h;
+}
+async function addTask(toUid){
+  const nm=userName(toUid);
+  const v=prompt(nm+' 님에게 지시할 일을 적어주세요');
+  if(v===null) return; const text=v.trim(); if(!text) return;
+  try{
+    await db.ref('tasks').push().set({to:toUid, toName:nm, from:ME.uid, fromName:MYNAME, text, ts:Date.now(), status:'open'});
+    closePeople();
+    if(!toUid.startsWith('__')) sendPushOut('✅ 할일 지시: '+text);
+  }catch(e){ alert('저장 실패: '+e.message); }
+}
+function myOpenTasks(){ return Object.keys(TASKS).filter(id=>TASKS[id]&&ME&&TASKS[id].to===ME.uid&&TASKS[id].status==='open'); }
+function taskBlock(id, t, mine){
+  const when=new Date(t.ts||0).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
+  let h='<div class="tk '+(t.status==='fail'?'fail':t.status==='done'?'done':'')+'"><div class="t">'+esc(t.text)+'</div>'
+    +'<div class="m">'+(mine?'지시: '+esc(t.fromName||''):'대상: '+esc(t.toName||''))+' · '+when
+    +(t.status==='done'?' · ✅ 완료'+(t.doneAt?' '+new Date(t.doneAt).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):''):'')
+    +(t.status==='fail'?' · ❌ 미완료: '+esc(t.reason||''):'')+'</div>';
+  if(mine && t.status==='open'){
+    h+='<div class="b"><button style="background:#1f6b3a;color:#fff" onclick="taskDone(\''+id+'\')">✅ 완료</button>'
+      +'<button style="background:#f3e4e2;color:#8a1c1c" onclick="taskFail(\''+id+'\')">❌ 미완료 (사유)</button></div>';
+  }
+  if(!mine && ME && t.from===ME.uid){
+    h+='<div class="b">'+(t.status!=='open'?'<button style="background:#eee" onclick="taskReopen(\''+id+'\')">↺ 다시 열기</button>':'')
+      +'<button style="background:#eee" onclick="taskDel(\''+id+'\')">🗑 삭제</button></div>';
+  }
+  return h+'</div>';
+}
+function renderTasks(){
+  const box=document.getElementById('sideScroll'); if(!box) return;
+  const ids=Object.keys(TASKS).filter(id=>TASKS[id]).sort((a,b)=>(TASKS[b].ts||0)-(TASKS[a].ts||0));
+  const mineOpen=ids.filter(id=>TASKS[id].to===ME.uid&&TASKS[id].status==='open');
+  const mineDone=ids.filter(id=>TASKS[id].to===ME.uid&&TASKS[id].status!=='open').slice(0,15);
+  const given=ids.filter(id=>TASKS[id].from===ME.uid).slice(0,40);
+  let h='<div class="tk-sec">📌 내가 해야 할 것 ('+mineOpen.length+')</div>';
+  h+=mineOpen.length?mineOpen.map(id=>taskBlock(id,TASKS[id],true)).join(''):'<div style="color:var(--muted);font-size:13px;padding:4px">없음 🎉</div>';
+  if(mineDone.length) h+='<div class="tk-sec">🗂 내가 처리한 것 (최근)</div>'+mineDone.map(id=>taskBlock(id,TASKS[id],true)).join('');
+  h+='<div class="tk-sec">📤 내가 지시한 것 ('+given.filter(id=>TASKS[id].status==='open').length+' 대기)</div>';
+  h+=given.length?given.map(id=>taskBlock(id,TASKS[id],false)).join(''):'<div style="color:var(--muted);font-size:13px;padding:4px">없음 — 👥 직원 목록에서 [+ 할일]로 지시할 수 있습니다</div>';
+  box.innerHTML='<div style="padding:8px 10px">'+h+'</div>';
+}
+async function taskDone(id){ try{ await db.ref('tasks/'+id).update({status:'done', doneAt:Date.now(), doneBy:MYNAME}); }catch(e){ alert('실패: '+e.message); } }
+async function taskFail(id){
+  const r=prompt('미완료 사유를 적어주세요'); if(r===null) return;
+  try{ await db.ref('tasks/'+id).update({status:'fail', reason:(r||'').trim()||'(사유 없음)', doneAt:Date.now(), doneBy:MYNAME}); }catch(e){ alert('실패: '+e.message); }
+}
+async function taskReopen(id){ try{ await db.ref('tasks/'+id).update({status:'open', reason:null, doneAt:null}); }catch(e){} }
+async function taskDel(id){ if(!confirm('이 할일을 삭제할까요?')) return; try{ await db.ref('tasks/'+id).remove(); }catch(e){} }
+/* 대상자 접속 시 팝업 — 아직 안 본 할일이 있으면 */
+let TASK_SEEN=null;
+function checkTaskPopup(){
+  if(!ME || IS_RUNNER) return;
+  if(TASK_SEEN===null){ try{ TASK_SEEN=new Set(JSON.parse(localStorage.getItem('shinwha_task_seen')||'[]')); }catch(e){ TASK_SEEN=new Set(); } }
+  const open=myOpenTasks();
+  const fresh=open.filter(id=>!TASK_SEEN.has(id));
+  if(!fresh.length) return;
+  const pop=document.getElementById('taskPop');
+  pop.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><b>✅ 새 할일 '+fresh.length+'건</b><button onclick="closeTaskPop()" style="border:none;background:none;font-size:18px;cursor:pointer">✕</button></div>'
+    +open.map(id=>taskBlock(id,TASKS[id],true)).join('')
+    +'<button onclick="closeTaskPop();setSide(\'task\');goPage(1)" style="width:100%;margin-top:6px;border:none;background:var(--ink);color:#fff;border-radius:8px;padding:10px;font-weight:800;cursor:pointer">할일 탭에서 보기</button>';
+  document.getElementById('taskPopBg').classList.add('on');
+  open.forEach(id=>TASK_SEEN.add(id));
+  try{ localStorage.setItem('shinwha_task_seen', JSON.stringify([...TASK_SEEN].slice(-300))); }catch(e){}
+  try{ beep(); if(navigator.vibrate) navigator.vibrate([120,60,120]); }catch(e){}
+}
+function closeTaskPop(){ document.getElementById('taskPopBg').classList.remove('on'); }
+
 function renderSide(){
   try{ if(CUR_ROOM && CUR_ROOM.id==='deliv') renderVehBar(); }catch(e){}
   document.getElementById('curDate').textContent=mmdd(PANEL_DATE)||'--.--';
@@ -2248,6 +2379,8 @@ function renderSide(){
   const cb=document.getElementById('confBadge');
   cb.style.display=conf.length?'':'none'; cb.textContent=conf.length;
 
+  try{ const tb=document.getElementById('taskBadge'); const n=myOpenTasks().length; tb.style.display=n?'':'none'; tb.textContent=n; }catch(e){}
+  if(SIDE==='task'){ renderTasks(); return; }
   if(SIDE==='pend') renderPend();
   else renderConf(conf);
 }
