@@ -11,7 +11,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v5.13 — 2026-09-03
+  신화미트 주문방 (chat.html) v5.14 — 2026-09-03
+  · v5.14: [전산처리] 체크 시 확인 창 — 거래처·품목·박스 요약을 보여주고 확인해야 넘어감
+    (실수 방지). 체크 해제는 확인 없이.
   · v5.13: 🔍 검색 범위 최근 2주 — 검색창을 열면 2주치 대화를 자동으로 불러와 검색
     (더 옛것은 [옛 대화 더]). PC에서 Ctrl+F(Mac ⌘F)로 바로 검색창 열기.
   · v5.12: 체크(주문확인·생산확인·전산처리)한 사람·시각을 버튼 아래에 바로 표시
@@ -2379,8 +2381,8 @@ let ROOM_LISTENERS=[], LAST_READ={}, ROOM_LAST={}, ROOM_UNREAD={};
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='5.13';
-const APP_BUILD=513;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='5.14';
+const APP_BUILD=514;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3056,6 +3058,11 @@ async function setVehicleFor(id, veh){
 async function toggleChk(id, key, on){
   const o=ORDERS[id]; if(!o) return;
   if(o.needClient && on){ alert('거래처 미확인 주문은 먼저 주문노트 ①-1에서 거래처를 지정하세요.'); return; }
+  // ✅ 전산처리는 확인 창 한 번 더 (실수 방지) — 확인방으로 넘어가는 작업이라
+  if(key==='erp' && on){
+    const items=(o.items||[]).map(it=>'  · '+itemText(it)+((it.prodKg||it.boxN)?'  ⚖'+measText(it):'')).join('\n');
+    if(!confirm('전산처리 완료로 표시할까요?\n\n'+(o.client||'(미지정)')+' · '+mmdd(o.date||'')+' · '+normVeh(o.vehicle||'미지정')+'\n'+items+'\n\n확인하면 확인방으로 넘어가고 전산대조 대상이 됩니다.')) return;
+  }
   o.chk=o.chk||{};
   if(on) o.chk[key]={by:MYNAME, at:Date.now()};
   else delete o.chk[key];
