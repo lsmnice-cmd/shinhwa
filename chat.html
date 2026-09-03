@@ -11,7 +11,11 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v5.11 — 2026-09-03
+  신화미트 주문방 (chat.html) v5.13 — 2026-09-03
+  · v5.13: 🔍 검색 범위 최근 2주 — 검색창을 열면 2주치 대화를 자동으로 불러와 검색
+    (더 옛것은 [옛 대화 더]). PC에서 Ctrl+F(Mac ⌘F)로 바로 검색창 열기.
+  · v5.12: 체크(주문확인·생산확인·전산처리)한 사람·시각을 버튼 아래에 바로 표시
+    (기존엔 마우스 툴팁에만). 확인방 카드에도 "전산처리: 이름 · 시각" 표시.
   · v5.11: ① 피드백 확인 — "내가 지시한 것"에서 [확인]을 누르면 그 블록은 지시 내용
     한 줄로 접힘(누르면 펼침) ② 할일지도에 지시 내용 검색창 ③ ⚖ 태그: 식별번호가
     같은 박스끼리만 합산, 다른 번호는 따로 표시 (예: 19.77kg(828) · 17.04kg(831))
@@ -1118,8 +1122,37 @@ function toggleSearch(on){
   const bar=document.getElementById('searchBar');
   const want=(on===undefined)?!bar.classList.contains('on'):on;
   bar.classList.toggle('on', want);
-  if(want){ document.getElementById('searchIn').focus(); runSearch(); }
+  if(want){ document.getElementById('searchIn').focus(); runSearch(); ensureTwoWeeks(); }
   else{ clearSearchMarks(); document.getElementById('searchIn').value=''; }
+}
+/* PC: Ctrl+F / ⌘F → 주문방 검색창 */
+document.addEventListener('keydown',e=>{
+  if((e.ctrlKey||e.metaKey) && (e.key==='f'||e.key==='F')){ e.preventDefault(); toggleSearch(true); const i=document.getElementById('searchIn'); if(i){ i.focus(); i.select(); } }
+});
+/* 검색을 열면 최근 2주치 대화를 자동 로드 (없는 것만 위에 이어 붙임) */
+let TWOWEEK_LOADED={};
+async function ensureTwoWeeks(){
+  if(!db || TWOWEEK_LOADED[CUR_ROOM.id]) return;
+  TWOWEEK_LOADED[CUR_ROOM.id]=true;
+  const cut=Date.now()-14*24*3600*1000;
+  const oldest=Math.min(...Object.values(CHAT).map(m=>m&&m.ts||Infinity));
+  if(isFinite(oldest) && oldest<=cut) return;              // 이미 2주 이상 로드됨
+  const cnt=document.getElementById('searchCnt'); if(cnt) cnt.textContent='2주치 불러오는 중…';
+  try{
+    const ss=await roomRef().orderByChild('ts').startAt(cut).endAt(isFinite(oldest)?oldest-1:Date.now()).once('value');
+    const arr=[]; ss.forEach(c=>{ if(!CHAT[c.key]) arr.push([c.key,c.val()]); });
+    const box=document.getElementById('chatScroll');
+    const keepH=box.scrollHeight, keepTop=box.scrollTop;
+    arr.sort((a,b)=>(a[1].ts||0)-(b[1].ts||0)).reverse().forEach(([id,m])=>{
+      m._room=CUR_ROOM.id; CHAT[id]=m;
+      const row=document.createElement('div'); row.id='m_'+id;
+      if(m.sys){ row.className='sys-row'; row.innerHTML='<div class="sys'+(m.kind==='warn'?' warn':m.kind==='err'?' err':'')+'">'+sysHtml(m)+'</div>'; }
+      else{ row.className='msg-row'+((ME&&m.uid===ME.uid)?' mine':''); row.innerHTML=bubbleHtml(id,m); }
+      box.insertBefore(row, box.firstChild);
+    });
+    box.scrollTop=keepTop+(box.scrollHeight-keepH);
+    runSearch();
+  }catch(e){ console.warn('2주 로드', e); if(cnt) cnt.textContent=''; }
 }
 function clearSearchMarks(){
   document.querySelectorAll('.msg-row.hit,.msg-row.hit-cur').forEach(e=>e.classList.remove('hit','hit-cur'));
@@ -1374,6 +1407,7 @@ function subscribeRoom(){
   for(const k in CHAT) delete CHAT[k];
   document.getElementById('chatScroll').innerHTML='';
   clearReply();
+  try{ TWOWEEK_LOADED[CUR_ROOM.id]=false; }catch(e){}
   const ref=roomRef().limitToLast(200);
   const rid=CUR_ROOM.id;
   ref.on('child_added', s=>{
@@ -2345,8 +2379,8 @@ let ROOM_LISTENERS=[], LAST_READ={}, ROOM_LAST={}, ROOM_UNREAD={};
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='5.11';
-const APP_BUILD=511;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='5.13';
+const APP_BUILD=513;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -2727,7 +2761,8 @@ function buildOrderCard(o){
     const b=document.createElement('label');
     b.className='chk'+(c?' on':'');
     b.title=c?(c.by+' · '+new Date(c.at).toLocaleString('ko-KR')):label+' 체크';
-    b.innerHTML='<input type="checkbox"'+(c?' checked':'')+'> '+label;
+    const who=c?'<div style="font-size:10px;font-weight:400;color:#1f6b3a;margin-top:2px;white-space:nowrap">'+esc(c.by||'')+' '+new Date(c.at).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})+(new Date(c.at).toDateString()!==new Date().toDateString()?' ('+new Date(c.at).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric'})+')':'')+'</div>':'';
+    b.innerHTML='<input type="checkbox"'+(c?' checked':'')+'> '+label+who;
     b.onclick=ev=>{ ev.preventDefault(); toggleChk(o.id, key, !c); };
     row.appendChild(b);
   });
@@ -3152,7 +3187,7 @@ function renderConf(conf){
       const meta=document.createElement('div');
       meta.style.cssText='font-size:10.5px;color:#a09a8a;margin-top:5px';
       const ck=o.chk||{};
-      meta.textContent=CHK_DEF.map(([k,l])=>ck[k]?l+':'+ck[k].by:'').filter(Boolean).join(' · ')
+      meta.textContent=CHK_DEF.map(([k,l])=>ck[k]?l+': '+ck[k].by+' '+new Date(ck[k].at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'').filter(Boolean).join(' · ')
         +(o.confirmAt?' · 이동 '+new Date(o.confirmAt).toLocaleString('ko-KR'):'');
       card.appendChild(meta);
       box.appendChild(card);
