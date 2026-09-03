@@ -254,6 +254,18 @@
     #whoami{font-size:11px}
     table.note td{padding:6px 5px}
     .modal-card{max-width:100vw;border-radius:0}
+    /* 주문 수정창: 품목을 카드형으로 */
+    #edItems thead{display:none}
+    #edItems tr{display:block;border:1px solid var(--line);border-radius:8px;margin:0 0 8px;padding:8px;background:#fff}
+    #edItems tr.box-row{margin-top:-8px;border-top:none;border-radius:0 0 8px 8px;background:#f4f7fc;padding:4px 8px 8px}
+    #edItems td{display:block;padding:3px 0;border:none}
+    #edItems td:has(.ed-price){display:none}
+    #edItems .ed-text{font-size:16px;font-weight:800}
+    #edItems .ed-prod{font-size:14px}
+    #edItems td:last-child{display:flex;justify-content:flex-end}
+    #edItems tr.box-row td{padding:2px 0 4px}
+    .box-line input{font-size:16px!important;padding:8px!important}
+    .bx-kg{width:110px!important} .bx-tail{width:100px!important}
   }
 </style>
 </head>
@@ -2478,6 +2490,8 @@ function firstDate(){
 function setNoteDate(d){ noteDate=d; renderNote(); }
 function setWorkDate(d){ workDate=d; renderWork(); }
 
+/* [v4.0] 모바일 주문 수정창 개편 — 품목마다 카드형(원문 크게, 상품명, 박스별 중량·
+   식별번호), 단가는 모바일에서 숨김. 노트 표의 품목 옆 ⚖로 바로 수정창 열기. */
 /* [v3.11] 품목 표시 순서 되돌림 — 채팅 원문(두께·개수 등 현장 지시 포함)을 앞에 굵게,
    정식 상품명(브랜드)은 뒤에 (괄호) 작게. 수량 추출로 세부가 사라지던 문제 해결. */
 /* [v3.10] ① 주문 편집기에 ⚖ 박스별 중량·식별번호 입력 (품목마다 [+박스])
@@ -2650,6 +2664,7 @@ function buildNoteTable(wrap, date, workMode){
                 t+='<span class="guess" title="최근 구매이력 추측 — 후보: '+esc(it.cands.join(', '))+'">추측<span class="q">?</span></span>';
               }
             }
+            t+=' <span class="no-print" onclick="event.stopPropagation();openOrderEditor(\''+esc(it.oid)+'\')" title="박스·중량·식별번호 입력" style="cursor:pointer;font-size:11px;opacity:.5">⚖</span>';
             if(it.prodKg || it.prodTail){
               const pk=it.prodKg?(String(it.prodKg).replace(/\.0+$/,''))+'kg':'';
               const nb=(it.boxes||[]).length;
@@ -2881,9 +2896,9 @@ function openOrderEditor(idsStr){
       tr.dataset.oid=id; tr.dataset.idx=ii;
       const wasK=it.wasProduct||it.product||'';
       tr.innerHTML=
-        '<td><input type="text" class="specin ed-text" value="'+esc(itemText(it))+'"></td>'
-       +'<td><input type="text" class="specin ed-prod" list="prodList" value="'+esc(it.product||'')+'" data-was="'+esc(wasK)+'"></td>'
-       +'<td><input type="text" class="specin ed-price" value="'+esc(it.price||'')+'"></td>'
+        '<td><input type="text" class="specin ed-text" placeholder="주문 원문 (수량·옵션)" value="'+esc(itemText(it))+'"></td>'
+       +'<td><input type="text" class="specin ed-prod" placeholder="정식 상품명 (브랜드)" list="prodList" value="'+esc(it.product||'')+'" data-was="'+esc(wasK)+'"></td>'
+       +'<td><input type="text" class="specin ed-price" placeholder="단가" value="'+esc(it.price||'')+'"></td>'
        +'<td style="text-align:center"><button type="button" onclick="this.closest(\'tr\').classList.toggle(\'killed\')">✕</button></td>';
       tb.appendChild(tr);
       // ⚖ 박스별 실측 입력 행 (v3.10)
