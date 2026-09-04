@@ -11,7 +11,13 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.1 — 2026-09-04
+  신화미트 주문방 (chat.html) v6.3 — 2026-09-04
+  · v6.3: ① 검색 강조 시 내 말풍선 글자가 안 보이던 문제(노란 바탕+흰 글자) 수정
+    ② PC: 말풍선 글자를 마우스로 긁어 복사 가능(긁는 동안은 답장 모드로 안 넘어감)
+    ③ 모바일 꾹 누르기 메뉴에 [✂ 선택 복사] — 전체 글이 선택 가능한 창으로 열림
+  · v6.2: 📦 택배 수취인 정보 — 파서가 추출한 수취인·연락처·주소·메모를 미처리 카드에
+    표시, [📋 복사](택배 프로그램 붙여넣기용: 이름·연락처·주소 탭 구분), ✏ 수정.
+    추가 메시지에 택배 정보가 오면 기존 주문에 병합.
   · v6.1: 내정보를 이메일 기준으로 — 로그인 토큰을 서버가 검증해 본인 명부 행만 표시
   · v6.0: 🏢 조직·업무요청·내정보·회사일정
     - "할일"을 "업무요청"으로 명칭 변경 (요청지도)
@@ -367,7 +373,9 @@
   #searchBar input{flex:1;min-width:80px;padding:7px 9px;border:1px solid var(--line);border-radius:6px;font-size:14px;font-family:var(--sans)}
   #searchBar button{border:1px solid var(--line);background:#fff;border-radius:6px;padding:6px 9px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap}
   #searchBar .cnt{font-size:12px;color:var(--muted);white-space:nowrap}
-  .msg-row.hit .bubble{background:#fff3b0 !important;box-shadow:0 0 0 2px #e0b800}
+  .msg-row.hit .bubble{background:#fff3b0 !important;color:var(--ink) !important;box-shadow:0 0 0 2px #e0b800}
+  .msg-row.hit .bubble a{color:#1a4f9c !important}
+  .bubble{user-select:text;-webkit-user-select:text}
   .msg-row.hit-cur .bubble{box-shadow:0 0 0 3px var(--accent)}
   /* 답장 대상 강조 */
   .msg-row.replying .bubble{outline:2px solid var(--accent);outline-offset:2px}
@@ -1861,6 +1869,7 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeLightbox(); }
 let LP_T=null, LP_FIRED=false;
 function bubbleTap(id){
   if(LP_FIRED){ LP_FIRED=false; return; }   // 꾹 누르기 직후의 탭은 무시
+  try{ const sel=window.getSelection(); if(sel && String(sel).trim()) return; }catch(e){}   // 글자 긁는 중이면 답장 안 함
   setReply(id);
 }
 (function(){
@@ -1885,7 +1894,8 @@ function openMsgMenu(id){
   const menu=document.getElementById('msgMenu');
   let h='<div class="mm-prev"><b>'+esc(m.name||'')+'</b> · '+esc(replyPreview(m))+'</div>';
   h+='<button onclick="closeMsgMenu();setReply(\''+esc(id)+'\')">↩ 답장 (추가 주문)</button>';
-  if(m.text) h+='<button id="mmCopy" onclick="copyMsg(\''+esc(id)+'\')">📋 복사</button>';
+  if(m.text) h+='<button id="mmCopy" onclick="copyMsg(\''+esc(id)+'\')">📋 전체 복사</button>'
+    +'<button onclick="selectCopy(\''+esc(id)+'\')">✂ 선택 복사 (원하는 부분만)</button>';
   if(m.photo && m.photo.id) h+='<button onclick="closeMsgMenu();analyzeLog(\''+esc(id)+'\')" style="color:#1a4f9c">📊 일지로 분석 → 생산일지 시트</button>';
   if(m.status==='error') h+='<button onclick="closeMsgMenu();retryMsg(\''+esc(id)+'\')" style="color:var(--accent)">🔄 다시 분석</button>';
   if((m.uid===(ME&&ME.uid) || IS_ADMIN) && !m.deleted){
@@ -1897,6 +1907,14 @@ function openMsgMenu(id){
   document.getElementById('msgMenuBg').classList.add('on');
 }
 function closeMsgMenu(){ document.getElementById('msgMenuBg').classList.remove('on'); }
+function selectCopy(id){
+  const m=CHAT[id]; if(!m) return;
+  const menu=document.getElementById('msgMenu');
+  menu.innerHTML='<div class="mm-prev"><b>✂ 선택 복사</b> — 원하는 부분을 드래그(꾹 눌러) 선택 후 복사하세요</div>'
+    +'<textarea readonly style="width:100%;min-height:160px;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:15px;font-family:var(--sans);box-sizing:border-box;user-select:text;-webkit-user-select:text">'+esc(m.text||'')+'</textarea>'
+    +'<button class="mm-x" onclick="closeMsgMenu()">닫기</button>';
+  const ta=menu.querySelector('textarea'); if(ta){ ta.focus(); }
+}
 async function copyMsg(id){
   const m=CHAT[id]; if(!m) return;
   try{
@@ -2385,7 +2403,9 @@ async function createOrders(text, forced, msgId, senderName, isEdit, guard){
         if(have.has(k)){ tot.dup++; return false; }
         have.add(k); return true;
       });
-      if(!toAdd.length && !repl) continue;
+      const shipNew=o.ship && (o.ship.phone||o.ship.addr||o.ship.name);
+      if(shipNew){ existing.ship=Object.assign({}, existing.ship||{}, o.ship); }
+      if(!toAdd.length && !repl && !shipNew) continue;
       toAdd.forEach(it=>{ it.at=Date.now(); it.src=msgId; });   // 출처 메시지 기록 (🆕 표시·되돌리기용)
       if(repl) tot.lines.push('✏ '+sk+' ('+mmdd(o.date)+') 품목 '+repl+'건 수정 반영');
       existing.items=(existing.items||[]).concat(toAdd);
@@ -2393,6 +2413,7 @@ async function createOrders(text, forced, msgId, senderName, isEdit, guard){
       existing.gapDone=false;
       existing.ts=Date.now();
       const upd={items:existing.items, hash:existing.hash, gapDone:false, ts:existing.ts};
+      if(existing.ship) upd.ship=existing.ship;
       // 이미 확인방으로 넘어간 주문에 품목이 추가되면 → 다시 미처리로 되돌림 (전산 재확인 필요)
       if(existing.confirm){ upd.confirm=null; upd.confirmAt=null; upd['chk/erp']=null; existing.confirm=null; if(existing.chk) delete existing.chk.erp; }
       await db.ref('orders/'+existing.id).update(upd);
@@ -2489,8 +2510,8 @@ let ROOM_LISTENERS=[], LAST_READ={}, ROOM_LAST={}, ROOM_UNREAD={};
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.1';
-const APP_BUILD=601;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.3';
+const APP_BUILD=603;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -2882,11 +2903,24 @@ function buildOrderCard(o){
     +(isLate?'<span style="font-size:10px;font-weight:800;background:#f3e4e2;color:#8a1c1c;border-radius:8px;padding:1px 7px">🆕 인쇄 이후</span>':'')
     +'<span class="oc-meta">'+(o.by?esc(o.by)+' · ':'')+(o.items||[]).length+'품목</span>'
     +(o.raw?'<span class="oc-src" onclick="alert(this.dataset.r)" data-r="'+esc((o.raw||'').slice(0,600))+'">원문</span>':'')
+    +((normVeh(o.vehicle||'')==='택배' && !(o.ship&&(o.ship.name||o.ship.phone||o.ship.addr)))?'<span onclick="editShip(\''+esc(o.id)+'\')" title="택배 수취인 정보 입력" style="cursor:pointer;font-size:11px;background:#fff7e6;border:1px solid #e6c98a;border-radius:8px;padding:1px 6px;color:#8a5a00">📦 수취인</span>':'')
     +'<span onclick="delOrder(\''+esc(o.id)+'\')" title="주문 삭제 (휴지통으로 — 복구 가능)" '
     +'style="cursor:pointer;font-size:13px;padding:0 2px">🗑</span>';
   card.appendChild(head);
   const cliEdit=document.createElement('div'); cliEdit.id='cliEdit_'+o.id; cliEdit.style.display='none';
   card.appendChild(cliEdit);
+  if(o.ship && (o.ship.name||o.ship.phone||o.ship.addr)){
+    const sb=document.createElement('div');
+    sb.style.cssText='margin:2px 0 6px;padding:7px 9px;background:#fff7e6;border:1px solid #e6c98a;border-radius:6px;font-size:12.5px;line-height:1.5';
+    sb.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center"><b style="color:#8a5a00">📦 택배 수취인</b><span>'
+      +'<button onclick="copyShip(\''+esc(o.id)+'\',this)" style="border:1px solid #d9b96a;background:#fff;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:800;cursor:pointer">📋 복사</button> '
+      +'<button onclick="editShip(\''+esc(o.id)+'\')" style="border:1px solid #d9b96a;background:#fff;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:800;cursor:pointer">✏</button></span></div>'
+      +(o.ship.name?'<div>👤 '+esc(o.ship.name)+'</div>':'')
+      +(o.ship.phone?'<div>📞 <a href="tel:'+esc(o.ship.phone)+'" style="color:#1a4f9c">'+esc(o.ship.phone)+'</a></div>':'')
+      +(o.ship.addr?'<div>🏠 '+esc(o.ship.addr)+'</div>':'')
+      +(o.ship.memo?'<div style="color:#8a5a00">📝 '+esc(o.ship.memo)+'</div>':'');
+    card.appendChild(sb);
+  }
   const measBox=document.createElement('div'); measBox.id='meas_'+o.id; measBox.style.display='none';
   card.appendChild(measBox);
   if(MEAS_OPEN[o.id]) setTimeout(()=>openMeasure(o.id, true), 0);
@@ -3065,6 +3099,24 @@ async function saveBoxes(id, idx){
     const box=document.getElementById('meas_'+id);
     if(box && !box.contains(document.activeElement)) renderSide();
   }catch(e){ alert('저장 실패: '+e.message); }
+}
+
+/* 📦 택배 수취인 — 복사(이름·연락처·주소·메모 탭 구분) · 수정 */
+async function copyShip(id, btn){
+  const o=ORDERS[id]; if(!o||!o.ship) return;
+  const t=[o.ship.name||'', o.ship.phone||'', o.ship.addr||'', o.ship.memo||''].join('\t');
+  try{ await navigator.clipboard.writeText(t); if(btn){ btn.textContent='복사됨 ✓'; setTimeout(()=>btn.textContent='📋 복사',1200); } }
+  catch(e){ prompt('길게 눌러 복사하세요', t); }
+}
+async function editShip(id){
+  const o=ORDERS[id]; if(!o) return;
+  const sh=Object.assign({name:'',phone:'',addr:'',memo:''}, o.ship||{});
+  const name=prompt('수취인 이름', sh.name); if(name===null) return;
+  const phone=prompt('연락처', sh.phone); if(phone===null) return;
+  const addr=prompt('주소', sh.addr); if(addr===null) return;
+  const memo=prompt('요청사항 (없으면 비움)', sh.memo); if(memo===null) return;
+  const ns={name:name.trim(), phone:phone.trim(), addr:addr.trim(), memo:memo.trim()};
+  try{ await db.ref('orders/'+id).update({ship:ns}); o.ship=ns; renderSide(); }catch(e){ alert('저장 실패: '+e.message); }
 }
 
 /* 📅 배송 날짜 수정 — 의심 주문(먼 미래 날짜 등)을 바로잡습니다 */
