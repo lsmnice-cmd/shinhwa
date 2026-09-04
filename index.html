@@ -2490,6 +2490,7 @@ function firstDate(){
 function setNoteDate(d){ noteDate=d; renderNote(); }
 function setWorkDate(d){ workDate=d; renderWork(); }
 
+/* [v4.5] 📦 택배 수취인 정보(이름·연락처·주소·메모)를 거래처 행 아래에 표시 + [복사] — 채팅 검색 없이 택배 입력 */
 /* [v4.4] ✔전산 옆에 전산처리한 사람·시각 표시 (주문방 체크 기록) */
 /* [v4.3] ⚖ 태그: 식별번호가 같은 박스끼리만 합산, 다른 번호는 따로 표시 (주문방과 동일) */
 /* [v4.2] 노트 거래처 옆 [📋 미처리로] 버튼 — 인쇄 후 접수분이 아니어도 주문방 미처리 블록에
@@ -2690,6 +2691,10 @@ function buildNoteTable(wrap, date, workMode){
           +(allErp?' <span style="font-size:10px;font-weight:800;color:#1f6b3a" title="전산처리 완료">✔전산</span>':'')
           +(function(){ const o1=orders.find(o=>o.chk&&o.chk.erp); if(!o1) return ''; const c=o1.chk.erp; return '<div style="font-size:9.5px;color:#1f6b3a;font-weight:400">'+esc(c.by||'')+' '+new Date(c.at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+'</div>'; })()
           +'<i class="pen">✎</i></span>'
+          +(function(){ const so=orders.find(o=>o.ship&&(o.ship.name||o.ship.phone||o.ship.addr)); if(!so) return ''; const sh=so.ship;
+              return '<div style="margin-top:4px;padding:5px 7px;background:#fff7e6;border:1px solid #e6c98a;border-radius:5px;font-size:11px;line-height:1.45;text-align:left;font-weight:400">'
+                +'<div style="display:flex;justify-content:space-between;align-items:center"><b style="color:#8a5a00">📦 택배</b><button type="button" class="no-print" onclick="event.stopPropagation();copyShip(\''+esc(so.id)+'\',this)" style="border:1px solid #d9b96a;background:#fff;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:800;cursor:pointer">복사</button></div>'
+                +(sh.name?'<div>'+esc(sh.name)+'</div>':'')+(sh.phone?'<div>'+esc(sh.phone)+'</div>':'')+(sh.addr?'<div>'+esc(sh.addr)+'</div>':'')+(sh.memo?'<div style="color:#8a5a00">'+esc(sh.memo)+'</div>':'')+'</div>'; })()
           +(anyPend?'<div class="no-print"><button type="button" onclick="event.stopPropagation();sendToPend(\''+esc(ids)+'\',this)" title="주문방 미처리 블록에 다시 표시" style="margin-top:3px;border:1px solid var(--line);background:#fff;border-radius:5px;padding:2px 7px;font-size:10.5px;font-weight:800;cursor:pointer;color:#8a1c1c">'+(orders.some(o=>o.forcePend)?'📋 미처리에 있음':'📋 미처리로')+'</button></div>':'')
           +'</td>';
         html+='<td class="items">'+(itemHtml||'<span style="color:#b71c1c;font-size:12px">⚠ 품목 없음 (분석 중단 등으로 손상된 주문) — 거래처명을 클릭해 삭제하세요</span>')+'</td>';
@@ -2937,6 +2942,13 @@ function measText(it){
   boxes.forEach(b=>{ const k=b.tail||'-'; if(!g[k]){ g[k]={kg:0,n:0}; order.push(k); } g[k].kg+=(Number(b.kg)||0); g[k].n++; });
   const parts=order.map(k=>(g[k].kg?f(g[k].kg)+'kg':'')+'('+(k==='-'?'번호없음':k)+(g[k].n>1?'×'+g[k].n:'')+')');
   return (nb>1?nb+'박스 ':'')+parts.join(' · ');
+}
+/* 📦 택배 수취인 복사 (이름·연락처·주소·메모 탭 구분) */
+async function copyShip(id, btn){
+  const o=ORDERS[id]; if(!o||!o.ship) return;
+  const t=[o.ship.name||'', o.ship.phone||'', o.ship.addr||'', o.ship.memo||''].join('\t');
+  try{ await navigator.clipboard.writeText(t); if(btn){ btn.textContent='복사됨 ✓'; setTimeout(()=>btn.textContent='복사',1200); } }
+  catch(e){ prompt('길게 눌러 복사하세요', t); }
 }
 /* 📋 주문방 미처리 블록으로 보내기 (인쇄 도장과 무관하게 표시) */
 async function sendToPend(idsStr, btn){
