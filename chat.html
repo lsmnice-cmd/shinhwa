@@ -11,7 +11,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.6 — 2026-09-04
+  신화미트 주문방 (chat.html) v6.7 — 2026-09-04
+  · v6.7: ♻ 삭제된 메시지 복구 — 삭제된 말풍선을 꾹 누르면 [♻ 복구]. 함께 휴지통에
+    갔던 주문은 되살리고, 추가 품목처럼 되돌릴 데이터가 없으면 자동으로 다시 분석.
   · v6.6: 체크 스티커를 말풍선 옆(상대 말풍선은 오른쪽, 내 말풍선은 왼쪽)에 세로로 쌓음
   · v6.5: 체크 스티커를 "이름 · 일시" 줄로 쌓아 표시 (최근 체크가 맨 위), [✔] 버튼은 맨 아래
   · v6.4: ✅ 체크 스티커 — 말풍선 아래 [✔] 를 누르면 내 체크가 붙고(누구누구 확인),
@@ -1687,7 +1689,8 @@ function bubbleHtml(id,m){
   if(m.deleted){
     return '<div class="bubble-wrap">'
       +'<div class="m-name">'+esc(m.name||'')+'</div>'
-      +'<div class="bubble" style="opacity:.55"><i>🗑 삭제된 메시지</i></div>'
+      +'<div class="bubble" style="opacity:.55" oncontextmenu="event.preventDefault();openMsgMenu(\''+esc(id)+'\')" title="꾹 누르면 복구"><i>🗑 삭제된 메시지</i>'
+      +((ME&&(m.uid===ME.uid||IS_ADMIN))?' <span onclick="event.stopPropagation();restoreMsg(\''+esc(id)+'\')" style="cursor:pointer;color:#1f6b3a;font-weight:800;font-style:normal;font-size:12px">♻ 복구</span>':'')+'</div>'
       +'</div><span><span class="m-time">'+hhmm(m.ts||Date.now())+'</span></span>';
   }
   let body='';
@@ -1919,7 +1922,16 @@ function bubbleTap(id){
   ['touchend','touchcancel'].forEach(ev=>box.addEventListener(ev,()=>clearTimeout(LP_T)));
 })();
 function openMsgMenu(id){
-  const m=CHAT[id]; if(!m||m.sys||m.deleted) return;
+  const m=CHAT[id]; if(!m||m.sys) return;
+  if(m.deleted){
+    if(!(ME&&(m.uid===ME.uid||IS_ADMIN))) return;
+    const menu=document.getElementById('msgMenu');
+    menu.innerHTML='<div class="mm-prev"><b>'+esc(m.name||'')+'</b> · 🗑 삭제된 메시지</div>'
+      +'<button onclick="closeMsgMenu();restoreMsg(\''+esc(id)+'\')" style="color:#1f6b3a">♻ 복구 (주문도 되살림)</button>'
+      +'<button class="mm-x" onclick="closeMsgMenu()">닫기</button>';
+    document.getElementById('msgMenuBg').classList.add('on');
+    return;
+  }
   const menu=document.getElementById('msgMenu');
   let h='<div class="mm-prev"><b>'+esc(m.name||'')+'</b> · '+esc(replyPreview(m))+'</div>';
   h+='<button onclick="closeMsgMenu();setReply(\''+esc(id)+'\')">↩ 답장 (추가 주문)</button>';
@@ -1985,6 +1997,27 @@ async function rollbackMsg(msgId){
   }
   seenHashes=new Set(Object.values(ORDERS).map(x=>x&&x.hash).filter(Boolean));
   renderSide();
+}
+
+/* ♻ 삭제된 메시지 복구 — 휴지통의 주문을 되살리고, 없으면 다시 분석 */
+async function restoreMsg(id){
+  const m=CHAT[id]; if(!m||!m.deleted) return;
+  if(!(ME&&(m.uid===ME.uid||IS_ADMIN))){ alert('본인 메시지만 복구할 수 있습니다.'); return; }
+  if(!confirm('이 메시지를 복구할까요?\n함께 삭제됐던 주문도 되살립니다.')) return;
+  try{
+    // 1) 휴지통에서 이 메시지가 만든 주문 복구
+    const ss=await db.ref('trash').once('value'); const tr=ss.val()||{};
+    const upd={}; let n=0;
+    Object.keys(tr).forEach(oid=>{ const o=tr[oid]; if(o&&o.chatMsg===id){ const c=Object.assign({},o); delete c.delAt; delete c.delBy; delete c.delWhy; upd['orders/'+oid]=c; upd['trash/'+oid]=null; n++; } });
+    await msgRef(id).update({deleted:null, status:(n||!roomOf(id).parse)?(m.text?'done':null):'parsing'});
+    if(n){ await db.ref().update(upd); }
+    // 2) 되살릴 주문이 없고(추가 품목 등) 주문방이면 → 다시 분석해 재반영
+    if(!n && roomOf(id).parse && m.text){
+      const tok=newTok();
+      await msgRef(id).update({status:'parsing', lock:tok, lockAt:Date.now(), orders:null});
+      await processMessage(id, Object.assign({}, m, {deleted:null}), tok);
+    }
+  }catch(e){ alert('복구 실패: '+e.message); }
 }
 
 /* 🗑 말풍선 삭제 — 주문노트 반영분도 함께 취소 */
@@ -2540,8 +2573,8 @@ let ROOM_LISTENERS=[], LAST_READ={}, ROOM_LAST={}, ROOM_UNREAD={};
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.6';
-const APP_BUILD=606;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.7';
+const APP_BUILD=607;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
