@@ -11,7 +11,11 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.7 — 2026-09-04
+  신화미트 주문방 (chat.html) v6.8 — 2026-09-06
+  · v6.8: 🚚 차량 배정 3단계 — ① 머리말 차량이 정상이면 그대로 ② 없거나 오타(6509 등)면
+    거래처 기본 차량(마스터) ③ 그것도 없고 오타가 한 글자 차이면 보정(6509→6506),
+    아니면 미지정 + 텔레그램 "차량 확인 요청"(카드 링크) → 미처리에서 지정하면 학습.
+    보정·대체 내역은 🤖 답장에 표시.
   · v6.7: ♻ 삭제된 메시지 복구 — 삭제된 말풍선을 꾹 누르면 [♻ 복구]. 함께 휴지통에
     갔던 주문은 되살리고, 추가 품목처럼 되돌릴 데이터가 없으면 자동으로 다시 분석.
   · v6.6: 체크 스티커를 말풍선 옆(상대 말풍선은 오른쪽, 내 말풍선은 왼쪽)에 세로로 쌓음
@@ -673,6 +677,20 @@ let SHOW_ALL=false;      // [전체 보기] 토글
 const VORDER=['0966','6506','1982','4232','택배','사무실','온라인','미지정'];
 const VEH_MERGE={'방문':'사무실','마포':'사무실'};
 const VEH_NUMS=['0966','6506','1982','4232'];
+const VEH_KNOWN=['0966','6506','1982','4232','택배','사무실'];
+function isKnownVeh(v){ v=normVeh(v); return VEH_KNOWN.indexOf(v)>=0; }
+/* 차량 결정: 머리말 정상 → 그대로 / 오타·없음 → 거래처 기본 차량 → 한 글자 차이 보정 → 미지정 */
+function resolveVeh(raw, sk){
+  const v=normVeh(raw||'');
+  if(raw && isKnownVeh(v)) return {veh:v, note:''};
+  const mv=sk?matchVehicle(sk):'';
+  if(mv && mv!=='미지정') return {veh:mv, note:(raw&&v!=='미지정')?('차량 "'+raw+'" 오타로 보여 거래처 기본차량 '+mv+' 적용'):''};
+  if(raw && /^\d{4}$/.test(v)){
+    const near=VEH_NUMS.filter(k=>[...k].filter((c,i)=>c!==v[i]).length===1);
+    if(near.length===1) return {veh:near[0], note:'차량 "'+raw+'" → '+near[0]+' (한 글자 오타 보정)', fixed:true};
+  }
+  return {veh:'미지정', note:(raw&&v!=='미지정')?('차량 "'+raw+'" 을 알 수 없음 — 미처리에서 지정해 주세요 (지정하면 학습)'):''};
+}
 const SITE_URL=location.origin+location.pathname;   // 텔레그램 알림에 넣을 링크
 
 /* ── 📲 푸시 설정 ─────────────────────────────────────────
@@ -2259,6 +2277,13 @@ function looksLikeOrder(text){
 }
 
 const LOCK_TTL=180*1000;   // 이 시간 안의 잠금은 남의 것으로 존중
+function askVehicleTg(tot, msgId){
+  try{
+    if(!tot.vehAsk||!tot.vehAsk.length) return;
+    const lines=tot.vehAsk.map(x=>'· '+(x.client||'(거래처?)')+(x.raw?' — 입력값 "'+x.raw+'"':' — 차량 없음'));
+    gsCall('tgNotify',{text:'🚚 차량 확인 요청\n'+lines.join('\n')+'\n\n미처리 카드에서 차량을 지정하면 그 거래처에 학습됩니다.\n'+SITE_URL+'?room=order'}).catch(()=>{});
+  }catch(e){}
+}
 async function processMessage(msgId, m, tok){
   if(!m.text){ return; }
   const mref=msgRef(msgId);
@@ -2284,6 +2309,7 @@ async function processMessage(msgId, m, tok){
     const isEdit=String(m.text||'').split(/\n/).slice(0,4).some(l=>/(^|\s)수정\s*$|^수정\s/.test(l.trim()));
     const tot=await createOrders(m.text, forced, msgId, m.name||'', isEdit, guard);
     if(tot.aborted){ console.log('🔒 처리 중 잠금 빼앗김 — 결과 버림', msgId); return; }
+    askVehicleTg(tot, msgId);
     const got=(tot.ids||[]).length + (tot.dup||0);
     if(!got && looksLikeOrder(m.text)){
       throw new Error('주문으로 인식하지 못했습니다 — 자동으로 다시 분석합니다');
@@ -2404,7 +2430,7 @@ async function createOrders(text, forced, msgId, senderName, isEdit, guard){
     }
     o.client=sk;
     o.date=o.date||baseDate;
-    o.vehicle=normVeh(o.vehicle||matchVehicle(sk)||'미지정');
+    { const rv=resolveVeh(o.vehicle, sk); if(rv.note){ tot.lines.push('🚚 '+rv.note); if(rv.veh==='미지정') tot.vehAsk=(tot.vehAsk||[]).concat([{client:sk, raw:o.vehicle}]); } o.vehicle=rv.veh; }
     if(!sk){ o.needClient=true; tot.needClient++; }
 
     // 단일품목 업체
@@ -2573,8 +2599,8 @@ let ROOM_LISTENERS=[], LAST_READ={}, ROOM_LAST={}, ROOM_UNREAD={};
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.7';
-const APP_BUILD=607;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.8';
+const APP_BUILD=608;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
