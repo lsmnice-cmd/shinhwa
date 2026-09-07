@@ -11,7 +11,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.11 — 2026-09-07
+  신화미트 주문방 (chat.html) v6.12 — 2026-09-07
+  · v6.12: 🚚 택배관리 연동 — 택배 주문을 [전산처리] 체크하면 택배관리 시트의
+    '주문방대기'에 송장 재료(수취인·주소·품목별 박스수) 자동 등록. 📦 블록의
+    [🚚 송장 대기로] 버튼으로 수동 등록도 가능. 등록되면 카드에 표시.
   · v6.11: 미처리 규칙을 "인쇄됨 도장" 방식으로 — 인쇄할 때 그 순간 존재하던 주문에
     printed=true 를 직접 찍고(주문노트 v4.9), 도장 없는 주문은 무조건 미처리에 표시.
     인쇄된 주문에 품목이 추가되면 도장이 풀려 다시 미처리로. 시각 비교 없음.
@@ -2607,8 +2610,8 @@ let ROOM_LISTENERS=[], LAST_READ={}, ROOM_LAST={}, ROOM_UNREAD={};
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.11';
-const APP_BUILD=611;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.12';
+const APP_BUILD=612;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3022,7 +3025,9 @@ function buildOrderCard(o){
       +(o.ship.phone?'<div>📞 <a href="tel:'+esc(o.ship.phone)+'" style="color:#1a4f9c">'+esc(o.ship.phone)+'</a></div>':'')
       +(o.ship.addr?'<div>🏠 '+esc(o.ship.addr)+'</div>':'')
       +(o.ship.memo?'<div style="color:#8a5a00">📝 '+esc(o.ship.memo)+'</div>':'')
-      +((o.ship.sender||o.ship.senderPhone)?'<div style="border-top:1px dashed #e6c98a;margin-top:4px;padding-top:3px;color:#5a4a1a">📤 보내는 분: '+esc(o.ship.sender||'')+(o.ship.senderPhone?' <a href="tel:'+esc(o.ship.senderPhone)+'" style="color:#1a4f9c">'+esc(o.ship.senderPhone)+'</a>':'')+'</div>':'');
+      +((o.ship.sender||o.ship.senderPhone)?'<div style="border-top:1px dashed #e6c98a;margin-top:4px;padding-top:3px;color:#5a4a1a">📤 보내는 분: '+esc(o.ship.sender||'')+(o.ship.senderPhone?' <a href="tel:'+esc(o.ship.senderPhone)+'" style="color:#1a4f9c">'+esc(o.ship.senderPhone)+'</a>':'')+'</div>':'')
+      +'<div style="margin-top:5px">'+(o.shipQ?'<span style="font-size:11px;color:#1f6b3a;font-weight:800">🚚 송장 대기 등록됨 ('+(o.shipQ.boxes||'?')+'박스 · '+esc(o.shipQ.by||'')+' '+new Date(o.shipQ.at).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})+')</span> ':'')
+      +'<button onclick="shipQueue(\''+esc(o.id)+'\',this)" style="border:1px solid #d9b96a;background:#fff;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:800;cursor:pointer">'+(o.shipQ?'🚚 다시 등록':'🚚 송장 대기로')+'</button></div>';
     card.appendChild(sb);
   }
   const measBox=document.createElement('div'); measBox.id='meas_'+o.id; measBox.style.display='none';
@@ -3203,6 +3208,24 @@ async function saveBoxes(id, idx){
     const box=document.getElementById('meas_'+id);
     if(box && !box.contains(document.activeElement)) renderSide();
   }catch(e){ alert('저장 실패: '+e.message); }
+}
+
+/* 🚚 택배관리 앱 송장 대기 등록 (v6.12) */
+async function shipQueue(id, btn){
+  const o=ORDERS[id]; if(!o) return;
+  if(btn){ btn.disabled=true; btn.textContent='등록 중…'; }
+  try{
+    const snap={id:o.id, date:o.date, client:o.client, ship:o.ship||null, items:(o.items||[]).map(it=>({text:it.text||'', product:it.product||'', boxN:it.boxN||null, prodKg:it.prodKg||null}))};
+    const r=await gsCall('shipQueue',{order:JSON.stringify(snap), by:MYNAME});
+    if(!r.ok) throw new Error(r.error||'등록 실패');
+    await db.ref('orders/'+id).update({shipQ:{at:Date.now(), boxes:r.boxes||0, by:MYNAME, state:r.already?'가져옴':'대기'}});
+    o.shipQ={at:Date.now(), boxes:r.boxes||0, by:MYNAME, state:r.already?'가져옴':'대기'};
+    if(btn) btn.textContent='등록됨 ✓';
+    renderSide();
+  }catch(e){
+    if(btn){ btn.disabled=false; btn.textContent='🚚 송장 대기로'; }
+    alert('송장 대기 등록 실패: '+e.message);
+  }
 }
 
 /* 📦 택배 수취인 — 복사(이름·연락처·주소·메모 탭 구분) · 수정 */
@@ -3406,6 +3429,8 @@ async function toggleChk(id, key, on){
   const upd={}; upd['chk/'+key]= on?o.chk[key]:null;
   // 생산확인은 주문노트의 "완료" 표시와 동기화
   if(key==='prod') upd['done']=!!on;
+  // 🚚 택배 주문 전산처리 → 택배관리 송장 대기 등록
+  if(key==='erp' && on && normVeh(o.vehicle||'')==='택배') setTimeout(()=>shipQueue(id), 300);
   // ⚖ 주문확인·생산확인을 켜면 실측 입력칸 펼침 (아직 안 적은 품목이 있을 때)
   if(on && (key==='ord'||key==='prod')){
     const need=(o.items||[]).some(it=>!(it&&(it.prodKg||it.prodTail)));
