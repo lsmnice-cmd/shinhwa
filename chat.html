@@ -11,7 +11,13 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.9 — 2026-09-07
+  신화미트 주문방 (chat.html) v6.11 — 2026-09-07
+  · v6.11: 미처리 규칙을 "인쇄됨 도장" 방식으로 — 인쇄할 때 그 순간 존재하던 주문에
+    printed=true 를 직접 찍고(주문노트 v4.9), 도장 없는 주문은 무조건 미처리에 표시.
+    인쇄된 주문에 품목이 추가되면 도장이 풀려 다시 미처리로. 시각 비교 없음.
+  · v6.10: 미처리 판정을 서버 시각 기준으로 — 주문 접수(sts)와 인쇄 도장을 모두 Firebase
+    서버 시각으로 기록해, 봇 PC/인쇄 PC 시계 차이로 "인쇄 이후 주문"이 미처리에서
+    빠지던 문제 제거. 카드에 접수 시각 표시.
   · v6.9: 📦 블록에 보내는 분(이름·연락처) 표시, 복사에 포함, ✏ 수정에 보내는 분 항목 추가
   · v6.8: 🚚 차량 배정 3단계 — ① 머리말 차량이 정상이면 그대로 ② 없거나 오타(6509 등)면
     거래처 기본 차량(마스터) ③ 그것도 없고 오타가 한 글자 차이면 보정(6509→6506),
@@ -2502,7 +2508,8 @@ async function createOrders(text, forced, msgId, senderName, isEdit, guard){
       existing.hash=hashOrder(existing);
       existing.gapDone=false;
       existing.ts=Date.now();
-      const upd={items:existing.items, hash:existing.hash, gapDone:false, ts:existing.ts};
+      const upd={items:existing.items, hash:existing.hash, gapDone:false, ts:existing.ts, sts:firebase.database.ServerValue.TIMESTAMP, printed:false};
+      existing.printed=false;
       if(existing.ship) upd.ship=existing.ship;
       // 이미 확인방으로 넘어간 주문에 품목이 추가되면 → 다시 미처리로 되돌림 (전산 재확인 필요)
       if(existing.confirm){ upd.confirm=null; upd.confirmAt=null; upd['chk/erp']=null; existing.confirm=null; if(existing.chk) delete existing.chk.erp; }
@@ -2520,7 +2527,7 @@ async function createOrders(text, forced, msgId, senderName, isEdit, guard){
     (o.items||[]).forEach(it=>{ if(it && !it.src) it.src=msgId; });
     const ref=db.ref('orders').push();
     o.id=ref.key;
-    await ref.set(o);
+    await ref.set(Object.assign({}, o, {sts:firebase.database.ServerValue.TIMESTAMP, printed:false}));
     ORDERS[o.id]=o;
     seenHashes.add(o.hash);
     tot.ids.push(o.id);
@@ -2600,8 +2607,8 @@ let ROOM_LISTENERS=[], LAST_READ={}, ROOM_LAST={}, ROOM_UNREAD={};
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.9';
-const APP_BUILD=609;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.11';
+const APP_BUILD=611;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -2652,10 +2659,15 @@ function allChecked(o){
 }
 function printedAt(date){ return Number(PRINTED&&PRINTED[date])||0; }
 const KEEP_PEND_VEH=['택배','사무실'];   // 인쇄 후에도 미처리에 남기는 차량 (나중에 챙기는 것들)
+/* 인쇄됨 판정: 도장(printed) 우선, 도장 정보가 없는 옛 주문만 시각 비교로 대신 */
+function isPrinted(o){
+  if(o.printed===true) return true;
+  if(o.printed===false) return false;
+  const p=printedAt(o.date); return !!(p && ((o.sts||o.ts)||0)<p);
+}
 function pendListFor(date){
-  const cut=SHOW_ALL?0:printedAt(date);
   return Object.values(ORDERS).filter(o=>o && o.date===date && !o.confirm
-    && ((o.ts||0)>cut || o.forcePend || KEEP_PEND_VEH.indexOf(normVeh(o.vehicle||''))>=0));
+    && (SHOW_ALL || !isPrinted(o) || o.forcePend || KEEP_PEND_VEH.indexOf(normVeh(o.vehicle||''))>=0));
 }
 function toggleShowAll(){ SHOW_ALL=!SHOW_ALL; renderSide(); }
 /* ============================================================
@@ -2988,6 +3000,7 @@ function buildOrderCard(o){
   const isLate=pAt && (o.ts||0)>pAt;
   head.innerHTML='<span class="oc-cli'+(o.needClient?' warn':'')+'" style="cursor:pointer;text-decoration:underline dotted" '
     +'onclick="openCliEdit(\''+esc(o.id)+'\')" title="누르면 거래처 수정 (잘못 잡힌 이름은 학습됩니다)">'+esc(o.client||'(거래처 미확인)')+'</span>'
+    +'<span title="접수 시각" style="font-size:10px;color:var(--muted)">'+(o.sts||o.ts?new Date(o.sts||o.ts).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})+' 접수':'')+'</span>'
     +'<span onclick="editDate(\''+esc(o.id)+'\')" title="누르면 배송 날짜 수정" '
     +'style="cursor:pointer;font-size:11px;font-weight:800;color:#5a5045;background:#f0ece1;border-radius:8px;padding:2px 7px">📅'+esc(mmdd(o.date||''))+'</span>'
     +(isLate?'<span style="font-size:10px;font-weight:800;background:#f3e4e2;color:#8a1c1c;border-radius:8px;padding:1px 7px">🆕 인쇄 이후</span>':'')
