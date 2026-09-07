@@ -11,95 +11,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.12 — 2026-09-07
-  · v6.12: 🚚 택배관리 연동 — 택배 주문을 [전산처리] 체크하면 택배관리 시트의
-    '주문방대기'에 송장 재료(수취인·주소·품목별 박스수) 자동 등록. 📦 블록의
-    [🚚 송장 대기로] 버튼으로 수동 등록도 가능. 등록되면 카드에 표시.
-  · v6.11: 미처리 규칙을 "인쇄됨 도장" 방식으로 — 인쇄할 때 그 순간 존재하던 주문에
-    printed=true 를 직접 찍고(주문노트 v4.9), 도장 없는 주문은 무조건 미처리에 표시.
-    인쇄된 주문에 품목이 추가되면 도장이 풀려 다시 미처리로. 시각 비교 없음.
-  · v6.10: 미처리 판정을 서버 시각 기준으로 — 주문 접수(sts)와 인쇄 도장을 모두 Firebase
-    서버 시각으로 기록해, 봇 PC/인쇄 PC 시계 차이로 "인쇄 이후 주문"이 미처리에서
-    빠지던 문제 제거. 카드에 접수 시각 표시.
-  · v6.9: 📦 블록에 보내는 분(이름·연락처) 표시, 복사에 포함, ✏ 수정에 보내는 분 항목 추가
-  · v6.8: 🚚 차량 배정 3단계 — ① 머리말 차량이 정상이면 그대로 ② 없거나 오타(6509 등)면
-    거래처 기본 차량(마스터) ③ 그것도 없고 오타가 한 글자 차이면 보정(6509→6506),
-    아니면 미지정 + 텔레그램 "차량 확인 요청"(카드 링크) → 미처리에서 지정하면 학습.
-    보정·대체 내역은 🤖 답장에 표시.
-  · v6.7: ♻ 삭제된 메시지 복구 — 삭제된 말풍선을 꾹 누르면 [♻ 복구]. 함께 휴지통에
-    갔던 주문은 되살리고, 추가 품목처럼 되돌릴 데이터가 없으면 자동으로 다시 분석.
-  · v6.6: 체크 스티커를 말풍선 옆(상대 말풍선은 오른쪽, 내 말풍선은 왼쪽)에 세로로 쌓음
-  · v6.5: 체크 스티커를 "이름 · 일시" 줄로 쌓아 표시 (최근 체크가 맨 위), [✔] 버튼은 맨 아래
-  · v6.4: ✅ 체크 스티커 — 말풍선 아래 [✔] 를 누르면 내 체크가 붙고(누구누구 확인),
-    다시 누르면 해제. 꾹 누르기 메뉴에도 [✅ 체크 붙이기]. 저장: chat/{id}/reacts/{uid}
-  · v6.3: ① 검색 강조 시 내 말풍선 글자가 안 보이던 문제(노란 바탕+흰 글자) 수정
-    ② PC: 말풍선 글자를 마우스로 긁어 복사 가능(긁는 동안은 답장 모드로 안 넘어감)
-    ③ 모바일 꾹 누르기 메뉴에 [✂ 선택 복사] — 전체 글이 선택 가능한 창으로 열림
-  · v6.2: 📦 택배 수취인 정보 — 파서가 추출한 수취인·연락처·주소·메모를 미처리 카드에
-    표시, [📋 복사](택배 프로그램 붙여넣기용: 이름·연락처·주소 탭 구분), ✏ 수정.
-    추가 메시지에 택배 정보가 오면 기존 주문에 병합.
-  · v6.1: 내정보를 이메일 기준으로 — 로그인 토큰을 서버가 검증해 본인 명부 행만 표시
-  · v6.0: 🏢 조직·업무요청·내정보·회사일정
-    - "할일"을 "업무요청"으로 명칭 변경 (요청지도)
-    - 👥 직원 목록: 관리자는 이름 수정·팀 지정·팀장 지정, 이메일 확인. 팀별 그룹 표시
-    - 📢 팀/전체 대상 공지(확인만)·업무요청(완료/미완료·피드백) — 관리자·팀장만.
-      개인 요청은 모두 가능. 수신자별 응답 집계를 보낸 사람이 확인
-    - 👤 내정보: 연차 시트에서 생년월일·입사일·근속·연차 발생/사용/잔여·사용내역·
-      신청 진행상태, [연차 신청] 버튼 (Code v3.2 myInfo)
-    - 📅 회사일정: 회사 캘린더 월 달력(연차 자동 동기화 + 관리자 근무/휴무 등록)
-  · v5.14: [전산처리] 체크 시 확인 창 — 거래처·품목·박스 요약을 보여주고 확인해야 넘어감
-    (실수 방지). 체크 해제는 확인 없이.
-  · v5.13: 🔍 검색 범위 최근 2주 — 검색창을 열면 2주치 대화를 자동으로 불러와 검색
-    (더 옛것은 [옛 대화 더]). PC에서 Ctrl+F(Mac ⌘F)로 바로 검색창 열기.
-  · v5.12: 체크(주문확인·생산확인·전산처리)한 사람·시각을 버튼 아래에 바로 표시
-    (기존엔 마우스 툴팁에만). 확인방 카드에도 "전산처리: 이름 · 시각" 표시.
-  · v5.11: ① 피드백 확인 — "내가 지시한 것"에서 [확인]을 누르면 그 블록은 지시 내용
-    한 줄로 접힘(누르면 펼침) ② 할일지도에 지시 내용 검색창 ③ ⚖ 태그: 식별번호가
-    같은 박스끼리만 합산, 다른 번호는 따로 표시 (예: 19.77kg(828) · 17.04kg(831))
-  · v5.10: 미처리 표시 규칙 — 택배·사무실 차량 주문은 인쇄됐어도 전산처리 전까지
-    미처리에 계속 표시. 주문노트의 [📋 미처리로] 버튼(forcePend)으로 보낸 주문도 표시.
-  · v5.9: ⚖ 실측 입력에 "박스 수" 칸 — 숫자를 넣으면 그만큼 줄이 한 번에 생기고
-    박스 수(boxN)도 저장. 중량을 다 안 적어도 "4박스"는 태그에 표시.
-  · v5.8: 카톡 방식 그대로 — 사진에 답장으로 "9.3 오전 육절기"를 달면 사진 설명·
-    파일명으로 붙고, 생산방이면 자동으로 일지 분석(날짜·오전/오후·작업장을 시트에)
-  · v5.7: 어느 방에서든 사진 꾹 누르기(PC 우클릭) 메뉴에 [📊 일지로 분석] 추가
-    (생산방은 사진 아래 버튼도 그대로). 분석 결과는 그 사진이 있는 방에 답장.
-  · v5.6: ① 업로드 진행 배너("📤 업로드 중 2/3…") + 진행 중 중복 업로드 차단
-    ② 생산방: 사진 설명에 "일지"/"마감"이 있으면 자동 분석, 버튼 강조
-  · v5.5: 📊 생산방 일지 분석 — 생산방의 사진 말풍선 아래 [📊 일지 분석] 버튼.
-    누르면 사진을 읽어(Gemini 비전) 마스터 시트의 "생산일지" 탭에 행으로 추가하고
-    🤖 답장으로 결과 표 요약. (Code v2.9 parseLog + 사진저장 v1.4 get 필요)
-  · v5.4: 앱을 열면(화면 복귀 시) 쌓인 시스템 알림 정리 + 아이콘 배지 지움
-    (수신기 v1.1과 한 쌍 — 알림이 밀린 수만큼 쌓이고 아이콘에 숫자 표시)
-  · v5.3: ① 할일 지시 창 — "완료 시 피드백 요청" 체크 → 완료할 때 내용·사진 첨부 필수,
-    지시자에게 피드백 표시 ② 🗺 할일지도(관리자 전용 탭) — 날짜별로 누가→누구에게
-    무엇을, 상태·피드백·첨부사진 한눈에, 지시자/대상자별 정렬·필터
-  · v5.2: ① "○○ 수정" 인식 개선 — 날짜·차량 뒤 거래처 줄의 "수정"도 인식,
-    품목명이 같으면(수량 무관) 기존 품목을 교체, 기존 1품목·수정 1품목이면 통째 교체
-    ② 모바일 미처리 목록 하단 여백 — 마지막 카드의 체크 버튼이 시스템 바에 가려지던 것
-  · v5.1: 입력창 버튼 세로 가운데 정렬 (두 줄 입력창일 때 버튼이 아래로 처지던 것)
-  · v5.0: ① 첫 로그인 때 이름 지정(이후 계속 사용, 계정에 저장)
-    ② 모바일 입력창 UI 정돈(둥근 입력창·원형 버튼)
-    ③ 👥 접속인원 클릭 → 전체 등록 직원 목록(초록 점=접속 중), 사람별 [+할일]
-    ④ ✅ 할일 탭(미처리 옆) — "내가 해야 할 것 / 내가 지시한 것" 구분,
-       블록마다 [완료]/[미완료(사유)], 대상자 접속 시 팝업. 저장: tasks (규칙 추가 필요)
-  · v4.13: 🔁 무한 새로고침 수정 — 버전 비교를 소수(4.10=4.1<4.9)로 하던 실수를
-    정수 빌드번호(APP_BUILD)로 교체. meta/appBuild 사용, 옛 화면용 meta/appVer는
-    5로 고정해 옛 화면들이 마지막으로 한 번 새로고침하고 새 코드로 넘어오게 함.
-  · v4.12: 압축 규칙 교체 — "긴 변 기준"이 세로로 긴 표 캡처의 가로를 짓뭉개던
-    문제(673×4445 → 212×1400). 총 화소(6MP) 기준으로 바꿔 폭이 유지되고,
-    작은 이미지는 아예 손대지 않음. 화질 우선 방은 원본 그대로(v4.11).
-  · v4.11: 방별 사진 화질 — 온라인·생산·배송·입출고는 원본 그대로 저장(압축 없음,
-    표·전표·라벨 글씨 보존), 주문방은 2400px·92%. 크게 보기는 최대 해상도로.
-  · v4.10: 접속 바에 버전 표시(v4.10) — 어느 기기가 옛 버전인지 확인용.
-    옛 버전(v4.6 이하) 화면은 자동 새로고침을 못 받으므로 기기마다 1회
-    완전 종료 후 재실행 필요. 접속인원에 자동처리 화면은 🤖로 따로 표시.
-  · v4.9: 사진 화질 개선 — 업로드 압축 완화(긴 변 2400px·JPEG 92%, 이전 1400px·82%),
-    채팅 미리보기 800px, 크게 보기는 2400px 고해상도. (용량 계정으로 옮겨 여유 있음)
-  · v4.8: 사진 크게 보기에서 두 손가락 확대·이동, 두 번 탭 확대/원복 (자체 구현 —
-    화면 확대 잠금 설정과 무관하게 동작)
-  · v4.7: 완료(done)된 메시지의 재처리 원천 차단 + 🤖 답장에 처리 화면 표시
-    (예: "· 처리: 🤖 자동처리" / "· 처리: 이승민") — 중복 처리 시 출처 추적용
+  신화미트 주문방 (chat.html) v4.6 — 2026-09-03
   · v4.6: 🖼 사진을 누르면 앱 안에서 크게 보기(드라이브 앱·계정 선택 창으로
     안 넘어감). 핀치 확대, 배경 탭·✕로 닫기, [원본 열기] 버튼은 따로.
   · v4.5: 🛤 처리 통로 단일화 — 봇 PC 자동처리 화면이 살아 있으면(20초마다
@@ -321,56 +233,14 @@
   }
 
   #wrap.dropping{outline:3px dashed var(--accent);outline-offset:-6px}
-  /* 📤 업로드 진행 배너 */
-  #upBanner{display:none;position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:420;background:#1a1a1a;color:#fff;
-            padding:10px 16px;border-radius:24px;font-size:14px;font-weight:800;box-shadow:0 6px 20px rgba(0,0,0,.35);white-space:nowrap}
-  #upBanner.on{display:block}
-  #upBanner .bar{display:block;height:4px;background:#444;border-radius:2px;margin-top:6px;overflow:hidden}
-  #upBanner .bar i{display:block;height:100%;background:#2fb54a;width:0;transition:width .3s}
-  .mbg{display:none;position:fixed;inset:0;z-index:350;background:rgba(0,0,0,.4)}
-  .mbg.on{display:flex;align-items:center;justify-content:center;padding:12px}
-  .mbox{background:var(--panel);border-radius:12px;width:min(560px,100%);max-height:88vh;overflow:auto;padding:14px;box-shadow:0 8px 30px rgba(0,0,0,.3)}
-  .mbox h3{margin:0 0 8px;font-size:16px;display:flex;justify-content:space-between;align-items:center}
-  .mbox h3 button{border:none;background:none;font-size:18px;cursor:pointer}
-  .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13.5px;margin:6px 0}
-  .kv b{color:var(--muted);font-weight:700}
-  .stat{display:flex;gap:8px;margin:8px 0}
-  .stat div{flex:1;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px;text-align:center}
-  .stat div span{display:block;font-size:11px;color:var(--muted)} .stat div b{font-size:20px}
-  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
-  .cal .h{text-align:center;font-size:11px;font-weight:800;color:var(--muted);padding:2px}
-  .cal .d{min-height:58px;border:1px solid var(--line);border-radius:5px;padding:2px 3px;font-size:10.5px;background:#fff;overflow:hidden}
-  .cal .d .n{font-weight:800;font-size:12px} .cal .d.o{background:#f5f2ea;color:#c0bab0} .cal .d.t .n{color:var(--accent)}
-  .cal .ev{display:block;background:#e4edf9;color:#1a4f9c;border-radius:3px;padding:0 3px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
-  .cal .ev.auto{background:#e7f2ea;color:#1f6b3a}
-  .team-h{font-size:12px;font-weight:800;color:var(--muted);margin:10px 0 2px;border-top:2px dashed var(--line);padding-top:8px}
-  /* 👥 직원 목록 · ✅ 할일 */
-  #peopleBg,#taskPopBg{display:none;position:fixed;inset:0;z-index:350;background:rgba(0,0,0,.4)}
-  #peopleBg.on,#taskPopBg.on{display:flex;align-items:center;justify-content:center;padding:16px}
-  #peopleBox,#taskPop{background:var(--panel);border-radius:12px;width:min(440px,100%);max-height:80vh;overflow:auto;padding:14px;box-shadow:0 8px 30px rgba(0,0,0,.3)}
-  .pp-row{display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid var(--line)}
-  .pp-dot{width:10px;height:10px;border-radius:50%;background:#c9c4b8;flex:0 0 auto}
-  .pp-dot.on{background:#2fb54a;box-shadow:0 0 0 3px #d7f3dd}
-  .pp-name{flex:1;font-weight:700}
-  .pp-sub{font-size:11px;color:var(--muted)}
-  .pp-row button{border:1px solid var(--line);background:#fff;border-radius:6px;padding:5px 9px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap}
-  .tk{border:1px solid var(--line);border-left:4px solid #1f6b3a;border-radius:8px;background:#fff;padding:9px 11px;margin-bottom:8px}
-  .tk.fail{border-left-color:#b23b32;background:#fdf5f4}
-  .tk.done{border-left-color:#9a9384;opacity:.7}
-  .tk .t{font-size:14px;font-weight:700;white-space:pre-wrap}
-  .tk .m{font-size:11px;color:var(--muted);margin-top:3px}
-  .tk .b{display:flex;gap:6px;margin-top:7px}
-  .tk .b button{border:none;border-radius:6px;padding:7px 12px;font-weight:800;font-size:12.5px;cursor:pointer}
-  .tk-sec{font-size:12px;font-weight:800;color:var(--muted);margin:12px 0 6px;padding-top:10px;border-top:2px dashed var(--line)}
-  .tk-sec:first-child{border-top:none;padding-top:0;margin-top:4px}
   /* 🖼 사진 크게 보기 */
   #lightbox{display:none;position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.92);flex-direction:column}
   #lightbox.on{display:flex}
   #lightbox .lb-top{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;color:#fff}
   #lightbox .lb-top a{color:#ddd;font-size:13px;text-decoration:none;border:1px solid #666;border-radius:6px;padding:6px 10px}
   #lightbox .lb-top button{background:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:800;cursor:pointer}
-  #lightbox .lb-body{flex:1;overflow:hidden;display:flex;align-items:center;justify-content:center;touch-action:none;position:relative}
-  #lightbox img{max-width:100%;max-height:100%;object-fit:contain;transform-origin:0 0;will-change:transform;user-select:none;-webkit-user-drag:none}
+  #lightbox .lb-body{flex:1;overflow:auto;display:flex;align-items:center;justify-content:center;touch-action:pinch-zoom}
+  #lightbox img{max-width:100%;max-height:100%;object-fit:contain}
   /* 🚚 배송방 차량 탭·패널 */
   #vehBar{display:none;gap:5px;padding:6px 8px;background:#fff8dc;border-bottom:1px solid #e2d3a8;overflow-x:auto;white-space:nowrap}
   #vehBar.on{display:flex}
@@ -393,18 +263,8 @@
   #searchBar input{flex:1;min-width:80px;padding:7px 9px;border:1px solid var(--line);border-radius:6px;font-size:14px;font-family:var(--sans)}
   #searchBar button{border:1px solid var(--line);background:#fff;border-radius:6px;padding:6px 9px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap}
   #searchBar .cnt{font-size:12px;color:var(--muted);white-space:nowrap}
-  .msg-row.hit .bubble{background:#fff3b0 !important;color:var(--ink) !important;box-shadow:0 0 0 2px #e0b800}
-  .msg-row.hit .bubble a{color:#1a4f9c !important}
-  .bubble{user-select:text;-webkit-user-select:text}
+  .msg-row.hit .bubble{background:#fff3b0 !important;box-shadow:0 0 0 2px #e0b800}
   .msg-row.hit-cur .bubble{box-shadow:0 0 0 3px var(--accent)}
-  /* ✅ 체크 스티커 */
-  .react-col{display:flex;flex-direction:column;align-items:flex-start;gap:3px;align-self:flex-end;margin:0 4px;max-width:150px}
-  .msg-row.mine .react-col{align-items:flex-end}
-  .react-list{padding:4px 8px;background:#e7f2ea;border:1px solid #bcd8c5;border-radius:8px;font-size:11px;color:#1f6b3a;line-height:1.5;text-align:left;white-space:nowrap}
-  .react-list div span{color:#5a8a66;font-size:10px;margin-left:4px}
-  .react{display:inline-flex;align-items:center;gap:3px;margin:3px 0 0;padding:1px 7px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:11px;color:#b8b2a6;cursor:pointer;user-select:none}
-  .react b{font-size:11px;color:#1f6b3a} .react i{font-style:normal;font-size:10px;color:#8a857a}
-  .react.on{background:#e7f2ea;border-color:#9cc9aa;color:#1f6b3a}
   /* 답장 대상 강조 */
   .msg-row.replying .bubble{outline:2px solid var(--accent);outline-offset:2px}
   /* 꾹 누르기 메뉴 (카톡식) */
@@ -474,14 +334,13 @@
   #replyBar.on{display:flex}
   #replyBar .rt{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #replyBar button{background:none;border:none;font-size:14px;cursor:pointer;color:var(--muted)}
-  .in-row{display:flex;gap:6px;align-items:center}
-  #chatInput{flex:1;min-height:44px;max-height:130px;padding:11px 14px;border:1px solid var(--line);
-             border-radius:22px;font-family:var(--sans);font-size:16px;line-height:1.4;resize:none;background:#fff;box-shadow:inset 0 1px 2px rgba(0,0,0,.04)}
+  .in-row{display:flex;gap:8px;align-items:flex-end}
+  #chatInput{flex:1;min-height:42px;max-height:130px;padding:10px 12px;border:1px solid var(--line);
+             border-radius:8px;font-family:var(--sans);font-size:16px;line-height:1.45;resize:none;background:#fffef9}
   #chatInput:focus{outline:none;border-color:var(--accent)}
-  .ibtn{width:44px;height:44px;border:none;background:#efece4;border-radius:50%;
-        font-size:19px;cursor:pointer;flex:0 0 auto;display:flex;align-items:center;justify-content:center}
-  .ibtn:active{background:#e2ddd0}
-  #sendBtn{width:auto;min-width:58px;height:44px;background:var(--accent);color:#fff;border:none;font-size:14px;font-weight:800;padding:0 16px;border-radius:22px}
+  .ibtn{width:42px;height:40px;border:1px solid var(--line);background:#fff;border-radius:8px;
+        font-size:18px;cursor:pointer;flex:0 0 auto}
+  #sendBtn{width:auto;min-width:66px;background:var(--accent);color:#fff;border:none;font-size:14px;font-weight:800;padding:0 16px}
   #sendBtn:disabled{background:#b5b0a4}
   .in-hint{font-size:10.5px;color:#a09a8a;margin-top:4px;text-align:right}
 
@@ -496,7 +355,7 @@
   .datebar2 button{border:1px solid var(--line);background:#fff;border-radius:5px;padding:4px 9px;
                    cursor:pointer;font-weight:800;font-size:13px}
   .datebar2 .cur{font-family:var(--mono);font-weight:800;font-size:13px;padding:0 4px;letter-spacing:1px;cursor:pointer}
-  #sideScroll{flex:1;overflow-y:auto;padding:4px 12px calc(90px + env(safe-area-inset-bottom));-webkit-overflow-scrolling:touch}
+  #sideScroll{flex:1;overflow-y:auto;padding:4px 12px 20px;-webkit-overflow-scrolling:touch}
   .side-sum{font-size:11.5px;color:var(--muted);padding:2px 2px 8px}
 
   .veh-h{display:flex;align-items:baseline;gap:8px;margin:12px 2px 6px}
@@ -557,11 +416,6 @@
 <body>
 
 <datalist id="cliList"></datalist>
-<div id="upBanner"></div>
-<div id="peopleBg" onclick="closePeople()"><div id="peopleBox" onclick="event.stopPropagation()"></div></div>
-<div id="infoBg" class="mbg" onclick="this.classList.remove('on')"><div id="infoBox" class="mbox" onclick="event.stopPropagation()"></div></div>
-<div id="calBg" class="mbg" onclick="this.classList.remove('on')"><div id="calBox" class="mbox" onclick="event.stopPropagation()"></div></div>
-<div id="taskPopBg" onclick="closeTaskPop()"><div id="taskPop" onclick="event.stopPropagation()"></div></div>
 <div id="lightbox" onclick="closeLightbox()">
   <div class="lb-top" onclick="event.stopPropagation()">
     <a id="lbOpen" href="#" target="_blank" rel="noopener">↗ 원본 열기</a>
@@ -589,8 +443,6 @@
 <header class="top">
   <h1>신화<b>미트</b> · 주문방</h1>
   <button class="hbtn" onclick="window.open('index.html','_blank')">📓 주문노트</button>
-  <button class="hbtn" onclick="openMyInfo()" title="내 연차·정보">👤 내정보</button>
-  <button class="hbtn" onclick="openCal()" title="회사 일정">📅 회사일정</button>
   <div class="status"><span id="whoami" style="margin-right:4px"></span><span id="fbdot" class="dot"></span><span id="fbstat">연결 준비</span></div>
 </header>
 
@@ -638,8 +490,6 @@
       <div class="seg">
         <button id="segPend" class="on" onclick="setSide('pend')">📋 미처리 <span id="pendBadge" class="badge" style="display:none">0</span></button>
         <button id="segConf" onclick="setSide('conf')">🔎 확인방 <span id="confBadge" class="badge" style="display:none;background:#1e4f7a">0</span></button>
-        <button id="segTask" onclick="setSide('task')">✅ 업무요청 <span id="taskBadge" class="badge" style="display:none;background:#1f6b3a">0</span></button>
-        <button id="segMap" onclick="setSide('map')" style="display:none">🗺 요청지도</button>
       </div>
       <div class="datebar2" id="dateNav">
         <button onclick="shiftDate(-1)">‹</button>
@@ -687,20 +537,6 @@ let SHOW_ALL=false;      // [전체 보기] 토글
 const VORDER=['0966','6506','1982','4232','택배','사무실','온라인','미지정'];
 const VEH_MERGE={'방문':'사무실','마포':'사무실'};
 const VEH_NUMS=['0966','6506','1982','4232'];
-const VEH_KNOWN=['0966','6506','1982','4232','택배','사무실'];
-function isKnownVeh(v){ v=normVeh(v); return VEH_KNOWN.indexOf(v)>=0; }
-/* 차량 결정: 머리말 정상 → 그대로 / 오타·없음 → 거래처 기본 차량 → 한 글자 차이 보정 → 미지정 */
-function resolveVeh(raw, sk){
-  const v=normVeh(raw||'');
-  if(raw && isKnownVeh(v)) return {veh:v, note:''};
-  const mv=sk?matchVehicle(sk):'';
-  if(mv && mv!=='미지정') return {veh:mv, note:(raw&&v!=='미지정')?('차량 "'+raw+'" 오타로 보여 거래처 기본차량 '+mv+' 적용'):''};
-  if(raw && /^\d{4}$/.test(v)){
-    const near=VEH_NUMS.filter(k=>[...k].filter((c,i)=>c!==v[i]).length===1);
-    if(near.length===1) return {veh:near[0], note:'차량 "'+raw+'" → '+near[0]+' (한 글자 오타 보정)', fixed:true};
-  }
-  return {veh:'미지정', note:(raw&&v!=='미지정')?('차량 "'+raw+'" 을 알 수 없음 — 미처리에서 지정해 주세요 (지정하면 학습)'):''};
-}
 const SITE_URL=location.origin+location.pathname;   // 텔레그램 알림에 넣을 링크
 
 /* ── 📲 푸시 설정 ─────────────────────────────────────────
@@ -821,9 +657,9 @@ const GS_DEFAULT_URL='https://script.google.com/macros/s/AKfycbyt7vccpdQMOh2eyrk
    둘 다 비우면 기존 방식(주문 서버 계정 드라이브)으로 저장합니다. */
 const PHOTO_URL='https://script.google.com/macros/s/AKfycbyUue0ngzFYeQO6_Ya5XutOVFYkpZFr6cNhuYlefcbYSDcCjI2Ibr6RgAeI8ltLiiwl/exec';
 const PHOTO_TOKEN='photo2026shinhwa';
-async function photoUpload(b64, name, label, roomName){
+async function photoUpload(b64, name, label){
   if(PHOTO_URL && PHOTO_TOKEN){
-    const body=new URLSearchParams({action:'photo', token:PHOTO_TOKEN, data:b64, name:name, by:MYNAME, room:roomName||CUR_ROOM.name, label:label||''});
+    const body=new URLSearchParams({action:'photo', token:PHOTO_TOKEN, data:b64, name:name, by:MYNAME, room:CUR_ROOM.name, label:label||''});
     const res=await fetch(PHOTO_URL,{method:'POST',body});
     const j=await res.json();
     if(!j.ok) throw new Error(j.error||'사진 서버 오류');
@@ -1066,14 +902,6 @@ async function onSignedIn(u){
     try{
       const nk=await db.ref('users/'+u.uid+'/nick').once('value');
       if(nk.val()){ MYNAME=String(nk.val()).trim()||MYNAME; renderPresence(); }
-      else if(!IS_RUNNER){
-        const v=prompt('채팅에 표시할 이름을 입력하세요 (직원들이 알아보는 이름으로)\n한 번 정하면 이 계정에서 계속 사용됩니다', MYNAME);
-        const nm=(v||'').trim().slice(0,20);
-        if(nm){ MYNAME=nm; await db.ref('users/'+u.uid+'/nick').set(nm).catch(()=>{}); renderPresence(); }
-      }
-      // 👥 등록 직원 목록용 기록
-      db.ref('users/'+u.uid).update({email:(u.email||'').toLowerCase(), name:MYNAME, lastSeen:Date.now()}).catch(()=>{});
-      db.ref('users/'+u.uid+'/nick').on('value', s3=>{ const v=String(s3.val()||'').trim(); if(v && v!==MYNAME && !IS_RUNNER){ MYNAME=v; renderPresence(); } });
     }catch(e){}
     try{
       const j=await gsCall('getAccess');
@@ -1084,7 +912,6 @@ async function onSignedIn(u){
     loadMaster();
     watchMasterVer();   // 📡 다른 화면의 학습을 실시간 수신
     watchAppVer();      // 🔄 새 버전 배포 감지 → 자동 새로고침
-    watchUsersTasks();  // 👥 직원 목록 · ✅ 할일
     // 🛤 자동처리 화면 생존 신호 구독 (일반 화면) — 살아 있으면 내 폰은 파싱 안 함
     if(!IS_RUNNER){ db.ref('meta/runnerAlive').on('value', s2=>{ RUNNER_ALIVE=Number(s2.val()||0); }); }
     if(IS_RUNNER){
@@ -1109,12 +936,10 @@ function renderWhoami(u){
 let _reloadT=null;
 function watchAppVer(){
   if(!db) return;
-  // 옛 화면(v4.4~4.12)용 신호: 5로 고정 → 그 화면들은 한 번 새로고침하고 새 코드로 넘어옴
-  db.ref('meta/appVer').once('value').then(s=>{ if(Number(s.val()||0)!==5) db.ref('meta/appVer').set(5).catch(()=>{}); });
-  db.ref('meta/appBuild').on('value', s=>{
+  db.ref('meta/appVer').on('value', s=>{
     const remote=Number(s.val()||0);
-    if(!remote || remote<APP_BUILD){ db.ref('meta/appBuild').set(APP_BUILD).catch(()=>{}); return; }
-    if(remote>APP_BUILD) scheduleReload();
+    if(!remote || remote<APP_VER){ db.ref('meta/appVer').set(APP_VER).catch(()=>{}); return; }
+    if(remote>APP_VER) scheduleReload();
   });
 }
 function scheduleReload(){
@@ -1127,18 +952,6 @@ function scheduleReload(){
   };
   _reloadT=setTimeout(tryIt, IS_RUNNER?1500:5000);
 }
-
-/* 🔔 앱을 열거나 화면에 돌아오면 쌓인 알림·아이콘 배지 정리 (v5.4) */
-async function clearSysNotifs(){
-  try{ if('clearAppBadge' in navigator) await navigator.clearAppBadge(); }catch(e){}
-  try{
-    const reg=SW_REG||(navigator.serviceWorker&&await navigator.serviceWorker.getRegistration());
-    if(reg){ const ns=await reg.getNotifications(); ns.forEach(n=>n.close()); }
-  }catch(e){}
-}
-document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') clearSysNotifs(); });
-window.addEventListener('focus', clearSysNotifs);
-setTimeout(clearSysNotifs, 3000);
 
 /* 📡 학습 실시간 전파 — 뭔가 학습되면 모든 화면이 마스터를 다시 읽습니다 */
 let MASTER_VER=0, _mvT=null;
@@ -1191,9 +1004,8 @@ function renderPresence(){
   if(!bar) return;
   const list=Object.values(PRESENCE||{}).map(p=>p&&p.name).filter(Boolean);
   const uniq=[...new Set(list)];
-  bar.innerHTML='<span onclick="openPeople()" style="cursor:pointer" title="전체 직원 목록 · 업무요청">👥</span>'
+  bar.innerHTML='<span>👥</span>'
     +'<span class="names"><b>'+uniq.length+'명 접속</b>'+(uniq.length?' — '+esc(uniq.join(', ')):'')+'</span>'
-    +'<span title="이 화면의 버전" style="font-size:10px;color:var(--muted);white-space:nowrap">v'+APP_VER+'</span>'
     +'<button onclick="toggleAlert()" title="새 메시지 소리·진동·알림 (주말·공휴일·평일 18~07시는 매너타임으로 조용)">'+(ALERT_ON?(isQuiet()?'🌙 매너타임':'🔔 알림'):'🔕 알림')+'</button>'
     +'<button onclick="changeName()">✏ 내 이름: '+esc(MYNAME)+'</button>'
     +'<button onclick="toggleSearch()" title="채팅 검색">🔍</button>';
@@ -1205,37 +1017,8 @@ function toggleSearch(on){
   const bar=document.getElementById('searchBar');
   const want=(on===undefined)?!bar.classList.contains('on'):on;
   bar.classList.toggle('on', want);
-  if(want){ document.getElementById('searchIn').focus(); runSearch(); ensureTwoWeeks(); }
+  if(want){ document.getElementById('searchIn').focus(); runSearch(); }
   else{ clearSearchMarks(); document.getElementById('searchIn').value=''; }
-}
-/* PC: Ctrl+F / ⌘F → 주문방 검색창 */
-document.addEventListener('keydown',e=>{
-  if((e.ctrlKey||e.metaKey) && (e.key==='f'||e.key==='F')){ e.preventDefault(); toggleSearch(true); const i=document.getElementById('searchIn'); if(i){ i.focus(); i.select(); } }
-});
-/* 검색을 열면 최근 2주치 대화를 자동 로드 (없는 것만 위에 이어 붙임) */
-let TWOWEEK_LOADED={};
-async function ensureTwoWeeks(){
-  if(!db || TWOWEEK_LOADED[CUR_ROOM.id]) return;
-  TWOWEEK_LOADED[CUR_ROOM.id]=true;
-  const cut=Date.now()-14*24*3600*1000;
-  const oldest=Math.min(...Object.values(CHAT).map(m=>m&&m.ts||Infinity));
-  if(isFinite(oldest) && oldest<=cut) return;              // 이미 2주 이상 로드됨
-  const cnt=document.getElementById('searchCnt'); if(cnt) cnt.textContent='2주치 불러오는 중…';
-  try{
-    const ss=await roomRef().orderByChild('ts').startAt(cut).endAt(isFinite(oldest)?oldest-1:Date.now()).once('value');
-    const arr=[]; ss.forEach(c=>{ if(!CHAT[c.key]) arr.push([c.key,c.val()]); });
-    const box=document.getElementById('chatScroll');
-    const keepH=box.scrollHeight, keepTop=box.scrollTop;
-    arr.sort((a,b)=>(a[1].ts||0)-(b[1].ts||0)).reverse().forEach(([id,m])=>{
-      m._room=CUR_ROOM.id; CHAT[id]=m;
-      const row=document.createElement('div'); row.id='m_'+id;
-      if(m.sys){ row.className='sys-row'; row.innerHTML='<div class="sys'+(m.kind==='warn'?' warn':m.kind==='err'?' err':'')+'">'+sysHtml(m)+'</div>'; }
-      else{ row.className='msg-row'+((ME&&m.uid===ME.uid)?' mine':''); row.innerHTML=bubbleHtml(id,m); }
-      box.insertBefore(row, box.firstChild);
-    });
-    box.scrollTop=keepTop+(box.scrollHeight-keepH);
-    runSearch();
-  }catch(e){ console.warn('2주 로드', e); if(cnt) cnt.textContent=''; }
 }
 function clearSearchMarks(){
   document.querySelectorAll('.msg-row.hit,.msg-row.hit-cur').forEach(e=>e.classList.remove('hit','hit-cur'));
@@ -1490,7 +1273,6 @@ function subscribeRoom(){
   for(const k in CHAT) delete CHAT[k];
   document.getElementById('chatScroll').innerHTML='';
   clearReply();
-  try{ TWOWEEK_LOADED[CUR_ROOM.id]=false; }catch(e){}
   const ref=roomRef().limitToLast(200);
   const rid=CUR_ROOM.id;
   ref.on('child_added', s=>{
@@ -1554,7 +1336,7 @@ function renderVehPanel(){
     const st=(c.ord?'✔주문 ':'')+(c.prod?'✔생산 ':'')+(c.erp?'✔전산':'');
     const items=(o.items||[]).map(it=>{
       let x=esc(itemText(it));
-      if(it.prodKg||it.prodTail||it.boxN) x+=' <span style="color:#1a4f9c;font-weight:800;font-size:11px">⚖'+esc(measText(it))+'</span>';
+      if(it.prodKg||it.prodTail) x+=' <span style="color:#1a4f9c;font-weight:800;font-size:11px">⚖'+(it.prodKg?String(it.prodKg).replace(/\.0+$/,'')+'kg':'')+(it.prodTail?'('+esc(it.prodTail)+')':'')+'</span>';
       return x;
     }).join('<br>');
     h+='<div class="vp-row"><div class="c">'+esc(o.client||'(미지정)')+'</div><div class="i">'+items+'</div><div class="s" style="color:'+(c.prod?'#1f6b3a':'var(--muted)')+'">'+(st||'대기')+'</div></div>';
@@ -1636,23 +1418,7 @@ function updateMsg(id, m){
     el.innerHTML=bubbleHtml(id,m);
   }
 }
-function sysHtml(m){ return '<span class="tag">🤖</span> '+esc(m.text||'')+(m.by?' <span style="font-size:10px;color:#aaa">· 처리: '+esc(m.by)+'</span>':''); }
-/* ✅ 체크 스티커 (v6.4) */
-function reactHtml(id,m){
-  const r=m.reacts||{}; const mine=ME&&r[ME.uid];
-  const list=Object.keys(r).map(u=>r[u]).filter(x=>x&&x.name).sort((a,b)=>(b.at||0)-(a.at||0));   // 최근 체크가 위
-  const fmt=t=>{ const d=new Date(t||0); const today=new Date().toDateString()===d.toDateString();
-    return (today?'':(d.getMonth()+1)+'/'+d.getDate()+' ')+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
-  let h='';
-  if(list.length) h+='<div class="react-list">'+list.map(x=>'<div>✔ <b>'+esc(x.name)+'</b> <span>'+fmt(x.at)+'</span></div>').join('')+'</div>';
-  h+='<span class="react'+(mine?' on':'')+'" onclick="event.stopPropagation();toggleReact(\''+esc(id)+'\')" title="'+(mine?'내 체크 떼기':'체크 붙이기 (확인했음)')+'">'+(mine?'✔ 체크됨':'✔ 체크')+(list.length?'<b>'+list.length+'</b>':'')+'</span>';
-  return h;
-}
-async function toggleReact(id){
-  const m=CHAT[id]; if(!m||!ME) return;
-  const has=m.reacts&&m.reacts[ME.uid];
-  try{ await msgRef(id).child('reacts/'+ME.uid).set(has?null:{name:MYNAME, at:Date.now()}); }catch(e){ alert('실패: '+e.message); }
-}
+function sysHtml(m){ return '<span class="tag">🤖</span> '+esc(m.text||''); }
 function stateHtml(id,m){
   if(m.status==='parsing'||m.status==='retrying') return '<span class="m-state parsing">분석중…</span>';
   if(m.status==='error')   return '<span class="m-state error" style="cursor:pointer;text-decoration:underline" '
@@ -1717,20 +1483,14 @@ function bubbleHtml(id,m){
   if(m.deleted){
     return '<div class="bubble-wrap">'
       +'<div class="m-name">'+esc(m.name||'')+'</div>'
-      +'<div class="bubble" style="opacity:.55" oncontextmenu="event.preventDefault();openMsgMenu(\''+esc(id)+'\')" title="꾹 누르면 복구"><i>🗑 삭제된 메시지</i>'
-      +((ME&&(m.uid===ME.uid||IS_ADMIN))?' <span onclick="event.stopPropagation();restoreMsg(\''+esc(id)+'\')" style="cursor:pointer;color:#1f6b3a;font-weight:800;font-style:normal;font-size:12px">♻ 복구</span>':'')+'</div>'
+      +'<div class="bubble" style="opacity:.55"><i>🗑 삭제된 메시지</i></div>'
       +'</div><span><span class="m-time">'+hhmm(m.ts||Date.now())+'</span></span>';
   }
   let body='';
   if(m.photo && m.photo.id){
-    body+='<img class="ph" src="https://drive.google.com/thumbnail?id='+esc(m.photo.id)+'&sz=w800" '
+    body+='<img class="ph" src="https://drive.google.com/thumbnail?id='+esc(m.photo.id)+'&sz=w480" '
         +'onclick="event.stopPropagation();openLightbox(\''+esc(m.photo.id)+'\')" '
         +'onerror="this.replaceWith(Object.assign(document.createElement(\'a\'),{href:\'https://drive.google.com/file/d/'+esc(m.photo.id)+'/view\',target:\'_blank\',textContent:\'📷 사진 열기\'}))">';
-  }
-  if(m.photo && m.photo.id && roomOf(id).id==='prod' && !m.deleted){
-    body+='<div style="margin-top:4px"><button onclick="event.stopPropagation();analyzeLog(\''+esc(id)+'\')" '
-        +'style="border:none;background:'+(m.logDone?'#e7f2ea':'#1a4f9c')+';color:'+(m.logDone?'#1f6b3a':'#fff')+';border-radius:8px;padding:8px 12px;font-size:13px;font-weight:800;cursor:pointer;width:100%">'
-        +(m.logDone?'📊 일지 분석됨 ('+esc(String(m.logDone))+'행 기록) · 다시 분석':'📊 일지 분석 → 시트에 기록')+'</button></div>';
   }
   if(m.file && m.file.id){
     body+='<a href="https://drive.google.com/file/d/'+esc(m.file.id)+'/view" target="_blank" onclick="event.stopPropagation()" '
@@ -1742,194 +1502,25 @@ function bubbleHtml(id,m){
     +'<div class="m-name">'+esc(m.name||'')+'</div>'
     +'<div class="bubble" onclick="bubbleTap(\''+esc(id)+'\')" oncontextmenu="event.preventDefault();openMsgMenu(\''+esc(id)+'\')" title="누르면 답장 · 꾹 누르면 메뉴(복사/답장)">'+quote+body+'</div>'
     +'</div>'
-    +'<div class="react-col">'+reactHtml(id,m)+'</div>'
     +'<span>'+stateHtml(id,m)+(m.edited?'<span style="font-size:10px;color:var(--muted)">(수정됨)</span>':'')+'<span class="m-time">'+hhmm(m.ts||Date.now())+'</span></span>'
     +'<button class="rbtn" title="이 메시지에 답장 (추가 주문)" onclick="setReply(\''+esc(id)+'\')">↩</button>';
 }
-/* 📊 생산 일지 사진 분석 → 생산일지 시트 (v5.5) */
-const UPLOAD_CACHE={};   // 이 세션에서 올린 사진의 base64 (photoId -> b64)
-async function analyzeLog(msgId){
-  const m=CHAT[msgId]; if(!m||!m.photo||!m.photo.id) return;
-  const pid=m.photo.id;
-  if(m.logDone && !confirm('이미 분석된 사진입니다. 다시 분석하면 시트에 행이 또 추가됩니다. 계속할까요?')) return;
-  const btn=document.querySelector('#m_'+CSS.escape(msgId)+' button'); if(btn){ btn.disabled=true; btn.textContent='📊 읽는 중…'; }
-  upShow('📊 일지를 읽는 중… (10~20초)', 40);
-  try{
-    let b64=UPLOAD_CACHE[pid], mime='image/jpeg';
-    if(!b64){
-      if(!(PHOTO_URL&&PHOTO_TOKEN)) throw new Error('사진 서버 설정이 필요합니다');
-      const body=new URLSearchParams({action:'get', token:PHOTO_TOKEN, id:pid});
-      const res=await fetch(PHOTO_URL,{method:'POST',body}); const j=await res.json();
-      if(!j.ok) throw new Error(j.error||'사진을 가져오지 못했습니다');
-      b64=j.data; mime=j.mime||mime;
-    }
-    const r=await gsCall('parseLog',{data:b64, mime:mime, by:MYNAME, photoId:pid, caption:(CHAT[msgId]&&CHAT[msgId].text)||''});
-    if(!r.ok) throw new Error(r.error||'분석 실패');
-    const lines=['📊 일지 분석 완료 — '+(r.date||'날짜?')+(r.shift?' '+r.shift:'')+(r.place?' '+r.place:'')+(r.team?' · '+r.team:'')+' · '+r.n+'행 시트 기록'];
-    (r.rows||[]).slice(0,25).forEach(x=>{
-      lines.push('· '+(x.origin?'('+x.origin+') ':'')+(x.item||'?')+(x.code?' ('+x.code+')':'')+' 투입 '+(x.input_kg==null?'-':x.input_kg)+(x.output_kg!=null?' → 생산 '+x.output_kg:'')+(x.note?' · '+x.note:''));
-    });
-    if((r.rows||[]).length>25) lines.push('…외 '+((r.rows||[]).length-25)+'행');
-    lines.push('시트: '+(r.sheetUrl||''));
-    await db.ref(roomOf(msgId).path).push().set({sys:1, kind:'ok', ref:msgId, ts:Date.now(), text:lines.join('\n'), by:MYNAME});
-    await msgRef(msgId).update({logDone:r.n});
-    upShow('✅ 시트에 '+r.n+'행 기록', 100); setTimeout(upHide, 1500);
-  }catch(e){
-    upHide();
-    alert('일지 분석 실패: '+e.message);
-  }finally{ if(btn){ btn.disabled=false; btn.textContent='📊 일지 분석 → 시트에 기록'; } }
-}
-
-/* 👤 내정보 (v6.0) */
-const LEAVE_FORM_URL='https://script.google.com/macros/s/AKfycbzve5GlZBlpSKKEJQulZPakohtTYLccoWi-1wqnUXgLDRXWrTTzg_YUjzzBLA7-iO7pQQ/exec';
-async function openMyInfo(){
-  const bg=document.getElementById('infoBg'), box=document.getElementById('infoBox');
-  const X='<button onclick="document.getElementById(\'infoBg\').classList.remove(\'on\')">✕</button>';
-  box.innerHTML='<h3>👤 내정보 '+X+'</h3><div style="color:var(--muted)">연차 시트에서 불러오는 중…</div>';
-  bg.classList.add('on');
-  try{
-    const idToken=await auth.currentUser.getIdToken();
-    const r=await gsCall('myInfo',{idToken});
-    if(!r.ok) throw new Error(r.error||'조회 실패');
-    let h='<h3>👤 '+esc(r.name)+' <span style="font-size:11px;color:var(--muted);font-weight:400">'+esc(r.email||'')+'</span> '+X+'</h3>';
-    h+='<div class="kv">'+(r.birth?'<b>생년월일</b><span>'+esc(r.birth)+'</span>':'')+(r.joined?'<b>입사일</b><span>'+esc(r.joined)+(r.tenure?' ('+esc(r.tenure)+')':'')+'</span>':'')+(r.phone?'<b>연락처</b><span>'+esc(r.phone)+'</span>':'')+(r.workStart?'<b>출근시간</b><span>'+esc(r.workStart)+'</span>':'')+'</div>';
-    if(r.leaveTotal!=null){
-      h+='<div style="font-size:12px;color:var(--muted);margin-top:8px">'+esc(r.leaveYear||'')+'년 연차</div><div class="stat"><div><span>발생</span><b>'+r.leaveTotal+'</b></div><div><span>사용</span><b>'+r.leaveUsed+'</b></div><div><span>잔여</span><b style="color:var(--accent)">'+r.leaveRemain+'</b></div></div>';
-      if(r.leaveDeduct||r.leaveMonthly) h+='<div style="font-size:11px;color:var(--muted)">기본 '+r.leaveBase+(r.leaveMonthly?' + 신입월차 '+r.leaveMonthly:'')+(r.leaveDeduct?' − 결근차감 '+r.leaveDeduct:'')+'</div>';
-    }
-    h+='<a href="'+LEAVE_FORM_URL+'" target="_blank" rel="noopener" style="display:block;text-align:center;margin:10px 0;padding:11px;background:var(--accent);color:#fff;border-radius:8px;text-decoration:none;font-weight:800">📝 연차 신청하기</a>';
-    if((r.requests||[]).length) h+='<div style="font-size:12px;font-weight:800;margin-top:8px">📨 신청 내역</div>'+r.requests.map(q=>'<div style="font-size:12.5px;padding:5px 0;border-bottom:1px dashed var(--line)"><b>'+esc(q.kind)+'</b> '+esc(q.from)+(q.to&&q.to!==q.from?'~'+esc(q.to):'')+' · '+esc(q.reason)+'<br><span style="color:'+(String(q.status).indexOf('승인')>=0?'#1f6b3a':'#7a5a00')+'">'+esc(q.status||('1차:'+q.a1+' 2차:'+q.a2))+'</span></div>').join('');
-    if((r.history||[]).length) h+='<div style="font-size:12px;font-weight:800;margin-top:8px">🗂 사용 내역 (최근)</div><div style="font-size:12.5px;display:grid;grid-template-columns:auto auto auto;gap:2px 12px">'+r.history.map(x=>'<span>'+esc(x.date)+'</span><span>'+esc(x.kind)+'</span><span>'+x.qty+'</span>').join('')+'</div>';
-    box.innerHTML=h;
-  }catch(e){ box.innerHTML='<h3>👤 내정보 '+X+'</h3><div style="color:#b23b32">불러오기 실패: '+esc(e.message)+'</div>'; }
-}
-/* 📅 회사일정 (v6.0) */
-let CAL_YM=null, CAL_EV=[];
-function openCal(){ const d=new Date(); CAL_YM=CAL_YM||(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')); document.getElementById('calBg').classList.add('on'); loadCal(); }
-function calMove(n){ const [y,m]=CAL_YM.split('-').map(Number); const d=new Date(y,m-1+n,1); CAL_YM=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); loadCal(); }
-const CALX='<button onclick="document.getElementById(\'calBg\').classList.remove(\'on\')">✕</button>';
-async function loadCal(){
-  const box=document.getElementById('calBox');
-  const [y,m]=CAL_YM.split('-').map(Number);
-  box.innerHTML='<h3>📅 회사일정 '+CALX+'</h3><div style="color:var(--muted)">불러오는 중…</div>';
-  try{
-    const last=new Date(y,m,0).getDate();
-    const r=await gsCall('calEvents',{from:CAL_YM+'-01', to:CAL_YM+'-'+String(last).padStart(2,'0')}); if(!r.ok) throw new Error(r.error||'조회 실패');
-    CAL_EV=r.events||[]; renderCal();
-  }catch(e){ box.innerHTML='<h3>📅 회사일정 '+CALX+'</h3><div style="color:#b23b32">불러오기 실패: '+esc(e.message)+'</div>'; }
-}
-function renderCal(){
-  const box=document.getElementById('calBox');
-  const [y,m]=CAL_YM.split('-').map(Number);
-  const start=new Date(y,m-1,1).getDay(), days=new Date(y,m,0).getDate();
-  const t=new Date(), tstr=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0');
-  let h='<h3>📅 회사일정 '+CALX+'</h3>'
-    +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><button onclick="calMove(-1)" style="border:1px solid var(--line);background:#fff;border-radius:6px;padding:4px 10px;cursor:pointer">◀</button><b>'+y+'년 '+m+'월</b><button onclick="calMove(1)" style="border:1px solid var(--line);background:#fff;border-radius:6px;padding:4px 10px;cursor:pointer">▶</button>'
-    +(IS_ADMIN?'<button onclick="calAddUI()" style="margin-left:auto;border:none;background:var(--accent);color:#fff;border-radius:6px;padding:5px 10px;font-weight:800;font-size:12px;cursor:pointer">+ 일정</button>':'')
-    +'</div><div class="cal">'+['일','월','화','수','목','금','토'].map((w,i)=>'<div class="h" style="color:'+(i===0?'#b23b32':i===6?'#2456a5':'')+'">'+w+'</div>').join('');
-  for(let i=0;i<start;i++) h+='<div class="d o"></div>';
-  for(let d=1; d<=days; d++){
-    const ds=CAL_YM+'-'+String(d).padStart(2,'0');
-    const evs=CAL_EV.filter(e=>e.start<=ds && ds<=e.end);
-    h+='<div class="d'+(ds===tstr?' t':'')+'"><div class="n">'+d+'</div>'+evs.map(e=>'<span class="ev'+(e.auto?' auto':'')+'" onclick="calEvClick(\''+esc(e.id)+'\')">'+(e.time?e.time+' ':'')+esc(e.title)+'</span>').join('')+'</div>';
-  }
-  h+='</div><div style="font-size:11px;color:var(--muted);margin-top:6px"><span class="ev auto" style="display:inline-block">초록</span> 연차·반차(연차 시트 자동) · <span class="ev" style="display:inline-block">파랑</span> 근무·휴무·행사(관리자 등록)</div>';
-  box.innerHTML=h;
-}
-function calEvClick(id){
-  const e=CAL_EV.find(x=>x.id===id); if(!e) return;
-  if(IS_ADMIN && !e.auto){ if(confirm('"'+e.title+'" ('+e.start+(e.end!==e.start?'~'+e.end:'')+')\n이 일정을 삭제할까요?')) gsCall('calDel',{uid:ME.uid, id:id}).then(loadCal).catch(x=>alert(x.message)); }
-  else alert(e.title+'\n'+e.start+(e.end!==e.start?' ~ '+e.end:'')+(e.desc&&!e.auto?'\n'+e.desc:''));
-}
-function calAddUI(){
-  const d=CAL_YM+'-01';
-  document.getElementById('calBox').insertAdjacentHTML('beforeend','<div id="calAddForm" style="margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:8px;background:#fff">'
-    +'<div style="font-weight:800;margin-bottom:6px">+ 일정 추가 (근무·휴무·행사)</div>'
-    +'<input id="caTitle" placeholder="제목 (예: 추석 휴무, 토요 근무)" style="width:100%;padding:8px;margin-bottom:6px;border:1px solid var(--line);border-radius:6px;box-sizing:border-box">'
-    +'<div style="display:flex;gap:6px;margin-bottom:6px"><input type="date" id="caDate" value="'+d+'" style="flex:1;padding:8px;border:1px solid var(--line);border-radius:6px"><input type="date" id="caEnd" value="'+d+'" style="flex:1;padding:8px;border:1px solid var(--line);border-radius:6px"></div>'
-    +'<input id="caDesc" placeholder="설명 (선택)" style="width:100%;padding:8px;margin-bottom:6px;border:1px solid var(--line);border-radius:6px;box-sizing:border-box">'
-    +'<button onclick="calAddSave()" style="border:none;background:var(--accent);color:#fff;border-radius:6px;padding:8px 14px;font-weight:800;cursor:pointer">저장</button> <button onclick="document.getElementById(\'calAddForm\').remove()" style="border:1px solid var(--line);background:#fff;border-radius:6px;padding:8px 12px;cursor:pointer">취소</button></div>');
-}
-async function calAddSave(){
-  const title=document.getElementById('caTitle').value.trim(), date=document.getElementById('caDate').value, end=document.getElementById('caEnd').value, desc=document.getElementById('caDesc').value.trim();
-  if(!title||!date){ alert('제목과 날짜를 입력하세요'); return; }
-  try{ const r=await gsCall('calAdd',{uid:ME.uid, title, date, end:end||date, desc}); if(!r.ok) throw new Error(r.error); loadCal(); sendPushOut('📅 일정 등록: '+title+' ('+date+(end&&end!==date?'~'+end:'')+')'); }
-  catch(e){ alert('실패: '+e.message); }
-}
-
 /* 🖼 사진 크게 보기 (앱 안에서) */
 function openLightbox(id){
   const lb=document.getElementById('lightbox'); if(!lb) return;
   const img=document.getElementById('lbImg');
-  img.src='https://drive.google.com/thumbnail?id='+encodeURIComponent(id)+'&sz=w4000';
-  img.onerror=()=>{ img.onerror=null; img.src='https://lh3.googleusercontent.com/d/'+encodeURIComponent(id)+'=s0'; };
+  img.src='https://drive.google.com/thumbnail?id='+encodeURIComponent(id)+'&sz=w1600';
+  img.onerror=()=>{ img.onerror=null; img.src='https://lh3.googleusercontent.com/d/'+encodeURIComponent(id); };
   document.getElementById('lbOpen').href='https://drive.google.com/file/d/'+encodeURIComponent(id)+'/view';
   lb.classList.add('on');
 }
-function closeLightbox(){ const lb=document.getElementById('lightbox'); if(lb){ lb.classList.remove('on'); document.getElementById('lbImg').src=''; lbReset(); } }
-/* 🔍 두 손가락 확대·이동 / 두 번 탭 — 자체 구현 */
-let LB={s:1,x:0,y:0,base:null,lastTap:0,p:{}};
-function lbApply(){ const img=document.getElementById('lbImg'); if(img) img.style.transform='translate('+LB.x+'px,'+LB.y+'px) scale('+LB.s+')'; }
-function lbReset(){ LB.s=1; LB.x=0; LB.y=0; LB.base=null; LB.p={}; lbApply(); }
-(function(){
-  const body=document.querySelector('#lightbox .lb-body'); if(!body) return;
-  const img=document.getElementById('lbImg');
-  const pts=()=>Object.values(LB.p);
-  body.addEventListener('pointerdown',e=>{
-    e.preventDefault(); body.setPointerCapture(e.pointerId);
-    LB.p[e.pointerId]={x:e.clientX,y:e.clientY};
-    const arr=pts();
-    if(arr.length===1){
-      const now=Date.now();
-      if(now-LB.lastTap<300){        // 두 번 탭: 2.5배 ↔ 원복
-        if(LB.s>1){ lbReset(); }
-        else{ const r=body.getBoundingClientRect(); const cx=e.clientX-r.left, cy=e.clientY-r.top; LB.s=2.5; LB.x=cx-(cx-LB.x)*2.5; LB.y=cy-(cy-LB.y)*2.5; lbApply(); }
-        LB.lastTap=0; return;
-      }
-      LB.lastTap=now;
-      LB.base={mode:'pan', sx:e.clientX, sy:e.clientY, x:LB.x, y:LB.y, moved:false};
-    }else if(arr.length===2){
-      const d=Math.hypot(arr[0].x-arr[1].x, arr[0].y-arr[1].y);
-      const r=body.getBoundingClientRect();
-      LB.base={mode:'pinch', d:d, s:LB.s, x:LB.x, y:LB.y, cx:(arr[0].x+arr[1].x)/2-r.left, cy:(arr[0].y+arr[1].y)/2-r.top};
-    }
-  });
-  body.addEventListener('pointermove',e=>{
-    if(!LB.p[e.pointerId]) return;
-    LB.p[e.pointerId]={x:e.clientX,y:e.clientY};
-    const arr=pts(); const b=LB.base; if(!b) return;
-    if(b.mode==='pinch' && arr.length===2){
-      const d=Math.hypot(arr[0].x-arr[1].x, arr[0].y-arr[1].y);
-      const ns=Math.min(6, Math.max(1, b.s*d/b.d));
-      const k=ns/b.s;
-      LB.s=ns; LB.x=b.cx-(b.cx-b.x)*k; LB.y=b.cy-(b.cy-b.y)*k; lbApply();
-    }else if(b.mode==='pan' && arr.length===1 && LB.s>1){
-      const dx=e.clientX-b.sx, dy=e.clientY-b.sy;
-      if(Math.abs(dx)>3||Math.abs(dy)>3) b.moved=true;
-      LB.x=b.x+dx; LB.y=b.y+dy; lbApply();
-    }
-  });
-  const up=e=>{
-    delete LB.p[e.pointerId];
-    const b=LB.base;
-    if(pts().length===0){
-      // 확대 안 된 상태에서 움직임 없이 탭 → 닫기 (두 번 탭 대기 시간 후)
-      if(b && b.mode==='pan' && !b.moved && LB.s<=1){ setTimeout(()=>{ if(Date.now()-LB.lastTap>=300 && LB.s<=1) closeLightbox(); }, 320); }
-      if(LB.s<=1.02) { LB.s=1; LB.x=0; LB.y=0; lbApply(); }
-      LB.base=null;
-    }else if(pts().length===1){ const a=pts()[0]; LB.base={mode:'pan', sx:a.x, sy:a.y, x:LB.x, y:LB.y, moved:true}; }
-  };
-  body.addEventListener('pointerup',up); body.addEventListener('pointercancel',up);
-  body.addEventListener('wheel',e=>{ e.preventDefault(); const r=body.getBoundingClientRect(); const cx=e.clientX-r.left, cy=e.clientY-r.top; const ns=Math.min(6,Math.max(1, LB.s*(e.deltaY<0?1.15:0.87))); const k=ns/LB.s; LB.x=cx-(cx-LB.x)*k; LB.y=cy-(cy-LB.y)*k; LB.s=ns; if(ns===1){LB.x=0;LB.y=0;} lbApply(); },{passive:false});
-  body.addEventListener('click',e=>e.stopPropagation());   // 배경 탭 닫기는 위 up 로직이 담당
-})();
+function closeLightbox(){ const lb=document.getElementById('lightbox'); if(lb){ lb.classList.remove('on'); document.getElementById('lbImg').src=''; } }
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeLightbox(); });
 
 /* ---------- 꾹 누르기(길게) → 카톡식 메뉴 ---------- */
 let LP_T=null, LP_FIRED=false;
 function bubbleTap(id){
   if(LP_FIRED){ LP_FIRED=false; return; }   // 꾹 누르기 직후의 탭은 무시
-  try{ const sel=window.getSelection(); if(sel && String(sel).trim()) return; }catch(e){}   // 글자 긁는 중이면 답장 안 함
   setReply(id);
 }
 (function(){
@@ -1950,23 +1541,11 @@ function bubbleTap(id){
   ['touchend','touchcancel'].forEach(ev=>box.addEventListener(ev,()=>clearTimeout(LP_T)));
 })();
 function openMsgMenu(id){
-  const m=CHAT[id]; if(!m||m.sys) return;
-  if(m.deleted){
-    if(!(ME&&(m.uid===ME.uid||IS_ADMIN))) return;
-    const menu=document.getElementById('msgMenu');
-    menu.innerHTML='<div class="mm-prev"><b>'+esc(m.name||'')+'</b> · 🗑 삭제된 메시지</div>'
-      +'<button onclick="closeMsgMenu();restoreMsg(\''+esc(id)+'\')" style="color:#1f6b3a">♻ 복구 (주문도 되살림)</button>'
-      +'<button class="mm-x" onclick="closeMsgMenu()">닫기</button>';
-    document.getElementById('msgMenuBg').classList.add('on');
-    return;
-  }
+  const m=CHAT[id]; if(!m||m.sys||m.deleted) return;
   const menu=document.getElementById('msgMenu');
   let h='<div class="mm-prev"><b>'+esc(m.name||'')+'</b> · '+esc(replyPreview(m))+'</div>';
   h+='<button onclick="closeMsgMenu();setReply(\''+esc(id)+'\')">↩ 답장 (추가 주문)</button>';
-  h+='<button onclick="closeMsgMenu();toggleReact(\''+esc(id)+'\')">'+((m.reacts&&ME&&m.reacts[ME.uid])?'✔ 내 체크 떼기':'✅ 체크 붙이기 (확인했음)')+'</button>';
-  if(m.text) h+='<button id="mmCopy" onclick="copyMsg(\''+esc(id)+'\')">📋 전체 복사</button>'
-    +'<button onclick="selectCopy(\''+esc(id)+'\')">✂ 선택 복사 (원하는 부분만)</button>';
-  if(m.photo && m.photo.id) h+='<button onclick="closeMsgMenu();analyzeLog(\''+esc(id)+'\')" style="color:#1a4f9c">📊 일지로 분석 → 생산일지 시트</button>';
+  if(m.text) h+='<button id="mmCopy" onclick="copyMsg(\''+esc(id)+'\')">📋 복사</button>';
   if(m.status==='error') h+='<button onclick="closeMsgMenu();retryMsg(\''+esc(id)+'\')" style="color:var(--accent)">🔄 다시 분석</button>';
   if((m.uid===(ME&&ME.uid) || IS_ADMIN) && !m.deleted){
     if(m.text) h+='<button onclick="closeMsgMenu();openEditMsg(\''+esc(id)+'\')">✏ 수정 (주문노트에 다시 반영)</button>';
@@ -1977,14 +1556,6 @@ function openMsgMenu(id){
   document.getElementById('msgMenuBg').classList.add('on');
 }
 function closeMsgMenu(){ document.getElementById('msgMenuBg').classList.remove('on'); }
-function selectCopy(id){
-  const m=CHAT[id]; if(!m) return;
-  const menu=document.getElementById('msgMenu');
-  menu.innerHTML='<div class="mm-prev"><b>✂ 선택 복사</b> — 원하는 부분을 드래그(꾹 눌러) 선택 후 복사하세요</div>'
-    +'<textarea readonly style="width:100%;min-height:160px;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:15px;font-family:var(--sans);box-sizing:border-box;user-select:text;-webkit-user-select:text">'+esc(m.text||'')+'</textarea>'
-    +'<button class="mm-x" onclick="closeMsgMenu()">닫기</button>';
-  const ta=menu.querySelector('textarea'); if(ta){ ta.focus(); }
-}
 async function copyMsg(id){
   const m=CHAT[id]; if(!m) return;
   try{
@@ -2025,27 +1596,6 @@ async function rollbackMsg(msgId){
   }
   seenHashes=new Set(Object.values(ORDERS).map(x=>x&&x.hash).filter(Boolean));
   renderSide();
-}
-
-/* ♻ 삭제된 메시지 복구 — 휴지통의 주문을 되살리고, 없으면 다시 분석 */
-async function restoreMsg(id){
-  const m=CHAT[id]; if(!m||!m.deleted) return;
-  if(!(ME&&(m.uid===ME.uid||IS_ADMIN))){ alert('본인 메시지만 복구할 수 있습니다.'); return; }
-  if(!confirm('이 메시지를 복구할까요?\n함께 삭제됐던 주문도 되살립니다.')) return;
-  try{
-    // 1) 휴지통에서 이 메시지가 만든 주문 복구
-    const ss=await db.ref('trash').once('value'); const tr=ss.val()||{};
-    const upd={}; let n=0;
-    Object.keys(tr).forEach(oid=>{ const o=tr[oid]; if(o&&o.chatMsg===id){ const c=Object.assign({},o); delete c.delAt; delete c.delBy; delete c.delWhy; upd['orders/'+oid]=c; upd['trash/'+oid]=null; n++; } });
-    await msgRef(id).update({deleted:null, status:(n||!roomOf(id).parse)?(m.text?'done':null):'parsing'});
-    if(n){ await db.ref().update(upd); }
-    // 2) 되살릴 주문이 없고(추가 품목 등) 주문방이면 → 다시 분석해 재반영
-    if(!n && roomOf(id).parse && m.text){
-      const tok=newTok();
-      await msgRef(id).update({status:'parsing', lock:tok, lockAt:Date.now(), orders:null});
-      await processMessage(id, Object.assign({}, m, {deleted:null}), tok);
-    }
-  }catch(e){ alert('복구 실패: '+e.message); }
 }
 
 /* 🗑 말풍선 삭제 — 주문노트 반영분도 함께 취소 */
@@ -2139,18 +1689,6 @@ async function sendMsg(){
   if(!fbReady){ alert('아직 서버에 연결되지 않았습니다.'); return; }
   const btn=document.getElementById('sendBtn');
   btn.disabled=true;
-  // 🏷 사진에 "답장"으로 짧은 글 → 그 사진의 설명 (카톡 방식: 사진 → 답장 "9.3 오전 육절기")
-  if(!CUR_ROOM.parse && REPLY_TO && CHAT[REPLY_TO] && (CHAT[REPLY_TO].photo||CHAT[REPLY_TO].file) && text.length<=40){
-    const tid=REPLY_TO, tm=CHAT[tid];
-    try{
-      const cap=(tm.text?tm.text+' / ':'')+text.replace(/\n+/g,' ');
-      await msgRef(tid).update({text:cap, labeled:1});
-      fileLabel((tm.photo&&tm.photo.id)||(tm.file&&tm.file.id), text.replace(/\n+/g,' '));
-      inputEl.value=''; inputEl.style.height='auto'; clearReply(); btn.disabled=false;
-      if(CUR_ROOM.id==='prod' && tm.photo && /일지|마감|육절기|골절기|절기/.test(text) && !tm.logDone) setTimeout(()=>analyzeLog(tid), 600);
-      return;
-    }catch(e){ /* 실패하면 일반 메시지로 */ }
-  }
   // 🏷 사진·파일 올린 직후(3분 내)의 짧은 글은 그 사진의 설명(거래처명)으로 붙임 — 주문방 제외
   if(!CUR_ROOM.parse && !REPLY_TO && text.length<=30 && !/\n/.test(text)){
     const ids=Object.keys(CHAT).filter(k=>CHAT[k]&&!CHAT[k].sys&&!CHAT[k].deleted).sort((x,y)=>(CHAT[x].ts||0)-(CHAT[y].ts||0));
@@ -2160,7 +1698,6 @@ async function sendMsg(){
         await msgRef(lid).update({text:text, labeled:1});
         fileLabel((last.photo&&last.photo.id)||(last.file&&last.file.id), text);
         inputEl.value=''; inputEl.style.height='auto'; btn.disabled=false;
-        if(CUR_ROOM.id==='prod' && last.photo && /일지|마감|육절기|골절기|절기/.test(text) && !last.logDone) setTimeout(()=>analyzeLog(lid), 600);
         return;
       }catch(e){ /* 실패하면 일반 메시지로 */ }
     }
@@ -2180,37 +1717,22 @@ async function sendMsg(){
   if(selfParse) processMessage(ref.key, Object.assign({},msg,{replyTo:rTo||null}), tok);   // 자동처리 화면 없을 때만 내가 파싱
 }
 
-let UPLOADING=false;
-function upShow(txt, pct){
-  const b=document.getElementById('upBanner'); if(!b) return;
-  b.innerHTML=esc(txt)+'<span class="bar"><i style="width:'+Math.max(4,Math.round(pct||0))+'%"></i></span>';
-  b.classList.add('on');
-}
-function upHide(){ const b=document.getElementById('upBanner'); if(b) b.classList.remove('on'); }
 async function sendFiles(files){
   const list=[...(files||[])]; if(!list.length || !fbReady) return;
-  if(UPLOADING){ upShow('📤 아직 업로드 중입니다 — 잠시만요', 50); return; }
-  UPLOADING=true;
   const btn=document.getElementById('sendBtn');
   btn.disabled=true; btn.textContent='…';
-  ['camIn','photoIn'].forEach(id=>{ const el=document.getElementById(id); if(el) el.disabled=true; });
   // 입력창에 적어둔 짧은 글(거래처명 등)은 사진 설명 + 파일명 라벨로
   const ta=document.getElementById('chatInput');
   let cap='';
   if(!CUR_ROOM.parse && ta && ta.value.trim() && ta.value.trim().length<=30 && !/\n/.test(ta.value.trim())){ cap=ta.value.trim(); ta.value=''; ta.style.height='auto'; }
   try{
-    let k=0;
     for(const file of list){
-      k++;
-      upShow('📤 업로드 중 '+k+'/'+list.length+(list.length>1?' — '+(file.name||''):''), (k-1)/list.length*100+10);
       if(file.size>12*1024*1024){ alert(file.name+' — 12MB 이하만 첨부할 수 있습니다'); continue; }
       const isImg=/^image\//.test(file.type||'');
       let msg;
       if(isImg){
-        // 📸 화질 우선 방(hq)은 압축 없이 원본 그대로 (표·전표·라벨 글씨 보존)
-        const b64=(CUR_ROOM.hq && file.size<=12*1024*1024) ? await fileToB64(file) : await compressImage(file);
+        const b64=await compressImage(file);
         const r=await photoUpload(b64, file.name||'photo.jpg', cap);
-        UPLOAD_CACHE[r.id]=b64;
         msg={uid:ME.uid, name:MYNAME, text:cap, photo:{id:r.id}, ts:Date.now(), status:null};
       }else{
         const b64=await fileToB64(file);
@@ -2218,20 +1740,13 @@ async function sendFiles(files){
         msg={uid:ME.uid, name:MYNAME, text:cap, file:{id:r.id, name:file.name||'file', size:file.size}, ts:Date.now(), status:null};
       }
       if(REPLY_TO){ msg.replyTo=REPLY_TO; clearReply(); }
-      const ref=roomRef().push(); await ref.set(msg);
-      upShow('📤 업로드 중 '+k+'/'+list.length, k/list.length*100);
+      await roomRef().push().set(msg);
       sendPushOut(isImg?'📷 사진':'📎 '+(file.name||'파일'));
-      // 📊 생산방: 설명에 일지/마감 → 자동 분석
-      if(isImg && CUR_ROOM.id==='prod' && /일지|마감/.test(cap||'')){ setTimeout(()=>analyzeLog(ref.key), 800); }
     }
-    upShow('✅ 업로드 완료', 100); setTimeout(upHide, 1200);
   }catch(e){
-    upHide();
     alert('업로드 실패: '+e.message);
   }finally{
-    UPLOADING=false;
     btn.disabled=false; btn.textContent='전송';
-    ['camIn','photoIn'].forEach(id=>{ const el=document.getElementById(id); if(el) el.disabled=false; });
   }
 }
 async function sendPhoto(input){ await sendFiles(input.files); input.value=''; }
@@ -2258,14 +1773,12 @@ function compressImage(file){
     const url=URL.createObjectURL(file);
     img.onload=()=>{
       URL.revokeObjectURL(url);
-      // v4.12: 총 화소 예산 기준 (세로로 긴 캡처도 가로 폭 유지). 6MP 이하는 원본 크기 그대로
-      const MAXPIX=6000000, MAXSIDE=8000;
+      const MAX=1400;
       let w=img.width,h=img.height;
-      let r=Math.min(1, Math.sqrt(MAXPIX/(w*h)), MAXSIDE/w, MAXSIDE/h);
-      if(r<1){ w=Math.round(w*r); h=Math.round(h*r); }
+      if(w>MAX||h>MAX){ const r=Math.min(MAX/w,MAX/h); w=Math.round(w*r); h=Math.round(h*r); }
       const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
       cv.getContext('2d').drawImage(img,0,0,w,h);
-      const dataUrl=cv.toDataURL('image/jpeg',0.92);
+      const dataUrl=cv.toDataURL('image/jpeg',0.82);
       res(dataUrl.slice(dataUrl.indexOf(',')+1));
     };
     img.onerror=()=>{ URL.revokeObjectURL(url); rej(new Error('이미지를 읽을 수 없습니다')); };
@@ -2287,13 +1800,6 @@ function looksLikeOrder(text){
 }
 
 const LOCK_TTL=180*1000;   // 이 시간 안의 잠금은 남의 것으로 존중
-function askVehicleTg(tot, msgId){
-  try{
-    if(!tot.vehAsk||!tot.vehAsk.length) return;
-    const lines=tot.vehAsk.map(x=>'· '+(x.client||'(거래처?)')+(x.raw?' — 입력값 "'+x.raw+'"':' — 차량 없음'));
-    gsCall('tgNotify',{text:'🚚 차량 확인 요청\n'+lines.join('\n')+'\n\n미처리 카드에서 차량을 지정하면 그 거래처에 학습됩니다.\n'+SITE_URL+'?room=order'}).catch(()=>{});
-  }catch(e){}
-}
 async function processMessage(msgId, m, tok){
   if(!m.text){ return; }
   const mref=msgRef(msgId);
@@ -2302,11 +1808,10 @@ async function processMessage(msgId, m, tok){
   try{
     const tr=await mref.transaction(c=>{
       if(!c) return;
-      if(c.status==='done' || c.deleted) return;                                       // 이미 완료 — 재처리 금지
       if(c.lock && c.lock!==tok && c.lockAt && Date.now()-c.lockAt<LOCK_TTL) return;   // 남이 처리 중
       c.lock=tok; c.lockAt=Date.now(); return c;
     });
-    if(!tr.committed){ console.log('🔒 완료됐거나 다른 화면이 처리 중 — 건너뜀', msgId); return; }
+    if(!tr.committed){ console.log('🔒 다른 화면이 처리 중 — 건너뜀', msgId); return; }
   }catch(e){ console.warn('lock',e); }
   const guard=async()=>{ try{ return (await mref.child('lock').once('value')).val()===tok; }catch(e){ return true; } };
   try{
@@ -2316,10 +1821,9 @@ async function processMessage(msgId, m, tok){
       const oo=ORDERS[CHAT[m.replyTo].orders[0]];
       if(oo && oo.client && !oo.needClient) forced={client:oo.client, date:oo.date};
     }
-    const isEdit=String(m.text||'').split(/\n/).slice(0,4).some(l=>/(^|\s)수정\s*$|^수정\s/.test(l.trim()));
+    const isEdit=/수정/.test(String(m.text||'').split(/\n/).slice(0,2).join(' '));
     const tot=await createOrders(m.text, forced, msgId, m.name||'', isEdit, guard);
     if(tot.aborted){ console.log('🔒 처리 중 잠금 빼앗김 — 결과 버림', msgId); return; }
-    askVehicleTg(tot, msgId);
     const got=(tot.ids||[]).length + (tot.dup||0);
     if(!got && looksLikeOrder(m.text)){
       throw new Error('주문으로 인식하지 못했습니다 — 자동으로 다시 분석합니다');
@@ -2338,7 +1842,7 @@ async function processMessage(msgId, m, tok){
     if(tot.newClients.length) lines.push('🆕 신규 거래처: '+tot.newClients.join(', '));
     if(!tot.ids.length && !tot.dup) lines.push('🚨 주문으로 인식하지 못했습니다 — 형식을 확인하거나 관리자에게 문의하세요');
     const kind = (!tot.ids.length && !tot.dup) ? 'err' : (tot.needClient?'warn':'');
-    await db.ref('chat').push().set({sys:1, kind, ref:msgId, ts:Date.now(), text:lines.join('\n'), by:(IS_RUNNER?'🤖 자동처리':MYNAME)});
+    await db.ref('chat').push().set({sys:1, kind, ref:msgId, ts:Date.now(), text:lines.join('\n')});
 
     // 학습 대기 적재
     if(tot.pending && tot.pending.length){
@@ -2440,7 +1944,7 @@ async function createOrders(text, forced, msgId, senderName, isEdit, guard){
     }
     o.client=sk;
     o.date=o.date||baseDate;
-    { const rv=resolveVeh(o.vehicle, sk); if(rv.note){ tot.lines.push('🚚 '+rv.note); if(rv.veh==='미지정') tot.vehAsk=(tot.vehAsk||[]).concat([{client:sk, raw:o.vehicle}]); } o.vehicle=rv.veh; }
+    o.vehicle=normVeh(o.vehicle||matchVehicle(sk)||'미지정');
     if(!sk){ o.needClient=true; tot.needClient++; }
 
     // 단일품목 업체
@@ -2475,25 +1979,17 @@ async function createOrders(text, forced, msgId, senderName, isEdit, guard){
     if(existing){
       let repl=0;
       if(isEdit){
-        // ✏ "수정" 메시지: 품목명(수량·단위 제외)이 같은 기존 품목을 교체
-        const nameKey=x=>String(x||'').replace(/[\s\d\.\,]+/g,'').replace(/(키로|킬로|kg|박스|팩|봉지|봉|개|장|줄|판|리|두|마리|덩이|짝|파트|p|b|ea)/gi,'').toLowerCase();
-        const used=new Set();
+        // ✏ "수정" 메시지: 같은 품목(이름 기준)을 찾아 교체
         (o.items||[]).forEach(nit=>{
-          const nk=nameKey(nit.product||nit.text||''); if(!nk) return;
-          let i=(existing.items||[]).findIndex((x,ix)=>!used.has(ix)&&nameKey(x.product||x.text||'')===nk);
-          if(i<0) i=(existing.items||[]).findIndex((x,ix)=>!used.has(ix)&&learnKey(x.product||x.text||'')===learnKey(nit.product||nit.text||''));
+          const nk=learnKey(nit.product||nit.text||'');
+          if(!nk) return;
+          const i=(existing.items||[]).findIndex(x=>learnKey(x.product||x.text||'')===nk);
           if(i>=0){
-            used.add(i);
-            existing.items[i]=Object.assign({}, existing.items[i], nit, {at:Date.now(), src:msgId, edited:1});
+            existing.items[i]=Object.assign({}, existing.items[i], nit,
+              {at:Date.now(), src:msgId, edited:1});
             nit._used=1; repl++;
           }
         });
-        // 기존 1품목 · 수정 1품목인데 이름이 달라도 → 통째로 교체 (예: 품목 자체를 바꾼 수정)
-        const left=(o.items||[]).filter(x=>!x._used);
-        if(!repl && left.length===1 && (existing.items||[]).length===1){
-          existing.items[0]=Object.assign({}, existing.items[0], left[0], {at:Date.now(), src:msgId, edited:1});
-          left[0]._used=1; repl++;
-        }
       }
       const have=new Set((existing.items||[]).map(it=>dedupKey(o.date,sk,it.text)));
       const toAdd=(o.items||[]).filter(it=>{
@@ -2502,18 +1998,14 @@ async function createOrders(text, forced, msgId, senderName, isEdit, guard){
         if(have.has(k)){ tot.dup++; return false; }
         have.add(k); return true;
       });
-      const shipNew=o.ship && (o.ship.phone||o.ship.addr||o.ship.name);
-      if(shipNew){ existing.ship=Object.assign({}, existing.ship||{}, o.ship); }
-      if(!toAdd.length && !repl && !shipNew) continue;
+      if(!toAdd.length && !repl) continue;
       toAdd.forEach(it=>{ it.at=Date.now(); it.src=msgId; });   // 출처 메시지 기록 (🆕 표시·되돌리기용)
       if(repl) tot.lines.push('✏ '+sk+' ('+mmdd(o.date)+') 품목 '+repl+'건 수정 반영');
       existing.items=(existing.items||[]).concat(toAdd);
       existing.hash=hashOrder(existing);
       existing.gapDone=false;
       existing.ts=Date.now();
-      const upd={items:existing.items, hash:existing.hash, gapDone:false, ts:existing.ts, sts:firebase.database.ServerValue.TIMESTAMP, printed:false};
-      existing.printed=false;
-      if(existing.ship) upd.ship=existing.ship;
+      const upd={items:existing.items, hash:existing.hash, gapDone:false, ts:existing.ts};
       // 이미 확인방으로 넘어간 주문에 품목이 추가되면 → 다시 미처리로 되돌림 (전산 재확인 필요)
       if(existing.confirm){ upd.confirm=null; upd.confirmAt=null; upd['chk/erp']=null; existing.confirm=null; if(existing.chk) delete existing.chk.erp; }
       await db.ref('orders/'+existing.id).update(upd);
@@ -2530,7 +2022,7 @@ async function createOrders(text, forced, msgId, senderName, isEdit, guard){
     (o.items||[]).forEach(it=>{ if(it && !it.src) it.src=msgId; });
     const ref=db.ref('orders').push();
     o.id=ref.key;
-    await ref.set(Object.assign({}, o, {sts:firebase.database.ServerValue.TIMESTAMP, printed:false}));
+    await ref.set(o);
     ORDERS[o.id]=o;
     seenHashes.add(o.hash);
     tot.ids.push(o.id);
@@ -2594,11 +2086,11 @@ const IS_RUNNER=/[?&]runner=1/.test(location.search);   // v3.6 봇 PC 상시 �
 
 /* ── 🗂 방 정의 (v4.0) ── parse:true 인 방만 🤖 주문 파싱 */
 const ROOMS=[
-  {id:'order',  name:'주문방', icon:'💬', path:'chat',              parse:true,  hq:false},
-  {id:'online', name:'온라인', icon:'🛒', path:'rooms/online/chat', parse:false, hq:true},
-  {id:'prod',   name:'생산',   icon:'🏭', path:'rooms/prod/chat',   parse:false, hq:true},
-  {id:'deliv',  name:'배송',   icon:'🚚', path:'rooms/deliv/chat',  parse:false, hq:true},
-  {id:'io',     name:'입출고', icon:'📦', path:'rooms/io/chat',     parse:false, hq:true}
+  {id:'order',  name:'주문방', icon:'💬', path:'chat',              parse:true},
+  {id:'online', name:'온라인', icon:'🛒', path:'rooms/online/chat', parse:false},
+  {id:'prod',   name:'생산',   icon:'🏭', path:'rooms/prod/chat',   parse:false},
+  {id:'deliv',  name:'배송',   icon:'🚚', path:'rooms/deliv/chat',  parse:false},
+  {id:'io',     name:'입출고', icon:'📦', path:'rooms/io/chat',     parse:false}
 ];
 let CUR_ROOM=ROOMS[0];
 (function(){ const m=location.search.match(/[?&]room=([a-z]+)/); if(m){ const r=ROOMS.find(x=>x.id===m[1]); if(r) CUR_ROOM=r; } if(IS_RUNNER) CUR_ROOM=ROOMS[0]; })();
@@ -2610,8 +2102,7 @@ let ROOM_LISTENERS=[], LAST_READ={}, ROOM_LAST={}, ROOM_UNREAD={};
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.12';
-const APP_BUILD=612;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER=4.6;   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -2644,8 +2135,6 @@ function setSide(s){
   SIDE=s;
   document.getElementById('segPend').classList.toggle('on', s==='pend');
   document.getElementById('segConf').classList.toggle('on', s==='conf');
-  document.getElementById('segTask').classList.toggle('on', s==='task');
-  document.getElementById('segMap').classList.toggle('on', s==='map');
   document.getElementById('dateNav').style.display = s==='pend' ? '' : 'none';
   renderSide();
 }
@@ -2661,285 +2150,11 @@ function allChecked(o){
   return !!(o.chk && o.chk.ord && o.chk.prod && o.chk.erp);
 }
 function printedAt(date){ return Number(PRINTED&&PRINTED[date])||0; }
-const KEEP_PEND_VEH=['택배','사무실'];   // 인쇄 후에도 미처리에 남기는 차량 (나중에 챙기는 것들)
-/* 인쇄됨 판정: 도장(printed) 우선, 도장 정보가 없는 옛 주문만 시각 비교로 대신 */
-function isPrinted(o){
-  if(o.printed===true) return true;
-  if(o.printed===false) return false;
-  const p=printedAt(o.date); return !!(p && ((o.sts||o.ts)||0)<p);
-}
 function pendListFor(date){
-  return Object.values(ORDERS).filter(o=>o && o.date===date && !o.confirm
-    && (SHOW_ALL || !isPrinted(o) || o.forcePend || KEEP_PEND_VEH.indexOf(normVeh(o.vehicle||''))>=0));
+  const cut=SHOW_ALL?0:printedAt(date);
+  return Object.values(ORDERS).filter(o=>o && o.date===date && !o.confirm && (o.ts||0)>cut);
 }
 function toggleShowAll(){ SHOW_ALL=!SHOW_ALL; renderSide(); }
-/* ============================================================
-   👥 직원 목록 · ✅ 할일 (v5.0)
-   ============================================================ */
-let USERS={}, TASKS={};
-function watchUsersTasks(){
-  if(!db) return;
-  db.ref('users').on('value', s=>{ USERS=s.val()||{}; if(document.getElementById('peopleBg').classList.contains('on')) renderPeople(); }, ()=>{});
-  db.ref('tasks').on('value', s=>{ TASKS=s.val()||{}; renderSide(); checkTaskPopup(); }, ()=>{});
-}
-function userName(uid){ const u=USERS[uid]||{}; return u.nick||u.name||(u.email||'').split('@')[0]||uid.slice(0,6); }
-function openPeople(){ renderPeople(); document.getElementById('peopleBg').classList.add('on'); }
-function closePeople(){ document.getElementById('peopleBg').classList.remove('on'); }
-function isLead(){ return !!(ME && USERS[ME.uid] && USERS[ME.uid].lead); }
-function renderPeople(){
-  const box=document.getElementById('peopleBox');
-  const online=new Set(Object.keys(PRESENCE||{}));
-  const list=Object.keys(USERS).filter(uid=>USERS[uid]&&(USERS[uid].email||USERS[uid].nick||USERS[uid].name))
-    .map(uid=>({uid, name:userName(uid), on:online.has(uid), last:USERS[uid].lastSeen||0, team:USERS[uid].team||'', lead:!!USERS[uid].lead, email:USERS[uid].email||''}));
-  const teams=[...new Set(list.map(p=>p.team).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ko'));
-  const canBroad=IS_ADMIN||isLead();
-  let h='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b>👥 직원 '+list.length+'명 · 접속 '+list.filter(x=>x.on).length+'명</b><button onclick="closePeople()" style="border:none;background:none;font-size:18px;cursor:pointer">✕</button></div>';
-  if(canBroad){
-    h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">'
-      +'<button onclick="addTask(\'all\')" style="border:none;background:var(--accent);color:#fff;border-radius:6px;padding:7px 11px;font-weight:800;font-size:12px;cursor:pointer">📢 전체에게 공지·요청</button>'
-      +teams.map(t=>'<button onclick="addTask(\'team:'+esc(t)+'\')" style="border:1px solid var(--accent);background:#fff;color:var(--accent);border-radius:6px;padding:7px 11px;font-weight:800;font-size:12px;cursor:pointer">📢 '+esc(t)+'팀</button>').join('')
-      +'</div>';
-  }
-  if(IS_ADMIN) h+='<div style="font-size:11px;color:var(--muted);margin-bottom:4px">관리자: 이름·팀 칸을 고치고 벗어나면 저장 · ★ 누르면 팀장 지정/해제</div>';
-  [...teams, ''].forEach(t=>{
-    const ppl=list.filter(p=>p.team===t).sort((a,b)=>(b.lead-a.lead)||(b.on-a.on)||a.name.localeCompare(b.name,'ko'));
-    if(!ppl.length) return;
-    h+='<div class="team-h">'+(t?esc(t)+'팀':'(팀 미지정)')+' · '+ppl.length+'명</div>';
-    ppl.forEach(p=>{
-      const me=ME&&p.uid===ME.uid;
-      h+='<div class="pp-row"><span class="pp-dot'+(p.on?' on':'')+'"></span>';
-      if(IS_ADMIN){
-        h+='<span class="pp-name" style="display:flex;flex-direction:column;gap:2px">'
-          +'<span style="display:flex;gap:4px;align-items:center"><input value="'+esc(p.name)+'" onchange="userSet(\''+esc(p.uid)+'\',\'nick\',this.value)" style="width:110px;padding:4px 6px;border:1px solid var(--line);border-radius:5px;font-weight:700;font-size:13px">'
-          +'<input value="'+esc(p.team)+'" placeholder="팀" list="teamList" onchange="userSet(\''+esc(p.uid)+'\',\'team\',this.value)" style="width:70px;padding:4px 6px;border:1px solid var(--line);border-radius:5px;font-size:12px">'
-          +'<span onclick="userSet(\''+esc(p.uid)+'\',\'lead\','+(p.lead?'false':'true')+')" title="팀장 지정/해제" style="cursor:pointer;font-size:16px;color:'+(p.lead?'#e0a800':'#ccc')+'">★</span></span>'
-          +'<span class="pp-sub">'+esc(p.email)+' · '+(p.on?'접속 중':(p.last?'마지막 '+new Date(p.last).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'기록 없음'))+'</span></span>';
-      }else{
-        h+='<span class="pp-name">'+esc(p.name)+(p.lead?' <span style="color:#e0a800">★팀장</span>':'')+(me?' <span style="font-weight:400;color:var(--muted)">(나)</span>':'')
-          +'<div class="pp-sub">'+(p.on?'접속 중':(p.last?'마지막 접속 '+new Date(p.last).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'접속 기록 없음'))+'</div></span>';
-      }
-      h+='<button onclick="addTask(\''+esc(p.uid)+'\')">+ 요청</button></div>';
-    });
-  });
-  h+='<datalist id="teamList">'+teams.map(t=>'<option value="'+esc(t)+'">').join('')+'</datalist>';
-  box.innerHTML=h;
-}
-async function userSet(uid, field, val){
-  if(!IS_ADMIN) return;
-  if(field==='nick'||field==='team') val=String(val||'').trim().slice(0,20);
-  try{
-    const upd={}; upd[field]=(field==='lead')?(val===true||val==='true'?true:null):(val||null);
-    if(field==='nick' && val) upd.name=val;
-    await db.ref('users/'+uid).update(upd);
-    if(ME&&uid===ME.uid&&field==='nick'&&val){ MYNAME=val; renderPresence(); }
-  }catch(e){ alert('저장 실패: '+e.message); }
-}
-function addTask(target){
-  const isAll=target==='all', isTeam=String(target).indexOf('team:')===0;
-  if((isAll||isTeam) && !(IS_ADMIN||isLead())){ alert('팀/전체 요청은 관리자·팀장만 보낼 수 있습니다.'); return; }
-  const label=isAll?'전체 직원':isTeam?target.slice(5)+'팀':userName(target);
-  const pop=document.getElementById('taskPop');
-  pop.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><b>📢 '+esc(label)+'에게</b><button onclick="closeTaskPop()" style="border:none;background:none;font-size:18px;cursor:pointer">✕</button></div>'
-    +'<div style="display:flex;gap:6px;margin-bottom:8px"><label style="flex:1;border:1px solid var(--line);border-radius:8px;padding:8px;cursor:pointer;font-size:14px"><input type="radio" name="tkKind" value="req" checked> ✅ 업무요청<div style="font-size:11px;color:var(--muted)">완료/미완료 응답</div></label>'
-    +'<label style="flex:1;border:1px solid var(--line);border-radius:8px;padding:8px;cursor:pointer;font-size:14px"><input type="radio" name="tkKind" value="notice"> 📢 공지<div style="font-size:11px;color:var(--muted)">확인했음 응답</div></label></div>'
-    +'<textarea id="tkText" placeholder="내용" style="width:100%;min-height:90px;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:15px;font-family:var(--sans);box-sizing:border-box"></textarea>'
-    +'<label style="display:flex;align-items:center;gap:8px;margin:10px 2px;font-size:14px;cursor:pointer"><input type="checkbox" id="tkFb" style="width:18px;height:18px"> 완료 시 피드백 요청 (내용·사진 첨부 필수)</label>'
-    +'<button onclick="saveTask(\''+esc(target)+'\')" style="width:100%;border:none;background:var(--accent);color:#fff;border-radius:8px;padding:11px;font-weight:800;font-size:14px;cursor:pointer">보내기</button>';
-  document.getElementById('taskPopBg').classList.add('on');
-  setTimeout(()=>{ const t=document.getElementById('tkText'); if(t) t.focus(); }, 50);
-}
-async function saveTask(target){
-  const text=(document.getElementById('tkText').value||'').trim(); if(!text){ alert('내용을 적어주세요'); return; }
-  const kind=(document.querySelector('input[name=tkKind]:checked')||{}).value||'req';
-  const needFb=kind==='req' && document.getElementById('tkFb').checked;
-  const isAll=target==='all', isTeam=String(target).indexOf('team:')===0;
-  let uids=[];
-  if(isAll) uids=Object.keys(USERS).filter(u=>USERS[u]&&(USERS[u].email||USERS[u].nick)&&u!==ME.uid);
-  else if(isTeam){ const t=target.slice(5); uids=Object.keys(USERS).filter(u=>USERS[u]&&USERS[u].team===t&&u!==ME.uid); }
-  else uids=[target];
-  if(!uids.length){ alert('대상 직원이 없습니다.'); return; }
-  const group=(isAll||isTeam)?('g'+Date.now().toString(36)):null;
-  const groupTo=isAll?'전체':isTeam?target.slice(5)+'팀':'';
-  try{
-    const upd={}; const now=Date.now();
-    uids.forEach(u=>{ const k=db.ref('tasks').push().key; upd['tasks/'+k]={to:u, toName:userName(u), from:ME.uid, fromName:MYNAME, text, kind, needFb:needFb||null, ts:now, status:'open', group:group, groupTo:groupTo||null}; });
-    await db.ref().update(upd);
-    closeTaskPop(); closePeople();
-    sendPushOut((kind==='notice'?'📢 공지':'✅ 업무요청')+(groupTo?'('+groupTo+')':'('+userName(uids[0])+')')+': '+text);
-  }catch(e){ alert('저장 실패: '+e.message); }
-}
-function myOpenTasks(){ return Object.keys(TASKS).filter(id=>TASKS[id]&&ME&&TASKS[id].to===ME.uid&&TASKS[id].status==='open'); }
-function taskBlock(id, t, mine){
-  const when=new Date(t.ts||0).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
-  let h='<div class="tk '+(t.status==='fail'?'fail':t.status==='done'?'done':'')+'"><div class="t">'+(t.kind==='notice'?'📢 ':'')+esc(t.text)+(t.groupTo?' <span style="font-size:11px;color:var(--muted);font-weight:400">['+esc(t.groupTo)+']</span>':'')+'</div>'
-    +'<div class="m">'+(mine?'지시: '+esc(t.fromName||''):'대상: '+esc(t.toName||''))+' · '+when
-    +(t.status==='done'?' · ✅ 완료'+(t.doneAt?' '+new Date(t.doneAt).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):''):'')
-    +(t.status==='fail'?' · ❌ 미완료: '+esc(t.reason||''):'')
-    +(t.needFb&&t.status==='open'?' · <span style="color:#1a4f9c">📝 피드백 요청</span>':'')+'</div>'
-    +(t.fbText?'<div style="margin-top:5px;padding:6px 8px;background:#f4f7fc;border-radius:6px;font-size:13px;white-space:pre-wrap">📝 '+esc(t.fbText)+'</div>':'')
-    +((t.fbPhotos||[]).length?'<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px">'+(t.fbPhotos||[]).map(pid=>'<img src="https://drive.google.com/thumbnail?id='+esc(pid)+'&sz=w160" onclick="openLightbox(\''+esc(pid)+'\')" style="width:58px;height:58px;object-fit:cover;border-radius:6px;border:1px solid var(--line);cursor:pointer">').join('')+'</div>':'');
-  if(mine && t.status==='open'){
-    if(t.kind==='notice') h+='<div class="b"><button style="background:#1a4f9c;color:#fff" onclick="taskAckSeen(\''+id+'\')">👁 확인했음</button></div>';
-    else h+='<div class="b"><button style="background:#1f6b3a;color:#fff" onclick="taskDone(\''+id+'\')">✅ 완료</button>'
-      +'<button style="background:#f3e4e2;color:#8a1c1c" onclick="taskFail(\''+id+'\')">❌ 미완료 (사유)</button></div>';
-  }
-  if(!mine && ME && t.from===ME.uid){
-    h+='<div class="b">'+(t.status!=='open'&&!t.ack?'<button style="background:#1f6b3a;color:#fff" onclick="taskAck(\''+id+'\')">✔ 확인</button>':'')
-      +(t.status!=='open'?'<button style="background:#eee" onclick="taskReopen(\''+id+'\')">↺ 다시 열기</button>':'')
-      +'<button style="background:#eee" onclick="taskDel(\''+id+'\')">🗑 삭제</button></div>';
-  }
-  return h+'</div>';
-}
-/* 확인한(ack) 지시는 한 줄로 접어 표시 — 누르면 펼침 */
-const TASK_OPENED={};
-function taskMini(id, t){
-  if(TASK_OPENED[id]) return taskBlock(id, t, false);
-  const st=t.status==='done'?'✅':'❌';
-  return '<div class="tk done" onclick="TASK_OPENED[\''+id+'\']=1;renderSide()" style="cursor:pointer;padding:6px 10px;display:flex;gap:8px;align-items:center">'
-    +'<span style="font-size:13px">'+st+'</span><span style="flex:1;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(t.text||'')+'</span>'
-    +'<span style="font-size:11px;color:var(--muted);white-space:nowrap">'+esc(t.toName||'')+'</span></div>';
-}
-async function taskAck(id){ try{ await db.ref('tasks/'+id).update({ack:1, ackAt:Date.now()}); }catch(e){} }
-function renderTasks(){
-  const box=document.getElementById('sideScroll'); if(!box) return;
-  const ids=Object.keys(TASKS).filter(id=>TASKS[id]).sort((a,b)=>(TASKS[b].ts||0)-(TASKS[a].ts||0));
-  const mineOpen=ids.filter(id=>TASKS[id].to===ME.uid&&TASKS[id].status==='open');
-  const mineDone=ids.filter(id=>TASKS[id].to===ME.uid&&TASKS[id].status!=='open').slice(0,15);
-  const given=ids.filter(id=>TASKS[id].from===ME.uid).slice(0,40);
-  let h='<div class="tk-sec">📌 나에게 온 요청 ('+mineOpen.length+')</div>';
-  h+=mineOpen.length?mineOpen.map(id=>taskBlock(id,TASKS[id],true)).join(''):'<div style="color:var(--muted);font-size:13px;padding:4px">없음 🎉</div>';
-  if(mineDone.length) h+='<div class="tk-sec">🗂 내가 처리한 요청 (최근)</div>'+mineDone.map(id=>taskBlock(id,TASKS[id],true)).join('');
-  h+='<div class="tk-sec">📤 내가 보낸 요청 ('+given.filter(id=>TASKS[id].status==='open').length+' 대기)</div>';
-  const seenG={}; const parts=[];
-  given.forEach(id=>{
-    const t=TASKS[id];
-    if(t.group){
-      if(seenG[t.group]) return; seenG[t.group]=1;
-      const g=given.filter(x=>TASKS[x].group===t.group).map(x=>TASKS[x]);
-      const done=g.filter(x=>x.status==='done'), fail=g.filter(x=>x.status==='fail'), open=g.filter(x=>x.status==='open');
-      parts.push('<div class="tk" style="border-left-color:#1a4f9c"><div class="t">'+(t.kind==='notice'?'📢 ':'✅ ')+esc(t.text)+' <span style="font-size:11px;color:var(--muted);font-weight:400">['+esc(t.groupTo||'')+' '+g.length+'명]</span></div>'
-        +'<div class="m">'+new Date(t.ts||0).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+' · '+(t.kind==='notice'?'확인':'완료')+' <b style="color:#1f6b3a">'+done.length+'</b> / '+g.length+(fail.length?' · ❌ '+fail.length:'')+'</div>'
-        +(open.length?'<div style="font-size:12px;margin-top:4px">⏳ 미응답: '+esc(open.map(x=>x.toName).join(', '))+'</div>':'<div style="font-size:12px;color:#1f6b3a;margin-top:4px">전원 응답 완료</div>')
-        +(fail.length?'<div style="font-size:12px;color:#b23b32;margin-top:2px">'+fail.map(x=>esc(x.toName)+': '+esc(x.reason||'')).join('<br>')+'</div>':'')
-        +(done.filter(x=>x.fbText||(x.fbPhotos||[]).length).length?'<div style="font-size:12px;margin-top:4px">'+done.filter(x=>x.fbText||(x.fbPhotos||[]).length).map(x=>'📝 <b>'+esc(x.toName)+'</b>: '+esc(x.fbText||'')+((x.fbPhotos||[]).length?' 📷'+x.fbPhotos.length:'')).join('<br>')+'</div>':'')
-        +'<div class="b"><button style="background:#eee" onclick="taskDelGroup(\''+esc(t.group)+'\')">🗑 삭제</button></div></div>');
-    }else{
-      parts.push(t.ack?taskMini(id,t):taskBlock(id,t,false));
-    }
-  });
-  h+=parts.length?parts.join(''):'<div style="color:var(--muted);font-size:13px;padding:4px">없음 — 👥 직원 목록에서 [+ 요청]으로 보낼 수 있습니다</div>';
-  box.innerHTML='<div style="padding:8px 10px">'+h+'</div>';
-}
-async function taskDone(id){
-  const t=TASKS[id]||{};
-  if(t.needFb){ openFeedback(id); return; }
-  try{ await db.ref('tasks/'+id).update({status:'done', doneAt:Date.now(), doneBy:MYNAME}); }catch(e){ alert('실패: '+e.message); }
-}
-/* 📝 피드백 입력 (내용 + 사진) */
-let FB_PHOTOS=[];
-function openFeedback(id){
-  FB_PHOTOS=[];
-  const t=TASKS[id]||{};
-  const pop=document.getElementById('taskPop');
-  pop.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b>📝 완료 피드백</b><button onclick="closeTaskPop()" style="border:none;background:none;font-size:18px;cursor:pointer">✕</button></div>'
-    +'<div style="font-size:13px;color:var(--muted);margin-bottom:8px">'+esc(t.text||'')+'</div>'
-    +'<textarea id="fbText" placeholder="처리 내용을 적어주세요" style="width:100%;min-height:80px;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:15px;font-family:var(--sans);box-sizing:border-box"></textarea>'
-    +'<div style="display:flex;gap:6px;margin:8px 0;align-items:center"><button onclick="document.getElementById(\'fbCam\').click()" style="border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px 12px;font-weight:800;cursor:pointer">📷 촬영</button>'
-    +'<button onclick="document.getElementById(\'fbPick\').click()" style="border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px 12px;font-weight:800;cursor:pointer">🖼 앨범</button>'
-    +'<span id="fbCnt" style="font-size:12px;color:var(--muted)"></span></div>'
-    +'<input type="file" id="fbCam" accept="image/*" capture="environment" style="display:none" onchange="fbAdd(this.files);this.value=\'\'">'
-    +'<input type="file" id="fbPick" accept="image/*" multiple style="display:none" onchange="fbAdd(this.files);this.value=\'\'">'
-    +'<div id="fbThumbs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"></div>'
-    +'<button id="fbSave" onclick="saveFeedback(\''+esc(id)+'\')" style="width:100%;border:none;background:#1f6b3a;color:#fff;border-radius:8px;padding:11px;font-weight:800;font-size:14px;cursor:pointer">✅ 완료 처리</button>';
-  document.getElementById('taskPopBg').classList.add('on');
-}
-async function fbAdd(files){
-  const list=[...(files||[])]; if(!list.length) return;
-  const cnt=document.getElementById('fbCnt'); cnt.textContent='업로드 중…';
-  try{
-    for(const f of list){
-      const b64=await compressImage(f);
-      const r=await photoUpload(b64, f.name||'photo.jpg', '', '업무요청');
-      FB_PHOTOS.push(r.id);
-    }
-  }catch(e){ alert('사진 업로드 실패: '+e.message); }
-  cnt.textContent=FB_PHOTOS.length?FB_PHOTOS.length+'장 첨부됨':'';
-  document.getElementById('fbThumbs').innerHTML=FB_PHOTOS.map(id=>'<img src="https://drive.google.com/thumbnail?id='+esc(id)+'&sz=w160" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--line)">').join('');
-}
-async function saveFeedback(id){
-  const txt=(document.getElementById('fbText').value||'').trim();
-  if(!txt && !FB_PHOTOS.length){ alert('처리 내용을 적거나 사진을 첨부해 주세요 (피드백 요청된 업무요청)'); return; }
-  const b=document.getElementById('fbSave'); b.disabled=true; b.textContent='저장 중…';
-  try{
-    await db.ref('tasks/'+id).update({status:'done', doneAt:Date.now(), doneBy:MYNAME, fbText:txt||null, fbPhotos:FB_PHOTOS.length?FB_PHOTOS:null});
-    closeTaskPop();
-  }catch(e){ alert('실패: '+e.message); b.disabled=false; b.textContent='✅ 완료 처리'; }
-}
-async function taskFail(id){
-  const r=prompt('미완료 사유를 적어주세요'); if(r===null) return;
-  try{ await db.ref('tasks/'+id).update({status:'fail', reason:(r||'').trim()||'(사유 없음)', doneAt:Date.now(), doneBy:MYNAME}); }catch(e){ alert('실패: '+e.message); }
-}
-async function taskAckSeen(id){ try{ await db.ref('tasks/'+id).update({status:'done', doneAt:Date.now(), doneBy:MYNAME, seen:1}); }catch(e){} }
-async function taskDelGroup(g){
-  if(!confirm('이 공지/요청을 전원에게서 삭제할까요?')) return;
-  const upd={}; Object.keys(TASKS).forEach(id=>{ if(TASKS[id]&&TASKS[id].group===g) upd['tasks/'+id]=null; });
-  try{ await db.ref().update(upd); }catch(e){}
-}
-async function taskReopen(id){ try{ await db.ref('tasks/'+id).update({status:'open', reason:null, doneAt:null}); }catch(e){} }
-async function taskDel(id){ if(!confirm('이 요청을 삭제할까요?')) return; try{ await db.ref('tasks/'+id).remove(); }catch(e){} }
-/* 🗺 할일지도 (관리자) — 날짜별 · 지시자/대상자 정렬·필터 */
-let MAP_SORT='date', MAP_WHO='', MAP_Q='';
-function renderTaskMap(){
-  const box=document.getElementById('sideScroll'); if(!box) return;
-  const all=Object.keys(TASKS).filter(id=>TASKS[id]).map(id=>Object.assign({id}, TASKS[id]));
-  const people=[...new Set(all.flatMap(t=>[t.fromName,t.toName]).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ko'));
-  let list=MAP_WHO?all.filter(t=>t.fromName===MAP_WHO||t.toName===MAP_WHO):all;
-  if(MAP_Q){ const q=MAP_Q.toLowerCase(); list=list.filter(t=>((t.text||'')+' '+(t.fbText||'')+' '+(t.reason||'')).toLowerCase().indexOf(q)>=0); }
-  if(MAP_SORT==='from') list.sort((a,b)=>(a.fromName||'').localeCompare(b.fromName||'','ko')||(b.ts-a.ts));
-  else if(MAP_SORT==='to') list.sort((a,b)=>(a.toName||'').localeCompare(b.toName||'','ko')||(b.ts-a.ts));
-  else list.sort((a,b)=>b.ts-a.ts);
-  const dstr=ts=>{ const d=new Date(ts); return d.getFullYear()+'.'+String(d.getMonth()+1).padStart(2,'0')+'.'+String(d.getDate()).padStart(2,'0'); };
-  let h='<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;font-size:12px">'
-    +'<input type="search" placeholder="🔍 요청 내용 검색" value="'+esc(MAP_Q)+'" oninput="MAP_Q=this.value;clearTimeout(window._mq);window._mq=setTimeout(renderTaskMap,250)" style="flex:1;min-width:140px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:13px;font-family:var(--sans)">'
-    +'<select onchange="MAP_SORT=this.value;renderTaskMap()" style="padding:5px;border:1px solid var(--line);border-radius:6px"><option value="date"'+(MAP_SORT==='date'?' selected':'')+'>날짜순</option><option value="to"'+(MAP_SORT==='to'?' selected':'')+'>대상자별</option><option value="from"'+(MAP_SORT==='from'?' selected':'')+'>지시자별</option></select>'
-    +'<select onchange="MAP_WHO=this.value;renderTaskMap()" style="padding:5px;border:1px solid var(--line);border-radius:6px"><option value="">전체 직원</option>'+people.map(p=>'<option'+(MAP_WHO===p?' selected':'')+'>'+esc(p)+'</option>').join('')+'</select>'
-    +'<span style="color:var(--muted)">'+list.length+'건 · 대기 '+list.filter(t=>t.status==='open').length+' · 완료 '+list.filter(t=>t.status==='done').length+' · 미완료 '+list.filter(t=>t.status==='fail').length+'</span></div>';
-  let lastGroup='';
-  list.forEach(t=>{
-    const g=MAP_SORT==='to'?('👤 '+(t.toName||'')):MAP_SORT==='from'?('📤 '+(t.fromName||'')):('📅 '+dstr(t.ts||0));
-    if(g!==lastGroup){ h+='<div class="tk-sec">'+esc(g)+'</div>'; lastGroup=g; }
-    const st=t.status==='done'?'<span style="color:#1f6b3a;font-weight:800">✅ 완료</span>':t.status==='fail'?'<span style="color:#b23b32;font-weight:800">❌ 미완료</span>':'<span style="color:#7a5a00;font-weight:800">⏳ 대기</span>';
-    h+='<div class="tk '+(t.status==='fail'?'fail':t.status==='done'?'done':'')+'"><div class="t">'+esc(t.text)+'</div>'
-      +'<div class="m">'+esc(t.fromName||'')+' → <b>'+esc(t.toName||'')+'</b> · '+new Date(t.ts||0).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+' · '+st
-      +(t.needFb?' · 📝요청':'')+(t.doneAt?' · 처리 '+new Date(t.doneAt).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'')
-      +(t.status==='fail'&&t.reason?'<br>사유: '+esc(t.reason):'')+'</div>'
-      +(t.fbText?'<div style="margin-top:5px;padding:6px 8px;background:#f4f7fc;border-radius:6px;font-size:13px;white-space:pre-wrap">📝 '+esc(t.fbText)+'</div>':'')
-      +((t.fbPhotos||[]).length?'<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px">'+(t.fbPhotos||[]).map(pid=>'<img src="https://drive.google.com/thumbnail?id='+esc(pid)+'&sz=w160" onclick="openLightbox(\''+esc(pid)+'\')" style="width:58px;height:58px;object-fit:cover;border-radius:6px;border:1px solid var(--line);cursor:pointer">').join('')+'</div>':'')
-      +'</div>';
-  });
-  if(!list.length) h+='<div style="color:var(--muted);font-size:13px;padding:6px">요청 기록이 없습니다</div>';
-  box.innerHTML='<div style="padding:8px 10px">'+h+'</div>';
-}
-
-/* 대상자 접속 시 팝업 — 아직 안 본 할일이 있으면 */
-let TASK_SEEN=null;
-function checkTaskPopup(){
-  if(!ME || IS_RUNNER) return;
-  if(TASK_SEEN===null){ try{ TASK_SEEN=new Set(JSON.parse(localStorage.getItem('shinwha_task_seen')||'[]')); }catch(e){ TASK_SEEN=new Set(); } }
-  const open=myOpenTasks();
-  const fresh=open.filter(id=>!TASK_SEEN.has(id));
-  if(!fresh.length) return;
-  const pop=document.getElementById('taskPop');
-  pop.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><b>✅ 새 업무요청 '+fresh.length+'건</b><button onclick="closeTaskPop()" style="border:none;background:none;font-size:18px;cursor:pointer">✕</button></div>'
-    +open.map(id=>taskBlock(id,TASKS[id],true)).join('')
-    +'<button onclick="closeTaskPop();setSide(\'task\');goPage(1)" style="width:100%;margin-top:6px;border:none;background:var(--ink);color:#fff;border-radius:8px;padding:10px;font-weight:800;cursor:pointer">업무요청 탭에서 보기</button>';
-  document.getElementById('taskPopBg').classList.add('on');
-  open.forEach(id=>TASK_SEEN.add(id));
-  try{ localStorage.setItem('shinwha_task_seen', JSON.stringify([...TASK_SEEN].slice(-300))); }catch(e){}
-  try{ beep(); if(navigator.vibrate) navigator.vibrate([120,60,120]); }catch(e){}
-}
-function closeTaskPop(){ document.getElementById('taskPopBg').classList.remove('on'); }
-
 function renderSide(){
   try{ if(CUR_ROOM && CUR_ROOM.id==='deliv') renderVehBar(); }catch(e){}
   document.getElementById('curDate').textContent=mmdd(PANEL_DATE)||'--.--';
@@ -2952,10 +2167,6 @@ function renderSide(){
   const cb=document.getElementById('confBadge');
   cb.style.display=conf.length?'':'none'; cb.textContent=conf.length;
 
-  try{ const tb=document.getElementById('taskBadge'); const n=myOpenTasks().length; tb.style.display=n?'':'none'; tb.textContent=n; }catch(e){}
-  try{ document.getElementById('segMap').style.display=IS_ADMIN?'':'none'; }catch(e){}
-  if(SIDE==='task'){ renderTasks(); return; }
-  if(SIDE==='map'){ renderTaskMap(); return; }
   if(SIDE==='pend') renderPend();
   else renderConf(conf);
 }
@@ -3003,33 +2214,16 @@ function buildOrderCard(o){
   const isLate=pAt && (o.ts||0)>pAt;
   head.innerHTML='<span class="oc-cli'+(o.needClient?' warn':'')+'" style="cursor:pointer;text-decoration:underline dotted" '
     +'onclick="openCliEdit(\''+esc(o.id)+'\')" title="누르면 거래처 수정 (잘못 잡힌 이름은 학습됩니다)">'+esc(o.client||'(거래처 미확인)')+'</span>'
-    +'<span title="접수 시각" style="font-size:10px;color:var(--muted)">'+(o.sts||o.ts?new Date(o.sts||o.ts).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})+' 접수':'')+'</span>'
     +'<span onclick="editDate(\''+esc(o.id)+'\')" title="누르면 배송 날짜 수정" '
     +'style="cursor:pointer;font-size:11px;font-weight:800;color:#5a5045;background:#f0ece1;border-radius:8px;padding:2px 7px">📅'+esc(mmdd(o.date||''))+'</span>'
     +(isLate?'<span style="font-size:10px;font-weight:800;background:#f3e4e2;color:#8a1c1c;border-radius:8px;padding:1px 7px">🆕 인쇄 이후</span>':'')
     +'<span class="oc-meta">'+(o.by?esc(o.by)+' · ':'')+(o.items||[]).length+'품목</span>'
     +(o.raw?'<span class="oc-src" onclick="alert(this.dataset.r)" data-r="'+esc((o.raw||'').slice(0,600))+'">원문</span>':'')
-    +((normVeh(o.vehicle||'')==='택배' && !(o.ship&&(o.ship.name||o.ship.phone||o.ship.addr)))?'<span onclick="editShip(\''+esc(o.id)+'\')" title="택배 수취인 정보 입력" style="cursor:pointer;font-size:11px;background:#fff7e6;border:1px solid #e6c98a;border-radius:8px;padding:1px 6px;color:#8a5a00">📦 수취인</span>':'')
     +'<span onclick="delOrder(\''+esc(o.id)+'\')" title="주문 삭제 (휴지통으로 — 복구 가능)" '
     +'style="cursor:pointer;font-size:13px;padding:0 2px">🗑</span>';
   card.appendChild(head);
   const cliEdit=document.createElement('div'); cliEdit.id='cliEdit_'+o.id; cliEdit.style.display='none';
   card.appendChild(cliEdit);
-  if(o.ship && (o.ship.name||o.ship.phone||o.ship.addr)){
-    const sb=document.createElement('div');
-    sb.style.cssText='margin:2px 0 6px;padding:7px 9px;background:#fff7e6;border:1px solid #e6c98a;border-radius:6px;font-size:12.5px;line-height:1.5';
-    sb.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center"><b style="color:#8a5a00">📦 택배 수취인</b><span>'
-      +'<button onclick="copyShip(\''+esc(o.id)+'\',this)" style="border:1px solid #d9b96a;background:#fff;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:800;cursor:pointer">📋 복사</button> '
-      +'<button onclick="editShip(\''+esc(o.id)+'\')" style="border:1px solid #d9b96a;background:#fff;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:800;cursor:pointer">✏</button></span></div>'
-      +(o.ship.name?'<div>👤 '+esc(o.ship.name)+'</div>':'')
-      +(o.ship.phone?'<div>📞 <a href="tel:'+esc(o.ship.phone)+'" style="color:#1a4f9c">'+esc(o.ship.phone)+'</a></div>':'')
-      +(o.ship.addr?'<div>🏠 '+esc(o.ship.addr)+'</div>':'')
-      +(o.ship.memo?'<div style="color:#8a5a00">📝 '+esc(o.ship.memo)+'</div>':'')
-      +((o.ship.sender||o.ship.senderPhone)?'<div style="border-top:1px dashed #e6c98a;margin-top:4px;padding-top:3px;color:#5a4a1a">📤 보내는 분: '+esc(o.ship.sender||'')+(o.ship.senderPhone?' <a href="tel:'+esc(o.ship.senderPhone)+'" style="color:#1a4f9c">'+esc(o.ship.senderPhone)+'</a>':'')+'</div>':'')
-      +'<div style="margin-top:5px">'+(o.shipQ?'<span style="font-size:11px;color:#1f6b3a;font-weight:800">🚚 송장 대기 등록됨 ('+(o.shipQ.boxes||'?')+'박스 · '+esc(o.shipQ.by||'')+' '+new Date(o.shipQ.at).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})+')</span> ':'')
-      +'<button onclick="shipQueue(\''+esc(o.id)+'\',this)" style="border:1px solid #d9b96a;background:#fff;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:800;cursor:pointer">'+(o.shipQ?'🚚 다시 등록':'🚚 송장 대기로')+'</button></div>';
-    card.appendChild(sb);
-  }
   const measBox=document.createElement('div'); measBox.id='meas_'+o.id; measBox.style.display='none';
   card.appendChild(measBox);
   if(MEAS_OPEN[o.id]) setTimeout(()=>openMeasure(o.id, true), 0);
@@ -3042,9 +2236,10 @@ function buildOrderCard(o){
       +'<span onclick="delItem(\''+esc(o.id)+'\','+idx+')" title="이 품목만 삭제" style="cursor:pointer;font-size:11px;opacity:.65;padding-left:2px">✕</span>'
       +'<span onclick="openMeasure(\''+esc(o.id)+'\')" title="생산 실측(중량·식별번호) 입력" style="cursor:pointer;font-size:11px;opacity:.65;padding-left:2px">⚖</span>';
     let meas='';
-    if(it.prodKg || it.prodTail || it.boxN){
-      meas=' <span title="생산 실측 (현장 입력) — 식별번호 같은 박스끼리 합산" style="font-size:11px;font-weight:800;color:#1a4f9c;background:#e4edf9;border-radius:4px;padding:1px 5px">⚖'
-        +esc(measText(it))+'</span>';
+    if(it.prodKg || it.prodTail){
+      const nb=(it.boxes||[]).length;
+      meas=' <span title="생산 실측 (현장 입력)" style="font-size:11px;font-weight:800;color:#1a4f9c;background:#e4edf9;border-radius:4px;padding:1px 5px">⚖'
+        +(nb>1?nb+'박스 ':'')+(it.prodKg?String(it.prodKg).replace(/\.0+$/,'')+'kg':'')+(it.prodTail?'('+esc(it.prodTail)+')':'')+'</span>';
     }
     if(it.erpKg || it.erpTail){
       meas+=' <span title="전산 실제값 (대조 결과)" style="font-size:11px;font-weight:800;color:#1f6b3a;background:#e7f2ea;border-radius:4px;padding:1px 5px">'
@@ -3085,8 +2280,7 @@ function buildOrderCard(o){
     const b=document.createElement('label');
     b.className='chk'+(c?' on':'');
     b.title=c?(c.by+' · '+new Date(c.at).toLocaleString('ko-KR')):label+' 체크';
-    const who=c?'<div style="font-size:10px;font-weight:400;color:#1f6b3a;margin-top:2px;white-space:nowrap">'+esc(c.by||'')+' '+new Date(c.at).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})+(new Date(c.at).toDateString()!==new Date().toDateString()?' ('+new Date(c.at).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric'})+')':'')+'</div>':'';
-    b.innerHTML='<input type="checkbox"'+(c?' checked':'')+'> '+label+who;
+    b.innerHTML='<input type="checkbox"'+(c?' checked':'')+'> '+label;
     b.onclick=ev=>{ ev.preventDefault(); toggleChk(o.id, key, !c); };
     row.appendChild(b);
   });
@@ -3098,29 +2292,10 @@ function buildOrderCard(o){
    ✏ 미처리 카드 직접 수정 + 학습 (v2.6)
    ============================================================ */
 
-/* ⚖ 실측 태그 문자열 — 식별번호가 같은 박스끼리 합산, 다른 번호는 따로 (v5.11) */
-function measText(it){
-  const boxes=(it.boxes||[]).filter(b=>b&&(b.kg!=null&&b.kg!==''||b.tail));
-  const nb=it.boxN||boxes.length;
-  const f=v=>String(Math.round(v*100)/100).replace(/\.0+$/,'');
-  if(!boxes.length){
-    return (nb>1?nb+'박스 ':'')+(it.prodKg?f(it.prodKg)+'kg':'')+(it.prodTail?'('+it.prodTail+')':'');
-  }
-  const g={}; const order=[];
-  boxes.forEach(b=>{ const k=b.tail||'-'; if(!g[k]){ g[k]={kg:0,n:0}; order.push(k); } g[k].kg+=(Number(b.kg)||0); g[k].n++; });
-  const parts=order.map(k=>(g[k].kg?f(g[k].kg)+'kg':'')+'('+(k==='-'?'번호없음':k)+(g[k].n>1?'×'+g[k].n:'')+')');
-  return (nb>1?nb+'박스 ':'')+parts.join(' · ');
-}
-
 /* ⚖ 생산 실측 입력 — 품목별 · 박스별 중량(kg)·식별번호 끝4자리 (v3.10) */
 const MEAS_OPEN={}, BOX_EDIT={}, MEAS_T={};
 function boxesOf(it){
-  if(it && Array.isArray(it.boxes) && it.boxes.length){
-    const r=it.boxes.map(b=>({kg:b.kg||'', tail:b.tail||''}));
-    while(it.boxN && r.length<it.boxN) r.push({kg:'',tail:''});
-    return r;
-  }
-  if(it && it.boxN) return Array.from({length:it.boxN},()=>({kg:'',tail:''}));
+  if(it && Array.isArray(it.boxes) && it.boxes.length) return it.boxes.map(b=>({kg:b.kg||'', tail:b.tail||''}));
   if(it && (it.prodKg||it.prodTail)) return [{kg:it.prodKg||'', tail:it.prodTail||''}];
   return [{kg:'', tail:''}];
 }
@@ -3141,12 +2316,9 @@ function renderMeasure(id){
   (o.items||[]).forEach((it,idx)=>{
     const rows=ed[idx]||[{kg:'',tail:''}];
     const sum=rows.reduce((a,b)=>a+(Number(b.kg)||0),0);
-    const nbox=it.boxN||rows.length;
     h+='<div style="margin-bottom:6px;padding-bottom:4px;border-bottom:1px dashed #c9d6ea">'
-      +'<div style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;margin-bottom:3px;flex-wrap:wrap"><span>'+esc(itemText(it))+'</span>'
-      +'<label style="font-weight:400;color:#1a4f9c;display:flex;align-items:center;gap:4px">박스 수 <input type="number" min="1" max="99" inputmode="numeric" value="'+nbox+'" '
-      +'onchange="boxSetN(\''+esc(id)+'\','+idx+',this.value)" style="width:52px;padding:5px;border:1px solid var(--line);border-radius:5px;font-size:13px;font-family:var(--mono);text-align:center"></label>'
-      +(sum?'<span style="color:#1a4f9c;font-weight:400">합계 '+(Math.round(sum*100)/100)+'kg</span>':'')+'</div>';
+      +'<div style="font-size:12px;font-weight:800;margin-bottom:3px">'+esc(itemText(it))
+      +(rows.length>1?' <span style="color:#1a4f9c;font-weight:400">'+rows.length+'박스 · 합계 '+(Math.round(sum*100)/100)+'kg</span>':'')+'</div>';
     rows.forEach((b,bi)=>{
       h+='<div style="display:flex;gap:6px;align-items:center;margin-bottom:3px">'
         +'<span style="font-size:11px;color:var(--muted);width:26px">'+(bi+1)+'박스</span>'
@@ -3169,21 +2341,6 @@ function boxIn(id, idx, bi, field, val){
   clearTimeout(MEAS_T[id]); MEAS_T[id]=setTimeout(()=>saveBoxes(id, idx), 700);
 }
 function boxAdd(id, idx){ const ed=BOX_EDIT[id]; if(!ed) return; (ed[idx]=ed[idx]||[]).push({kg:'',tail:''}); renderMeasure(id); }
-/* 박스 수 지정 → 줄 수를 맞춤 (줄이면 값 있는 줄은 확인) */
-function boxSetN(id, idx, n){
-  const ed=BOX_EDIT[id]; if(!ed) return;
-  n=Math.max(1, Math.min(99, parseInt(n,10)||1));
-  const rows=ed[idx]=ed[idx]||[];
-  if(rows.length<n){ while(rows.length<n) rows.push({kg:'',tail:''}); }
-  else if(rows.length>n){
-    const cut=rows.slice(n); 
-    if(cut.some(b=>b.kg||b.tail) && !confirm('입력된 박스 줄이 지워집니다. 박스 수를 '+n+'로 줄일까요?')){ renderMeasure(id); return; }
-    rows.length=n;
-  }
-  BOX_N[id]=BOX_N[id]||{}; BOX_N[id][idx]=n;
-  renderMeasure(id); saveBoxes(id, idx);
-}
-const BOX_N={};
 function boxDel(id, idx, bi){ const ed=BOX_EDIT[id]; if(!ed||!ed[idx]) return; ed[idx].splice(bi,1); if(!ed[idx].length) ed[idx]=[{kg:'',tail:''}]; renderMeasure(id); saveBoxes(id, idx); }
 async function saveBoxes(id, idx){
   const o=ORDERS[id]; const ed=BOX_EDIT[id]; if(!o||!o.items||!o.items[idx]||!ed) return;
@@ -3191,14 +2348,12 @@ async function saveBoxes(id, idx){
                           .filter(b=>b.kg!==null||b.tail);
   const items=o.items.slice();
   const it=Object.assign({}, items[idx]);
-  const n=(BOX_N[id]&&BOX_N[id][idx])||(ed[idx]||[]).length||null;
-  it.boxN=n;
   if(rows.length){
     it.boxes=rows.map(b=>({kg:b.kg===null?null:b.kg, tail:b.tail||null}));
     const sum=rows.reduce((a,b)=>a+(b.kg||0),0);
     it.prodKg=sum?Math.round(sum*100)/100:null;
     it.prodTail=rows.map(b=>b.tail).filter(Boolean).join('·')||null;
-  }else{ it.boxes=null; it.prodKg=null; it.prodTail=null; if(!(BOX_N[id]&&BOX_N[id][idx])) it.boxN=null; }
+  }else{ it.boxes=null; it.prodKg=null; it.prodTail=null; }
   it.measBy=MYNAME; it.measAt=Date.now();
   items[idx]=it;
   try{
@@ -3208,44 +2363,6 @@ async function saveBoxes(id, idx){
     const box=document.getElementById('meas_'+id);
     if(box && !box.contains(document.activeElement)) renderSide();
   }catch(e){ alert('저장 실패: '+e.message); }
-}
-
-/* 🚚 택배관리 앱 송장 대기 등록 (v6.12) */
-async function shipQueue(id, btn){
-  const o=ORDERS[id]; if(!o) return;
-  if(btn){ btn.disabled=true; btn.textContent='등록 중…'; }
-  try{
-    const snap={id:o.id, date:o.date, client:o.client, ship:o.ship||null, items:(o.items||[]).map(it=>({text:it.text||'', product:it.product||'', boxN:it.boxN||null, prodKg:it.prodKg||null}))};
-    const r=await gsCall('shipQueue',{order:JSON.stringify(snap), by:MYNAME});
-    if(!r.ok) throw new Error(r.error||'등록 실패');
-    await db.ref('orders/'+id).update({shipQ:{at:Date.now(), boxes:r.boxes||0, by:MYNAME, state:r.already?'가져옴':'대기'}});
-    o.shipQ={at:Date.now(), boxes:r.boxes||0, by:MYNAME, state:r.already?'가져옴':'대기'};
-    if(btn) btn.textContent='등록됨 ✓';
-    renderSide();
-  }catch(e){
-    if(btn){ btn.disabled=false; btn.textContent='🚚 송장 대기로'; }
-    alert('송장 대기 등록 실패: '+e.message);
-  }
-}
-
-/* 📦 택배 수취인 — 복사(이름·연락처·주소·메모 탭 구분) · 수정 */
-async function copyShip(id, btn){
-  const o=ORDERS[id]; if(!o||!o.ship) return;
-  const t=[o.ship.name||'', o.ship.phone||'', o.ship.addr||'', o.ship.memo||'', o.ship.sender||'', o.ship.senderPhone||''].join('\t');
-  try{ await navigator.clipboard.writeText(t); if(btn){ btn.textContent='복사됨 ✓'; setTimeout(()=>btn.textContent='📋 복사',1200); } }
-  catch(e){ prompt('길게 눌러 복사하세요', t); }
-}
-async function editShip(id){
-  const o=ORDERS[id]; if(!o) return;
-  const sh=Object.assign({name:'',phone:'',addr:'',memo:'',sender:'',senderPhone:''}, o.ship||{});
-  const name=prompt('수취인 이름', sh.name); if(name===null) return;
-  const phone=prompt('연락처', sh.phone); if(phone===null) return;
-  const addr=prompt('주소', sh.addr); if(addr===null) return;
-  const memo=prompt('요청사항 (없으면 비움)', sh.memo); if(memo===null) return;
-  const sender=prompt('보내는 분 이름 (없으면 비움)', sh.sender||''); if(sender===null) return;
-  const senderPhone=prompt('보내는 분 연락처 (없으면 비움)', sh.senderPhone||''); if(senderPhone===null) return;
-  const ns={name:name.trim(), phone:phone.trim(), addr:addr.trim(), memo:memo.trim(), sender:sender.trim(), senderPhone:senderPhone.trim()};
-  try{ await db.ref('orders/'+id).update({ship:ns}); o.ship=ns; renderSide(); }catch(e){ alert('저장 실패: '+e.message); }
 }
 
 /* 📅 배송 날짜 수정 — 의심 주문(먼 미래 날짜 등)을 바로잡습니다 */
@@ -3418,19 +2535,12 @@ async function setVehicleFor(id, veh){
 async function toggleChk(id, key, on){
   const o=ORDERS[id]; if(!o) return;
   if(o.needClient && on){ alert('거래처 미확인 주문은 먼저 주문노트 ①-1에서 거래처를 지정하세요.'); return; }
-  // ✅ 전산처리는 확인 창 한 번 더 (실수 방지) — 확인방으로 넘어가는 작업이라
-  if(key==='erp' && on){
-    const items=(o.items||[]).map(it=>'  · '+itemText(it)+((it.prodKg||it.boxN)?'  ⚖'+measText(it):'')).join('\n');
-    if(!confirm('전산처리 완료로 표시할까요?\n\n'+(o.client||'(미지정)')+' · '+mmdd(o.date||'')+' · '+normVeh(o.vehicle||'미지정')+'\n'+items+'\n\n확인하면 확인방으로 넘어가고 전산대조 대상이 됩니다.')) return;
-  }
   o.chk=o.chk||{};
   if(on) o.chk[key]={by:MYNAME, at:Date.now()};
   else delete o.chk[key];
   const upd={}; upd['chk/'+key]= on?o.chk[key]:null;
   // 생산확인은 주문노트의 "완료" 표시와 동기화
   if(key==='prod') upd['done']=!!on;
-  // 🚚 택배 주문 전산처리 → 택배관리 송장 대기 등록
-  if(key==='erp' && on && normVeh(o.vehicle||'')==='택배') setTimeout(()=>shipQueue(id), 300);
   // ⚖ 주문확인·생산확인을 켜면 실측 입력칸 펼침 (아직 안 적은 품목이 있을 때)
   if(on && (key==='ord'||key==='prod')){
     const need=(o.items||[]).some(it=>!(it&&(it.prodKg||it.prodTail)));
@@ -3556,7 +2666,7 @@ function renderConf(conf){
       const meta=document.createElement('div');
       meta.style.cssText='font-size:10.5px;color:#a09a8a;margin-top:5px';
       const ck=o.chk||{};
-      meta.textContent=CHK_DEF.map(([k,l])=>ck[k]?l+': '+ck[k].by+' '+new Date(ck[k].at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'').filter(Boolean).join(' · ')
+      meta.textContent=CHK_DEF.map(([k,l])=>ck[k]?l+':'+ck[k].by:'').filter(Boolean).join(' · ')
         +(o.confirmAt?' · 이동 '+new Date(o.confirmAt).toLocaleString('ko-KR'):'');
       card.appendChild(meta);
       box.appendChild(card);
