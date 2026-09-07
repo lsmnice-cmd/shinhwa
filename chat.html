@@ -11,7 +11,11 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.13 — 2026-09-08
+  신화미트 주문방 (chat.html) v6.14 — 2026-09-08
+  · v6.14: 🧩 세트작업 = 채팅 없는 작업 보드. 엑셀식 열(거래처·주문수량·세트 중량/구성·
+    택배발송·발송일·세트비·택배비). 블록마다 [▶ 생산시작]→투입상품·중량·식별번호 계속
+    추가, [생산완료]에서 세트수·규격(2kg/B4/5근/10근/15근/20근/스킨3구·4구)·용품세트
+    사용량 기록, [포장완료]·[택배발송완료] 체크(누가·언제). 세트비/택배비 별도·포함 설정.
   · v6.13: 🧩 세트작업 방 — 탭 순서 주문방·온라인·입출고·생산·세트작업·배송.
     관리자가 세트작업 방 ON/OFF(meta/roomsOn/set). 방 상단 패널에서 세트작업 등록:
     거래처명·주문수량·세트 중량/구성·택배발송 유무·발송일·메모, 진행/완료·수정·삭제.
@@ -376,8 +380,15 @@
   #lightbox .lb-body{flex:1;overflow:hidden;display:flex;align-items:center;justify-content:center;touch-action:none;position:relative}
   #lightbox img{max-width:100%;max-height:100%;object-fit:contain;transform-origin:0 0;will-change:transform;user-select:none;-webkit-user-drag:none}
   /* 🧩 세트작업 패널 */
-  #setPanel{display:none;max-height:48vh;overflow:auto;background:#f6f4ff;border-bottom:2px solid #c9c2ea;padding:8px 10px}
+  #setPanel{display:none;flex:1;overflow:auto;background:#f6f4ff;padding:8px 10px;min-height:0}
   #setPanel.on{display:block}
+  #wrap.setmode #chatScroll,#wrap.setmode #inputBar,#wrap.setmode #vehBar,#wrap.setmode #vehPanel,#wrap.setmode #searchBar{display:none !important}
+  .sw-head{display:grid;grid-template-columns:1.2fr .8fr 2fr .7fr .9fr .6fr .6fr;gap:6px;font-size:11px;font-weight:800;color:#5b4bb7;padding:4px 8px;border-bottom:2px solid #c9c2ea;margin-bottom:6px}
+  .sw-row{display:grid;grid-template-columns:1.2fr .8fr 2fr .7fr .9fr .6fr .6fr;gap:6px;font-size:13px;align-items:start}
+  @media (max-width:640px){ .sw-head{display:none} .sw-row{display:block} .sw-row>div::before{content:attr(data-l);font-size:10px;color:var(--muted);margin-right:4px} }
+  .sw-in{display:grid;grid-template-columns:1.6fr .8fr .8fr auto;gap:4px;margin-top:4px}
+  .sw-in input{padding:6px;border:1px solid var(--line);border-radius:5px;font-size:13px;font-family:var(--mono)}
+  .sw-chk{display:flex;gap:4px;margin-top:6px} .sw-chk label{flex:1}
   .sw{border:1px solid #d6d0f0;border-left:4px solid #5b4bb7;border-radius:8px;background:#fff;padding:8px 10px;margin-bottom:6px;font-size:13px}
   .sw.done{border-left-color:#9a9384;opacity:.75}
   .sw .t{font-weight:800;font-size:14px} .sw .m{font-size:12px;color:var(--muted);margin-top:2px}
@@ -569,6 +580,7 @@
 <body>
 
 <datalist id="cliList"></datalist>
+<datalist id="prodList"></datalist>
 <div id="upBanner"></div>
 <div id="peopleBg" onclick="closePeople()"><div id="peopleBox" onclick="event.stopPropagation()"></div></div>
 <div id="infoBg" class="mbg" onclick="this.classList.remove('on')"><div id="infoBox" class="mbox" onclick="event.stopPropagation()"></div></div>
@@ -1181,6 +1193,8 @@ async function loadMaster(){
     for(const c in MASTER) (MASTER[c].specs||[]).forEach(s=>{ if(s.code) PRODBYCODE[s.code]=s.product; });
     const dl=document.getElementById('cliList');
     if(dl){ dl.innerHTML=Object.keys(MASTER).sort().map(c=>'<option value="'+esc(c)+'">').join(''); }
+    const pl=document.getElementById('prodList');
+    if(pl){ const ps=new Set(); for(const c in MASTER) (MASTER[c].specs||[]).forEach(x=>{ if(x.product) ps.add(x.product); }); pl.innerHTML=[...ps].sort().map(p=>'<option value="'+esc(p)+'">').join(''); }
   }catch(e){ console.error('마스터 로드 실패', e); }
 }
 
@@ -1588,29 +1602,62 @@ function renderVehPanel(){
   panel.innerHTML=h;
 }
 
-/* 🧩 세트작업 패널 (v6.13) — rooms/set/work */
-let SETW={}, SET_SUB=false, SET_FORM=null;
+/* 🧩 세트작업 보드 (v6.14) — rooms/set/work */
+let SETW={}, SET_SUB=false, SET_FORM=null, SET_IN_OPEN={};
+const SET_SIZES=['2kg 세트','B4 세트','5근 세트','10근 세트','15근 세트','20근 세트','스킨포장 3구','스킨포장 4구','기타'];
 function watchSetWork(){
   if(SET_SUB||!db) return; SET_SUB=true;
   db.ref('rooms/set/work').on('value', s=>{ SETW=s.val()||{}; renderSetPanel(); }, ()=>{});
 }
+function whoAt(c){ return c?esc(c.by||'')+' '+new Date(c.at||0).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):''; }
 function renderSetPanel(){
   const p=document.getElementById('setPanel'); if(!p) return;
   const on=CUR_ROOM.id==='set';
-  p.classList.toggle('on', on); if(!on) return;
+  p.classList.toggle('on', on); document.getElementById('wrap').classList.toggle('setmode', on);
+  if(!on) return;
   watchSetWork();
   const ids=Object.keys(SETW).filter(k=>SETW[k]).sort((a,b)=>(SETW[b].ts||0)-(SETW[a].ts||0));
-  const open=ids.filter(k=>SETW[k].status!=='완료'), done=ids.filter(k=>SETW[k].status==='완료').slice(0,20);
+  const open=ids.filter(k=>!(SETW[k].chk&&SETW[k].chk.sent)), done=ids.filter(k=>SETW[k].chk&&SETW[k].chk.sent).slice(0,30);
   let h='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b style="color:#5b4bb7">🧩 세트작업 · 진행 '+open.length+'건</b><button onclick="setFormOpen()" style="border:none;background:#5b4bb7;color:#fff;border-radius:6px;padding:6px 11px;font-weight:800;font-size:12px;cursor:pointer">+ 세트작업 등록</button></div>';
   if(SET_FORM) h+=setFormHtml(SET_FORM);
-  const card=(k,w)=>'<div class="sw '+(w.status==='완료'?'done':'')+'"><div class="t">'+esc(w.client)+' · '+esc(w.qty||'')+(w.qty&&/^\d+$/.test(String(w.qty))?'세트':'')+'</div>'
-    +'<div>'+esc(w.spec||'')+'</div>'
-    +'<div class="m">택배 '+(w.ship==='Y'?'<b style="color:#1a4f9c">발송</b>':'미발송')+(w.shipDate?' · 발송일 '+esc(w.shipDate):'')+(w.memo?' · '+esc(w.memo):'')+' · '+esc(w.by||'')+' '+new Date(w.ts||0).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+(w.status==='완료'?' · ✅ 완료 '+esc(w.doneBy||''):'')+'</div>'
-    +'<div class="b">'+(w.status!=='완료'?'<button style="background:#e7f2ea;color:#1f6b3a" onclick="setDone(\''+k+'\')">✅ 완료</button>':'<button onclick="setReopen(\''+k+'\')">↺ 진행으로</button>')
-    +'<button onclick="setFormOpen(\''+k+'\')">✏ 수정</button><button onclick="setDel(\''+k+'\')">🗑</button></div></div>';
-  h+=open.map(k=>card(k,SETW[k])).join('')||'<div style="color:var(--muted);font-size:13px;padding:4px">진행 중인 세트작업 없음</div>';
-  if(done.length) h+='<div style="font-size:12px;font-weight:800;color:var(--muted);margin:8px 0 4px">완료 (최근)</div>'+done.map(k=>card(k,SETW[k])).join('');
+  h+='<div class="sw-head"><div>거래처명</div><div>주문수량</div><div>세트 중량 및 구성</div><div>택배발송</div><div>발송일</div><div>세트비</div><div>택배비</div></div>';
+  h+=open.map(k=>setCard(k,SETW[k])).join('')||'<div style="color:var(--muted);font-size:13px;padding:4px">진행 중인 세트작업 없음</div>';
+  if(done.length) h+='<div style="font-size:12px;font-weight:800;color:var(--muted);margin:10px 0 4px">✅ 발송 완료 (최근)</div>'+done.map(k=>setCard(k,SETW[k])).join('');
   p.innerHTML=h;
+}
+function setCard(k,w){
+  const c=w.chk||{}; const ins=w.inputs||[];
+  const totalKg=ins.reduce((a,b)=>a+(Number(b.kg)||0),0);
+  let h='<div class="sw '+(c.sent?'done':'')+'">'
+    +'<div class="sw-row"><div data-l="거래처" style="font-weight:800;font-size:14px">'+esc(w.client)+'</div><div data-l="주문수량">'+esc(w.qty||'')+'</div><div data-l="구성" style="white-space:pre-wrap">'+esc(w.spec||'')+'</div>'
+    +'<div data-l="택배">'+(w.ship==='Y'?'<b style="color:#1a4f9c">발송</b>':'미발송')+'</div><div data-l="발송일">'+esc(w.shipDate||'-')+'</div>'
+    +'<div data-l="세트비">'+esc(w.setFee||'-')+'</div><div data-l="택배비">'+esc(w.shipFee||'-')+'</div></div>'
+    +(w.memo?'<div class="m">📝 '+esc(w.memo)+'</div>':'')
+    +'<div class="m">등록 '+esc(w.by||'')+' '+new Date(w.ts||0).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+(c.start?' · ▶ 생산시작 '+whoAt(c.start):'')+'</div>';
+  // 투입 내역
+  if(c.start || ins.length){
+    h+='<div style="margin-top:6px;padding:6px 8px;background:#f6f4ff;border-radius:6px"><div style="font-size:11.5px;font-weight:800;color:#5b4bb7">🥩 투입 상품'+(ins.length?' · '+ins.length+'건 · 합계 '+(Math.round(totalKg*100)/100)+'kg':'')+'</div>';
+    ins.forEach((x,i)=>{ h+='<div style="font-size:12.5px;display:flex;gap:8px;align-items:center"><span style="flex:1">'+esc(x.product)+'</span><span style="font-family:var(--mono)">'+esc(x.kg)+'kg</span><span style="font-family:var(--mono);color:#1a4f9c">('+esc(x.tail||'-')+')</span><span style="font-size:10px;color:var(--muted)">'+esc(x.by||'')+'</span>'+(c.prod?'':'<span onclick="setInDel(\''+k+'\','+i+')" style="cursor:pointer;opacity:.5">✕</span>')+'</div>'; });
+    if(!c.prod){
+      if(SET_IN_OPEN[k]) h+='<div class="sw-in"><input id="si_p_'+k+'" list="prodList" placeholder="투입상품"><input id="si_k_'+k+'" type="number" step="0.01" inputmode="decimal" placeholder="중량kg"><input id="si_t_'+k+'" inputmode="numeric" maxlength="4" placeholder="식별 끝4"><button onclick="setInAdd(\''+k+'\')" style="border:none;background:#5b4bb7;color:#fff;border-radius:5px;padding:6px 10px;font-weight:800;cursor:pointer">추가</button></div>';
+      else h+='<button onclick="SET_IN_OPEN[\''+k+'\']=1;renderSetPanel()" style="margin-top:4px;border:1px dashed #5b4bb7;background:#fff;color:#5b4bb7;border-radius:5px;padding:3px 9px;font-size:11.5px;font-weight:800;cursor:pointer">+ 투입 추가</button>';
+    }
+    h+='</div>';
+  }
+  // 생산완료 기록
+  if(c.prod) h+='<div class="m" style="color:#1f6b3a;font-weight:800">✅ 생산완료 '+whoAt(c.prod)+' — '+esc(c.prod.sets||'?')+'세트 · '+esc(c.prod.size||'')+(c.prod.packQty?' · 용품세트 '+esc(c.prod.packQty)+'개':'')+(c.prod.note?' · '+esc(c.prod.note):'')+'</div>';
+  if(c.pack) h+='<div class="m" style="color:#1f6b3a">📦 포장완료 '+whoAt(c.pack)+'</div>';
+  if(c.sent) h+='<div class="m" style="color:#1f6b3a">🚚 택배발송완료 '+whoAt(c.sent)+'</div>';
+  // 버튼
+  h+='<div class="b">'+(!c.start?'<button style="background:#5b4bb7;color:#fff;border:none" onclick="setStart(\''+k+'\')">▶ 생산시작</button>':'')
+    +'<button onclick="setFormOpen(\''+k+'\')">✏ 수정</button><button onclick="setDel(\''+k+'\')">🗑</button></div>';
+  if(c.start){
+    h+='<div class="sw-chk oc-checks">'
+      +'<label class="chk'+(c.prod?' on':'')+'" onclick="setChk(\''+k+'\',\'prod\','+(c.prod?'false':'true')+')"><input type="checkbox"'+(c.prod?' checked':'')+'> 생산완료</label>'
+      +'<label class="chk'+(c.pack?' on':'')+'" onclick="setChk(\''+k+'\',\'pack\','+(c.pack?'false':'true')+')"><input type="checkbox"'+(c.pack?' checked':'')+'> 포장완료</label>'
+      +'<label class="chk'+(c.sent?' on':'')+'" onclick="setChk(\''+k+'\',\'sent\','+(c.sent?'false':'true')+')"><input type="checkbox"'+(c.sent?' checked':'')+'> 택배발송완료</label></div>';
+  }
+  return h+'</div>';
 }
 function setFormHtml(f){
   return '<div class="swf" style="background:#fff;border:1px solid #d6d0f0;border-radius:8px;padding:10px;margin-bottom:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px">'
@@ -1619,6 +1666,8 @@ function setFormHtml(f){
     +'<textarea id="swSpec" placeholder="세트 중량 및 구성 (예: 1kg — 삼겹 500g + 목살 500g)" style="grid-column:1/3;min-height:60px">'+esc(f.spec||'')+'</textarea>'
     +'<select id="swShip"><option value="N"'+(f.ship!=='Y'?' selected':'')+'>택배 미발송</option><option value="Y"'+(f.ship==='Y'?' selected':'')+'>택배 발송</option></select>'
     +'<input type="date" id="swDate" value="'+esc(f.shipDate||'')+'" title="발송일">'
+    +'<select id="swSetFee"><option value="포함"'+(f.setFee!=='별도'?' selected':'')+'>세트비 포함</option><option value="별도"'+(f.setFee==='별도'?' selected':'')+'>세트비 별도</option></select>'
+    +'<select id="swShipFee"><option value="포함"'+(f.shipFee!=='별도'?' selected':'')+'>택배비 포함</option><option value="별도"'+(f.shipFee==='별도'?' selected':'')+'>택배비 별도</option></select>'
     +'<input id="swMemo" placeholder="메모 (선택)" value="'+esc(f.memo||'')+'" style="grid-column:1/3">'
     +'<div style="grid-column:1/3;display:flex;gap:6px;justify-content:flex-end"><button onclick="SET_FORM=null;renderSetPanel()" style="border:1px solid var(--line);background:#fff;border-radius:6px;padding:7px 12px;cursor:pointer">취소</button>'
     +'<button onclick="setSave()" style="border:none;background:#5b4bb7;color:#fff;border-radius:6px;padding:7px 14px;font-weight:800;cursor:pointer">'+(f.id?'수정 저장':'등록')+'</button></div></div>';
@@ -1626,20 +1675,37 @@ function setFormHtml(f){
 function setFormOpen(id){ SET_FORM=id?Object.assign({id}, SETW[id]||{}):{}; renderSetPanel(); setTimeout(()=>{ const el=document.getElementById('swClient'); if(el&&!id) el.focus(); },50); }
 async function setSave(){
   const f={client:document.getElementById('swClient').value.trim(), qty:document.getElementById('swQty').value.trim(), spec:document.getElementById('swSpec').value.trim(),
-           ship:document.getElementById('swShip').value, shipDate:document.getElementById('swDate').value, memo:document.getElementById('swMemo').value.trim()};
+           ship:document.getElementById('swShip').value, shipDate:document.getElementById('swDate').value, setFee:document.getElementById('swSetFee').value, shipFee:document.getElementById('swShipFee').value, memo:document.getElementById('swMemo').value.trim()};
   if(!f.client){ alert('거래처명을 입력하세요'); return; }
   try{
     if(SET_FORM&&SET_FORM.id){ await db.ref('rooms/set/work/'+SET_FORM.id).update(Object.assign(f,{editBy:MYNAME, editAt:Date.now()})); }
-    else{
-      await db.ref('rooms/set/work').push().set(Object.assign(f,{by:MYNAME, ts:Date.now(), status:'진행'}));
-      await roomRef().push().set({sys:1, kind:'ok', ts:Date.now(), text:'🧩 세트작업 등록 — '+f.client+' · '+f.qty+(f.spec?'\n'+f.spec:'')+'\n택배 '+(f.ship==='Y'?'발송':'미발송')+(f.shipDate?' · 발송일 '+f.shipDate:''), by:MYNAME});
-      sendPushOut('🧩 세트작업: '+f.client+' '+f.qty);
-    }
+    else{ await db.ref('rooms/set/work').push().set(Object.assign(f,{by:MYNAME, ts:Date.now()})); sendPushOut('🧩 세트작업: '+f.client+' '+f.qty); }
     SET_FORM=null; renderSetPanel();
   }catch(e){ alert('저장 실패: '+e.message); }
 }
-async function setDone(k){ try{ await db.ref('rooms/set/work/'+k).update({status:'완료', doneBy:MYNAME, doneAt:Date.now()}); }catch(e){} }
-async function setReopen(k){ try{ await db.ref('rooms/set/work/'+k).update({status:'진행', doneBy:null, doneAt:null}); }catch(e){} }
+async function setStart(k){ try{ await db.ref('rooms/set/work/'+k+'/chk/start').set({by:MYNAME, at:Date.now()}); SET_IN_OPEN[k]=1; }catch(e){ alert('실패: '+e.message); } }
+async function setInAdd(k){
+  const p=document.getElementById('si_p_'+k).value.trim(), kg=Number(document.getElementById('si_k_'+k).value), t=document.getElementById('si_t_'+k).value.replace(/\D/g,'').slice(-4);
+  if(!p){ alert('투입상품을 입력하세요'); return; }
+  const w=SETW[k]||{}; const ins=(w.inputs||[]).slice(); ins.push({product:p, kg:kg||0, tail:t, by:MYNAME, at:Date.now()});
+  try{ await db.ref('rooms/set/work/'+k+'/inputs').set(ins); setTimeout(()=>{ const el=document.getElementById('si_p_'+k); if(el) el.focus(); },100); }catch(e){ alert('실패: '+e.message); }
+}
+async function setInDel(k,i){ const w=SETW[k]||{}; const ins=(w.inputs||[]).slice(); ins.splice(i,1); try{ await db.ref('rooms/set/work/'+k+'/inputs').set(ins); }catch(e){} }
+async function setChk(k, key, on){
+  if(!on){ if(!confirm('체크를 해제할까요?')) return; try{ await db.ref('rooms/set/work/'+k+'/chk/'+key).remove(); }catch(e){} return; }
+  let rec={by:MYNAME, at:Date.now()};
+  if(key==='prod'){
+    const w=SETW[k]||{};
+    const sets=prompt('생산한 세트 수', String(w.qty||'').replace(/[^0-9]/g,'')||''); if(sets===null) return;
+    const idx=prompt('세트 규격 번호를 고르세요\n'+SET_SIZES.map((x,i)=>(i+1)+') '+x).join('\n'), '3'); if(idx===null) return;
+    const size=SET_SIZES[Math.max(0,Math.min(SET_SIZES.length-1,(parseInt(idx,10)||1)-1))];
+    const packQty=prompt('사용한 용품세트(포장재) 수량', sets); if(packQty===null) return;
+    const note=prompt('비고 (없으면 비움)', ''); if(note===null) return;
+    rec=Object.assign(rec,{sets:sets.trim(), size, packQty:packQty.trim(), note:note.trim()});
+    if(size==='기타'){ const s2=prompt('규격 직접 입력', ''); if(s2) rec.size=s2.trim(); }
+  }
+  try{ await db.ref('rooms/set/work/'+k+'/chk/'+key).set(rec); if(key==='sent') sendPushOut('🚚 세트 택배발송완료: '+(SETW[k]&&SETW[k].client||'')); }catch(e){ alert('실패: '+e.message); }
+}
 async function setDel(k){ if(!confirm('이 세트작업을 삭제할까요?')) return; try{ await db.ref('rooms/set/work/'+k).remove(); }catch(e){} }
 
 /* 안읽음: 방별 마지막 읽은 시각(users/{uid}/read/{room}) vs 최근 메시지들 */
@@ -2693,8 +2759,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.13';
-const APP_BUILD=613;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.14';
+const APP_BUILD=614;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
