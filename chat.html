@@ -11,7 +11,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.8 — 2026-09-06
+  신화미트 주문방 (chat.html) v6.9 — 2026-09-07
+  · v6.9: 📦 블록에 보내는 분(이름·연락처) 표시, 복사에 포함, ✏ 수정에 보내는 분 항목 추가
   · v6.8: 🚚 차량 배정 3단계 — ① 머리말 차량이 정상이면 그대로 ② 없거나 오타(6509 등)면
     거래처 기본 차량(마스터) ③ 그것도 없고 오타가 한 글자 차이면 보정(6509→6506),
     아니면 미지정 + 텔레그램 "차량 확인 요청"(카드 링크) → 미처리에서 지정하면 학습.
@@ -2599,8 +2600,8 @@ let ROOM_LISTENERS=[], LAST_READ={}, ROOM_LAST={}, ROOM_UNREAD={};
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.8';
-const APP_BUILD=608;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.9';
+const APP_BUILD=609;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3007,7 +3008,8 @@ function buildOrderCard(o){
       +(o.ship.name?'<div>👤 '+esc(o.ship.name)+'</div>':'')
       +(o.ship.phone?'<div>📞 <a href="tel:'+esc(o.ship.phone)+'" style="color:#1a4f9c">'+esc(o.ship.phone)+'</a></div>':'')
       +(o.ship.addr?'<div>🏠 '+esc(o.ship.addr)+'</div>':'')
-      +(o.ship.memo?'<div style="color:#8a5a00">📝 '+esc(o.ship.memo)+'</div>':'');
+      +(o.ship.memo?'<div style="color:#8a5a00">📝 '+esc(o.ship.memo)+'</div>':'')
+      +((o.ship.sender||o.ship.senderPhone)?'<div style="border-top:1px dashed #e6c98a;margin-top:4px;padding-top:3px;color:#5a4a1a">📤 보내는 분: '+esc(o.ship.sender||'')+(o.ship.senderPhone?' <a href="tel:'+esc(o.ship.senderPhone)+'" style="color:#1a4f9c">'+esc(o.ship.senderPhone)+'</a>':'')+'</div>':'');
     card.appendChild(sb);
   }
   const measBox=document.createElement('div'); measBox.id='meas_'+o.id; measBox.style.display='none';
@@ -3193,18 +3195,20 @@ async function saveBoxes(id, idx){
 /* 📦 택배 수취인 — 복사(이름·연락처·주소·메모 탭 구분) · 수정 */
 async function copyShip(id, btn){
   const o=ORDERS[id]; if(!o||!o.ship) return;
-  const t=[o.ship.name||'', o.ship.phone||'', o.ship.addr||'', o.ship.memo||''].join('\t');
+  const t=[o.ship.name||'', o.ship.phone||'', o.ship.addr||'', o.ship.memo||'', o.ship.sender||'', o.ship.senderPhone||''].join('\t');
   try{ await navigator.clipboard.writeText(t); if(btn){ btn.textContent='복사됨 ✓'; setTimeout(()=>btn.textContent='📋 복사',1200); } }
   catch(e){ prompt('길게 눌러 복사하세요', t); }
 }
 async function editShip(id){
   const o=ORDERS[id]; if(!o) return;
-  const sh=Object.assign({name:'',phone:'',addr:'',memo:''}, o.ship||{});
+  const sh=Object.assign({name:'',phone:'',addr:'',memo:'',sender:'',senderPhone:''}, o.ship||{});
   const name=prompt('수취인 이름', sh.name); if(name===null) return;
   const phone=prompt('연락처', sh.phone); if(phone===null) return;
   const addr=prompt('주소', sh.addr); if(addr===null) return;
   const memo=prompt('요청사항 (없으면 비움)', sh.memo); if(memo===null) return;
-  const ns={name:name.trim(), phone:phone.trim(), addr:addr.trim(), memo:memo.trim()};
+  const sender=prompt('보내는 분 이름 (없으면 비움)', sh.sender||''); if(sender===null) return;
+  const senderPhone=prompt('보내는 분 연락처 (없으면 비움)', sh.senderPhone||''); if(senderPhone===null) return;
+  const ns={name:name.trim(), phone:phone.trim(), addr:addr.trim(), memo:memo.trim(), sender:sender.trim(), senderPhone:senderPhone.trim()};
   try{ await db.ref('orders/'+id).update({ship:ns}); o.ship=ns; renderSide(); }catch(e){ alert('저장 실패: '+e.message); }
 }
 
