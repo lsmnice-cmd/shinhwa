@@ -2490,6 +2490,9 @@ function firstDate(){
 function setNoteDate(d){ noteDate=d; renderNote(); }
 function setWorkDate(d){ workDate=d; renderWork(); }
 
+/* [v4.7] 🖨 인쇄 전 점검 — 그 날짜에 거래처 미확인·차량 미지정 주문이 있으면 인쇄 대신
+   점검 창을 띄워 그 자리에서 거래처/차량을 지정하고 인쇄. [그래도 인쇄]도 가능. */
+/* [v4.6] 📦 보내는 분(이름·연락처) 표시·복사 포함 */
 /* [v4.5] 📦 택배 수취인 정보(이름·연락처·주소·메모)를 거래처 행 아래에 표시 + [복사] — 채팅 검색 없이 택배 입력 */
 /* [v4.4] ✔전산 옆에 전산처리한 사람·시각 표시 (주문방 체크 기록) */
 /* [v4.3] ⚖ 태그: 식별번호가 같은 박스끼리만 합산, 다른 번호는 따로 표시 (주문방과 동일) */
@@ -2616,7 +2619,7 @@ function buildNoteTable(wrap, date, workMode){
     +'<button class="btn ghost" onclick="deleteDay(\''+date+'\')">🗑 하루 삭제</button>'
     +'<button class="btn ghost" onclick="openTrash()">♻ 휴지통</button>'
     +'<button class="btn ghost" onclick="cleanDups(\''+date+'\')">🧹 중복 정리</button>'
-    +'<button class="btn ghost" onclick="window.print()">🖨 차량별 인쇄</button>'
+    +'<button class="btn ghost" onclick="printWithCheck(\''+date+'\')">🖨 차량별 인쇄</button>'
     +'</span></div>';
 
   let html=head;
@@ -2694,7 +2697,8 @@ function buildNoteTable(wrap, date, workMode){
           +(function(){ const so=orders.find(o=>o.ship&&(o.ship.name||o.ship.phone||o.ship.addr)); if(!so) return ''; const sh=so.ship;
               return '<div style="margin-top:4px;padding:5px 7px;background:#fff7e6;border:1px solid #e6c98a;border-radius:5px;font-size:11px;line-height:1.45;text-align:left;font-weight:400">'
                 +'<div style="display:flex;justify-content:space-between;align-items:center"><b style="color:#8a5a00">📦 택배</b><button type="button" class="no-print" onclick="event.stopPropagation();copyShip(\''+esc(so.id)+'\',this)" style="border:1px solid #d9b96a;background:#fff;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:800;cursor:pointer">복사</button></div>'
-                +(sh.name?'<div>'+esc(sh.name)+'</div>':'')+(sh.phone?'<div>'+esc(sh.phone)+'</div>':'')+(sh.addr?'<div>'+esc(sh.addr)+'</div>':'')+(sh.memo?'<div style="color:#8a5a00">'+esc(sh.memo)+'</div>':'')+'</div>'; })()
+                +(sh.name?'<div>'+esc(sh.name)+'</div>':'')+(sh.phone?'<div>'+esc(sh.phone)+'</div>':'')+(sh.addr?'<div>'+esc(sh.addr)+'</div>':'')+(sh.memo?'<div style="color:#8a5a00">'+esc(sh.memo)+'</div>':'')
+                +((sh.sender||sh.senderPhone)?'<div style="border-top:1px dashed #e6c98a;margin-top:2px;padding-top:2px;color:#5a4a1a">보내는 분: '+esc(sh.sender||'')+' '+esc(sh.senderPhone||'')+'</div>':'')+'</div>'; })()
           +(anyPend?'<div class="no-print"><button type="button" onclick="event.stopPropagation();sendToPend(\''+esc(ids)+'\',this)" title="주문방 미처리 블록에 다시 표시" style="margin-top:3px;border:1px solid var(--line);background:#fff;border-radius:5px;padding:2px 7px;font-size:10.5px;font-weight:800;cursor:pointer;color:#8a1c1c">'+(orders.some(o=>o.forcePend)?'📋 미처리에 있음':'📋 미처리로')+'</button></div>':'')
           +'</td>';
         html+='<td class="items">'+(itemHtml||'<span style="color:#b71c1c;font-size:12px">⚠ 품목 없음 (분석 중단 등으로 손상된 주문) — 거래처명을 클릭해 삭제하세요</span>')+'</td>';
@@ -2728,6 +2732,44 @@ function buildNoteTable(wrap, date, workMode){
    노트를 인쇄하는 순간(버튼·Ctrl+P 모두) 그 날짜의 인쇄 시각을 Firebase에 기록합니다.
    출력된 분량은 종이로 주문확인→생산→전산처리가 진행되므로,
    주문방(chat.html)의 미처리 패널에는 이 시각 이후에 들어온 추가 주문만 남습니다. */
+/* 🖨 인쇄 전 점검 (v4.7) */
+const VEH_PICK=['0966','6506','1982','4232','택배','사무실'];
+function printIssues(date){
+  return Object.values(ORDERS).filter(o=>o && o.date===date && !o.confirm && (o.needClient || !String(o.client||'').trim() || normVeh(o.vehicle||'미지정')==='미지정'));
+}
+function printWithCheck(date){
+  const bad=printIssues(date);
+  if(!bad.length){ window.print(); return; }
+  let box=document.getElementById('printCheck');
+  if(!box){ box=document.createElement('div'); box.id='printCheck'; box.className='modal open'; document.body.appendChild(box); }
+  box.className='modal open';
+  const rows=bad.map(o=>{
+    const items=(o.items||[]).slice(0,3).map(it=>esc(itemText(it))).join(', ')+((o.items||[]).length>3?' 외':'');
+    const cliBad=o.needClient||!String(o.client||'').trim();
+    const vehBad=normVeh(o.vehicle||'미지정')==='미지정';
+    return '<div style="padding:8px 0;border-bottom:1px dashed var(--line);display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+      +'<div style="flex:1;min-width:160px"><b>'+(cliBad?'<span style="color:#b23b32">(거래처 미확인)</span> '+esc(o.client||''):esc(o.client))+'</b><div style="font-size:12px;color:var(--muted)">'+items+'</div></div>'
+      +(cliBad?'<input list="cliList" placeholder="거래처" style="width:130px;padding:6px" onchange="assignClient(\''+esc(o.id)+'\',this.value,null).then(()=>printWithCheck(\''+date+'\'))">':'')
+      +(vehBad?'<select style="padding:6px" onchange="pcVeh(\''+esc(o.id)+'\',this.value,\''+date+'\')"><option value="">차량</option>'+VEH_PICK.map(v=>'<option>'+v+'</option>').join('')+'</select>':'')
+      +'<button class="btn ghost" style="padding:5px 9px;font-size:12px" onclick="openOrderEditor(\''+esc(o.id)+'\')">✎</button>'
+      +'</div>';
+  }).join('');
+  box.innerHTML='<div class="modal-card" style="max-width:640px"><h3 style="margin:0 0 6px">🖨 인쇄 전 점검 — 처리할 주문 '+bad.length+'건</h3>'
+    +'<div style="font-size:12.5px;color:var(--muted);margin-bottom:8px">거래처가 확인되지 않았거나 차량이 미지정인 주문입니다. 지정하면 목록에서 빠지고, 전부 처리되면 인쇄됩니다.</div>'
+    +'<div style="max-height:50vh;overflow:auto">'+rows+'</div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px"><button class="btn ghost" onclick="document.getElementById(\'printCheck\').className=\'modal\'">닫기</button>'
+    +'<button class="btn ghost" onclick="document.getElementById(\'printCheck\').className=\'modal\';window.print()">그래도 인쇄</button>'
+    +'<button class="btn" onclick="printWithCheck(\''+date+'\')">다시 점검</button></div></div>';
+}
+async function pcVeh(id, veh, date){
+  if(!veh) return;
+  const o=ORDERS[id]; if(!o) return;
+  try{
+    await db.ref('orders/'+id).update({vehicle:veh}); o.vehicle=veh;
+    const sk=o.client; if(sk && MASTER[sk] && !MASTER[sk].vehicle){ MASTER[sk].vehicle=veh; gsCall('setVehicle',{client:sk, vehicle:veh}).catch(()=>{}); try{ db.ref('meta/masterVer').set(Date.now()); }catch(e){} }
+    renderAll(); printWithCheck(date);
+  }catch(e){ alert('실패: '+e.message); }
+}
 function stampPrinted(date){
   if(!date || !fbReady) return;
   db.ref('meta/printed/'+date).set(Date.now()).catch(()=>{});
@@ -2946,7 +2988,7 @@ function measText(it){
 /* 📦 택배 수취인 복사 (이름·연락처·주소·메모 탭 구분) */
 async function copyShip(id, btn){
   const o=ORDERS[id]; if(!o||!o.ship) return;
-  const t=[o.ship.name||'', o.ship.phone||'', o.ship.addr||'', o.ship.memo||''].join('\t');
+  const t=[o.ship.name||'', o.ship.phone||'', o.ship.addr||'', o.ship.memo||'', o.ship.sender||'', o.ship.senderPhone||''].join('\t');
   try{ await navigator.clipboard.writeText(t); if(btn){ btn.textContent='복사됨 ✓'; setTimeout(()=>btn.textContent='복사',1200); } }
   catch(e){ prompt('길게 눌러 복사하세요', t); }
 }
