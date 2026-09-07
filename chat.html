@@ -11,7 +11,11 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.12 — 2026-09-07
+  신화미트 주문방 (chat.html) v6.13 — 2026-09-08
+  · v6.13: 🧩 세트작업 방 — 탭 순서 주문방·온라인·입출고·생산·세트작업·배송.
+    관리자가 세트작업 방 ON/OFF(meta/roomsOn/set). 방 상단 패널에서 세트작업 등록:
+    거래처명·주문수량·세트 중량/구성·택배발송 유무·발송일·메모, 진행/완료·수정·삭제.
+    등록 시 방에 🤖 알림. 저장: rooms/set/work
   · v6.12: 🚚 택배관리 연동 — 택배 주문을 [전산처리] 체크하면 택배관리 시트의
     '주문방대기'에 송장 재료(수취인·주소·품목별 박스수) 자동 등록. 📦 블록의
     [🚚 송장 대기로] 버튼으로 수동 등록도 가능. 등록되면 카드에 표시.
@@ -371,6 +375,14 @@
   #lightbox .lb-top button{background:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:800;cursor:pointer}
   #lightbox .lb-body{flex:1;overflow:hidden;display:flex;align-items:center;justify-content:center;touch-action:none;position:relative}
   #lightbox img{max-width:100%;max-height:100%;object-fit:contain;transform-origin:0 0;will-change:transform;user-select:none;-webkit-user-drag:none}
+  /* 🧩 세트작업 패널 */
+  #setPanel{display:none;max-height:48vh;overflow:auto;background:#f6f4ff;border-bottom:2px solid #c9c2ea;padding:8px 10px}
+  #setPanel.on{display:block}
+  .sw{border:1px solid #d6d0f0;border-left:4px solid #5b4bb7;border-radius:8px;background:#fff;padding:8px 10px;margin-bottom:6px;font-size:13px}
+  .sw.done{border-left-color:#9a9384;opacity:.75}
+  .sw .t{font-weight:800;font-size:14px} .sw .m{font-size:12px;color:var(--muted);margin-top:2px}
+  .sw .b{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap} .sw .b button{border:1px solid var(--line);background:#fff;border-radius:6px;padding:5px 9px;font-size:12px;font-weight:800;cursor:pointer}
+  .swf input,.swf select,.swf textarea{padding:7px 8px;border:1px solid var(--line);border-radius:6px;font-size:14px;font-family:var(--sans)}
   /* 🚚 배송방 차량 탭·패널 */
   #vehBar{display:none;gap:5px;padding:6px 8px;background:#fff8dc;border-bottom:1px solid #e2d3a8;overflow-x:auto;white-space:nowrap}
   #vehBar.on{display:flex}
@@ -607,6 +619,7 @@
     <div id="roomTabs"></div>
     <div id="vehBar"></div>
     <div id="vehPanel"></div>
+    <div id="setPanel"></div>
     <div id="presenceBar"><span class="names">접속 확인 중…</span></div>
     <div id="searchBar">
       <span>🔍</span>
@@ -1085,6 +1098,7 @@ async function onSignedIn(u){
     watchMasterVer();   // 📡 다른 화면의 학습을 실시간 수신
     watchAppVer();      // 🔄 새 버전 배포 감지 → 자동 새로고침
     watchUsersTasks();  // 👥 직원 목록 · ✅ 할일
+    watchRoomsOn();     // 🧩 방 ON/OFF (세트작업)
     // 🛤 자동처리 화면 생존 신호 구독 (일반 화면) — 살아 있으면 내 폰은 파싱 안 함
     if(!IS_RUNNER){ db.ref('meta/runnerAlive').on('value', s2=>{ RUNNER_ALIVE=Number(s2.val()||0); }); }
     if(IS_RUNNER){
@@ -1481,7 +1495,7 @@ function startChat(){
   subscribeRoom();
   watchRoomsUnread();
   renderRoomTabs();
-  renderVehBar();
+  renderVehBar(); renderSetPanel();
 }
 
 /* 🗂 현재 방 구독 (v4.0) */
@@ -1514,15 +1528,27 @@ function switchRoom(id){
   try{ history.replaceState(null,'',location.pathname+'?room='+r.id+(IS_RUNNER?'&runner=1':'')); }catch(e){}
   subscribeRoom(); renderRoomTabs();
   markRead(r.id);
-  renderVehBar();
+  renderVehBar(); renderSetPanel();
 }
 function renderRoomTabs(){
   const el=document.getElementById('roomTabs'); if(!el) return;
-  el.innerHTML=ROOMS.map(r=>{
+  el.innerHTML=ROOMS.filter(roomVisible).map(r=>{
     const n=ROOM_UNREAD[r.id]||0;
-    return '<button class="'+(r===CUR_ROOM?'cur':'')+'" onclick="switchRoom(\''+r.id+'\')">'+r.icon+' '+r.name
+    const off=r.toggle && ROOMS_ON[r.id]!==true;
+    return '<button class="'+(r===CUR_ROOM?'cur':'')+'" onclick="switchRoom(\''+r.id+'\')" style="'+(off?'opacity:.5':'')+'">'+r.icon+' '+r.name+(off?' (꺼짐)':'')
       +(n&&r!==CUR_ROOM?'<span class="badge">'+(n>99?'99+':n)+'</span>':'')+'</button>';
-  }).join('');
+  }).join('')
+  +(IS_ADMIN?ROOMS.filter(r=>r.toggle).map(r=>'<button onclick="toggleRoom(\''+r.id+'\')" title="'+r.name+' 방 켜기/끄기 (직원에게 보임/숨김)" style="margin-left:auto;background:'+(ROOMS_ON[r.id]===true?'#e7f2ea':'#f3e4e2')+';color:'+(ROOMS_ON[r.id]===true?'#1f6b3a':'#8a1c1c')+'">'+(ROOMS_ON[r.id]===true?'🟢':'⚪')+' '+r.name+' '+(ROOMS_ON[r.id]===true?'ON':'OFF')+'</button>').join(''):'');
+}
+async function toggleRoom(id){
+  if(!IS_ADMIN) return;
+  const on=ROOMS_ON[id]!==true;
+  if(!confirm(id==='set'?('세트작업 방을 '+(on?'켤까요? (직원에게 탭이 보입니다)':'끌까요? (직원에게 탭이 숨겨집니다)')):'')) return;
+  try{ await db.ref('meta/roomsOn/'+id).set(on); }catch(e){ alert('실패: '+e.message); }
+}
+function watchRoomsOn(){
+  if(!db) return;
+  db.ref('meta/roomsOn').on('value', s=>{ ROOMS_ON=s.val()||{}; renderRoomTabs(); if(CUR_ROOM.toggle && !roomVisible(CUR_ROOM)) switchRoom('order'); renderSetPanel(); });
 }
 /* 🚚 배송방: 당일 차량별 주문노트 패널 (v4.1) */
 const VEH_TABS=['0966','6506','1982','택배','사무실'];
@@ -1561,6 +1587,60 @@ function renderVehPanel(){
   });
   panel.innerHTML=h;
 }
+
+/* 🧩 세트작업 패널 (v6.13) — rooms/set/work */
+let SETW={}, SET_SUB=false, SET_FORM=null;
+function watchSetWork(){
+  if(SET_SUB||!db) return; SET_SUB=true;
+  db.ref('rooms/set/work').on('value', s=>{ SETW=s.val()||{}; renderSetPanel(); }, ()=>{});
+}
+function renderSetPanel(){
+  const p=document.getElementById('setPanel'); if(!p) return;
+  const on=CUR_ROOM.id==='set';
+  p.classList.toggle('on', on); if(!on) return;
+  watchSetWork();
+  const ids=Object.keys(SETW).filter(k=>SETW[k]).sort((a,b)=>(SETW[b].ts||0)-(SETW[a].ts||0));
+  const open=ids.filter(k=>SETW[k].status!=='완료'), done=ids.filter(k=>SETW[k].status==='완료').slice(0,20);
+  let h='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b style="color:#5b4bb7">🧩 세트작업 · 진행 '+open.length+'건</b><button onclick="setFormOpen()" style="border:none;background:#5b4bb7;color:#fff;border-radius:6px;padding:6px 11px;font-weight:800;font-size:12px;cursor:pointer">+ 세트작업 등록</button></div>';
+  if(SET_FORM) h+=setFormHtml(SET_FORM);
+  const card=(k,w)=>'<div class="sw '+(w.status==='완료'?'done':'')+'"><div class="t">'+esc(w.client)+' · '+esc(w.qty||'')+(w.qty&&/^\d+$/.test(String(w.qty))?'세트':'')+'</div>'
+    +'<div>'+esc(w.spec||'')+'</div>'
+    +'<div class="m">택배 '+(w.ship==='Y'?'<b style="color:#1a4f9c">발송</b>':'미발송')+(w.shipDate?' · 발송일 '+esc(w.shipDate):'')+(w.memo?' · '+esc(w.memo):'')+' · '+esc(w.by||'')+' '+new Date(w.ts||0).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+(w.status==='완료'?' · ✅ 완료 '+esc(w.doneBy||''):'')+'</div>'
+    +'<div class="b">'+(w.status!=='완료'?'<button style="background:#e7f2ea;color:#1f6b3a" onclick="setDone(\''+k+'\')">✅ 완료</button>':'<button onclick="setReopen(\''+k+'\')">↺ 진행으로</button>')
+    +'<button onclick="setFormOpen(\''+k+'\')">✏ 수정</button><button onclick="setDel(\''+k+'\')">🗑</button></div></div>';
+  h+=open.map(k=>card(k,SETW[k])).join('')||'<div style="color:var(--muted);font-size:13px;padding:4px">진행 중인 세트작업 없음</div>';
+  if(done.length) h+='<div style="font-size:12px;font-weight:800;color:var(--muted);margin:8px 0 4px">완료 (최근)</div>'+done.map(k=>card(k,SETW[k])).join('');
+  p.innerHTML=h;
+}
+function setFormHtml(f){
+  return '<div class="swf" style="background:#fff;border:1px solid #d6d0f0;border-radius:8px;padding:10px;margin-bottom:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px">'
+    +'<input id="swClient" list="cliList" placeholder="거래처명" value="'+esc(f.client||'')+'">'
+    +'<input id="swQty" placeholder="주문수량 (예: 30세트)" value="'+esc(f.qty||'')+'">'
+    +'<textarea id="swSpec" placeholder="세트 중량 및 구성 (예: 1kg — 삼겹 500g + 목살 500g)" style="grid-column:1/3;min-height:60px">'+esc(f.spec||'')+'</textarea>'
+    +'<select id="swShip"><option value="N"'+(f.ship!=='Y'?' selected':'')+'>택배 미발송</option><option value="Y"'+(f.ship==='Y'?' selected':'')+'>택배 발송</option></select>'
+    +'<input type="date" id="swDate" value="'+esc(f.shipDate||'')+'" title="발송일">'
+    +'<input id="swMemo" placeholder="메모 (선택)" value="'+esc(f.memo||'')+'" style="grid-column:1/3">'
+    +'<div style="grid-column:1/3;display:flex;gap:6px;justify-content:flex-end"><button onclick="SET_FORM=null;renderSetPanel()" style="border:1px solid var(--line);background:#fff;border-radius:6px;padding:7px 12px;cursor:pointer">취소</button>'
+    +'<button onclick="setSave()" style="border:none;background:#5b4bb7;color:#fff;border-radius:6px;padding:7px 14px;font-weight:800;cursor:pointer">'+(f.id?'수정 저장':'등록')+'</button></div></div>';
+}
+function setFormOpen(id){ SET_FORM=id?Object.assign({id}, SETW[id]||{}):{}; renderSetPanel(); setTimeout(()=>{ const el=document.getElementById('swClient'); if(el&&!id) el.focus(); },50); }
+async function setSave(){
+  const f={client:document.getElementById('swClient').value.trim(), qty:document.getElementById('swQty').value.trim(), spec:document.getElementById('swSpec').value.trim(),
+           ship:document.getElementById('swShip').value, shipDate:document.getElementById('swDate').value, memo:document.getElementById('swMemo').value.trim()};
+  if(!f.client){ alert('거래처명을 입력하세요'); return; }
+  try{
+    if(SET_FORM&&SET_FORM.id){ await db.ref('rooms/set/work/'+SET_FORM.id).update(Object.assign(f,{editBy:MYNAME, editAt:Date.now()})); }
+    else{
+      await db.ref('rooms/set/work').push().set(Object.assign(f,{by:MYNAME, ts:Date.now(), status:'진행'}));
+      await roomRef().push().set({sys:1, kind:'ok', ts:Date.now(), text:'🧩 세트작업 등록 — '+f.client+' · '+f.qty+(f.spec?'\n'+f.spec:'')+'\n택배 '+(f.ship==='Y'?'발송':'미발송')+(f.shipDate?' · 발송일 '+f.shipDate:''), by:MYNAME});
+      sendPushOut('🧩 세트작업: '+f.client+' '+f.qty);
+    }
+    SET_FORM=null; renderSetPanel();
+  }catch(e){ alert('저장 실패: '+e.message); }
+}
+async function setDone(k){ try{ await db.ref('rooms/set/work/'+k).update({status:'완료', doneBy:MYNAME, doneAt:Date.now()}); }catch(e){} }
+async function setReopen(k){ try{ await db.ref('rooms/set/work/'+k).update({status:'진행', doneBy:null, doneAt:null}); }catch(e){} }
+async function setDel(k){ if(!confirm('이 세트작업을 삭제할까요?')) return; try{ await db.ref('rooms/set/work/'+k).remove(); }catch(e){} }
 
 /* 안읽음: 방별 마지막 읽은 시각(users/{uid}/read/{room}) vs 최근 메시지들 */
 function markRead(rid){
@@ -2596,9 +2676,10 @@ const IS_RUNNER=/[?&]runner=1/.test(location.search);   // v3.6 봇 PC 상시 �
 const ROOMS=[
   {id:'order',  name:'주문방', icon:'💬', path:'chat',              parse:true,  hq:false},
   {id:'online', name:'온라인', icon:'🛒', path:'rooms/online/chat', parse:false, hq:true},
+  {id:'io',     name:'입출고', icon:'📦', path:'rooms/io/chat',     parse:false, hq:true},
   {id:'prod',   name:'생산',   icon:'🏭', path:'rooms/prod/chat',   parse:false, hq:true},
-  {id:'deliv',  name:'배송',   icon:'🚚', path:'rooms/deliv/chat',  parse:false, hq:true},
-  {id:'io',     name:'입출고', icon:'📦', path:'rooms/io/chat',     parse:false, hq:true}
+  {id:'set',    name:'세트작업', icon:'🧩', path:'rooms/set/chat',  parse:false, hq:true, toggle:true},
+  {id:'deliv',  name:'배송',   icon:'🚚', path:'rooms/deliv/chat',  parse:false, hq:true}
 ];
 let CUR_ROOM=ROOMS[0];
 (function(){ const m=location.search.match(/[?&]room=([a-z]+)/); if(m){ const r=ROOMS.find(x=>x.id===m[1]); if(r) CUR_ROOM=r; } if(IS_RUNNER) CUR_ROOM=ROOMS[0]; })();
@@ -2607,11 +2688,13 @@ function roomRef(){ return db.ref(CUR_ROOM.path); }                  // 현재 �
 function msgRef(id){ return db.ref(roomOf(id).path+'/'+id); }         // 메시지가 속한 방
 const ORDER_ROOM=ROOMS[0];
 let ROOM_LISTENERS=[], LAST_READ={}, ROOM_LAST={}, ROOM_UNREAD={};
+let ROOMS_ON={};   // 관리자 ON/OFF (meta/roomsOn/{id}) — toggle 방만 해당
+function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON[r.id]===true || IS_ADMIN); }
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.12';
-const APP_BUILD=612;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.13';
+const APP_BUILD=613;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
