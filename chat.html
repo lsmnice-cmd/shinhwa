@@ -11,7 +11,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.19 — 2026-09-08
+  신화미트 주문방 (chat.html) v6.20 — 2026-09-08
+  · v6.20: 작업보드에서 이미 인쇄되어 나간 주문(인쇄됨 도장) 제외 — 인쇄 이후 접수분과
+    앞날짜 주문만 표시. [인쇄된 것 보기] 토글.
   · v6.19: 작업보드 숨김 기준 완화 — 품목 하나라도 ERP 매출이 확인된 주문(그날 전표 존재)은
     처리된 것으로 보고 숨김. [전산 확인된 것 보기] 토글로 다시 볼 수 있음.
   · v6.18: ① 작업보드에서 전산처리 체크됐거나 전산대조로 매출이 확인된(초록 태그 전부) 주문 숨김
@@ -1622,7 +1624,7 @@ function renderVehPanel(){
 }
 
 /* 🏭 생산 작업 보드 (v6.15) — 오늘 미처리 + 4일 내 배송일 주문 */
-let PROD_HIDE_DONE=true, PROD_FULL=false, PROD_DAYS=4, PROD_SHOW_ERP=false;
+let PROD_HIDE_DONE=true, PROD_FULL=false, PROD_DAYS=4, PROD_SHOW_ERP=false, PROD_SHOW_PRINTED=false;
 /* 같은 주문 카드가 미처리 패널과 작업 보드에 동시에 있을 수 있어, 생산 탭에서는 보드 쪽 요소를 우선 찾음 */
 function cardEl(id){ return document.getElementById(id); }
 function renderProdPanel(){
@@ -1634,6 +1636,8 @@ function renderProdPanel(){
   let list=Object.values(ORDERS).filter(o=>o && o.date && o.date>=t && o.date<=limS && !o.confirm && !(o.chk&&o.chk.erp));
   const erpN=list.filter(erpDone).length;
   if(!PROD_SHOW_ERP) list=list.filter(o=>!erpDone(o));
+  const prN=list.filter(o=>isPrinted(o)&&!o.forcePend).length;
+  if(!PROD_SHOW_PRINTED) list=list.filter(o=>!(isPrinted(o)&&!o.forcePend));   // 인쇄되어 종이로 나간 건 제외
   const doneN=list.filter(o=>o.chk&&o.chk.prod).length;
   if(PROD_HIDE_DONE) list=list.filter(o=>!(o.chk&&o.chk.prod));
   list.sort((a,b)=>(a.date<b.date?-1:a.date>b.date?1:0)||normVeh(a.vehicle||'').localeCompare(normVeh(b.vehicle||''))||String(a.client||'').localeCompare(String(b.client||''),'ko'));
@@ -1641,6 +1645,7 @@ function renderProdPanel(){
     +'<span style="display:flex;gap:6px"><select onchange="PROD_DAYS=Number(this.value);renderProdPanel()" style="padding:4px;border:1px solid var(--line);border-radius:5px;font-size:12px"><option value="0"'+(PROD_DAYS===0?' selected':'')+'>오늘만</option><option value="2"'+(PROD_DAYS===2?' selected':'')+'>2일</option><option value="4"'+(PROD_DAYS===4?' selected':'')+'>4일</option><option value="7"'+(PROD_DAYS===7?' selected':'')+'>7일</option></select>'
     +'<button onclick="PROD_HIDE_DONE=!PROD_HIDE_DONE;renderProdPanel()" style="border:1px solid var(--line);background:#fff;border-radius:5px;padding:4px 9px;font-size:12px;font-weight:800;cursor:pointer">'+(PROD_HIDE_DONE?'✔ 생산확인 숨김':'생산확인 표시 중')+'</button>'
     +'<button onclick="PROD_SHOW_ERP=!PROD_SHOW_ERP;renderProdPanel()" style="border:1px solid var(--line);background:#fff;border-radius:5px;padding:4px 9px;font-size:12px;font-weight:800;cursor:pointer">'+(PROD_SHOW_ERP?'전산 확인된 것 표시 중':'✔ 전산 확인된 것 숨김'+(erpN?' ('+erpN+')':''))+'</button>'
+    +'<button onclick="PROD_SHOW_PRINTED=!PROD_SHOW_PRINTED;renderProdPanel()" style="border:1px solid var(--line);background:#fff;border-radius:5px;padding:4px 9px;font-size:12px;font-weight:800;cursor:pointer">'+(PROD_SHOW_PRINTED?'인쇄된 것 표시 중':'✔ 인쇄된 것 숨김'+(prN?' ('+prN+')':''))+'</button>'
     +'</span></div>';
   const frag=document.createDocumentFragment();
   const head=document.createElement('div'); head.innerHTML=h; frag.appendChild(head);
@@ -2813,8 +2818,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.19';
-const APP_BUILD=619;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.20';
+const APP_BUILD=620;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
