@@ -2490,6 +2490,7 @@ function firstDate(){
 function setNoteDate(d){ noteDate=d; renderNote(); }
 function setWorkDate(d){ workDate=d; renderWork(); }
 
+/* [v4.10] 전산 태그를 ERP 줄마다 표시 (3.74kg(0933) · 11.39kg(0933)) */
 /* [v4.9] 인쇄 시 그 날짜 주문에 printed 도장 → 주문방 미처리는 도장 없는 주문만 표시 */
 /* [v4.8] 인쇄 도장을 서버 시각으로 기록 (주문방 접수 시각과 같은 기준) */
 /* [v4.7] 🖨 인쇄 전 점검 — 그 날짜에 거래처 미확인·차량 미지정 주문이 있으면 인쇄 대신
@@ -2679,7 +2680,9 @@ function buildNoteTable(wrap, date, workMode){
             if(it.prodKg || it.prodTail || it.boxN){
               t+=' <span title="생산 실측 (현장 입력) — 식별번호 같은 박스끼리 합산" style="font-size:11px;font-weight:800;color:#1a4f9c;background:#e4edf9;border-radius:4px;padding:1px 5px">⚖'+esc(measText(it))+'</span>';
             }
-            if(it.erpKg || it.erpTail){
+            if(it.erpRows && it.erpRows.length>1){
+              t+=' <span title="전산 실제값 — ERP 줄마다" style="font-size:11px;font-weight:800;color:#1f6b3a;background:#e7f2ea;border-radius:4px;padding:1px 5px">'+it.erpRows.map(r=>(r.kg?String(r.kg).replace(/\.0+$/,'')+'kg':'')+(r.tail?'('+esc(r.tail)+')':'')).join(' · ')+'</span>';
+            }else if(it.erpKg || it.erpTail){
               const kg=it.erpKg?(String(it.erpKg).replace(/\.0+$/,''))+'kg':'';
               t+=' <span title="전산 실측 (중량·이력끝4자리)" style="font-size:11px;font-weight:800;color:#1f6b3a;background:#e7f2ea;border-radius:4px;padding:1px 5px">'+kg+(it.erpTail?'('+esc(it.erpTail)+')':'')+'</span>';
             }else if(it._erp){
