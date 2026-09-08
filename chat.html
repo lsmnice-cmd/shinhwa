@@ -11,7 +11,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.17 — 2026-09-08
+  신화미트 주문방 (chat.html) v6.18 — 2026-09-08
+  · v6.18: ① 작업보드에서 전산처리 체크됐거나 전산대조로 매출이 확인된(초록 태그 전부) 주문 숨김
+    ② 전산 태그를 ERP 줄마다 따로 표시 (3.74kg(0933) · 11.39kg(0933))
   · v6.17: ① 생산 탭에서는 오른쪽 패널이 작업보드(+업무요청)만 — 미처리·확인방 세그먼트 숨김,
     다른 방은 원래대로 ② 접속인원 이름을 지정 이름(닉네임) 기준으로 표시하고, 이름이
     바뀌면 접속 기록도 즉시 갱신
@@ -1626,7 +1628,8 @@ function renderProdPanel(){
   const p=document.getElementById('sideScroll'); if(!p) return;
   const t=todayKST();
   const lim=new Date(Date.now()+9*3600*1000); lim.setDate(lim.getDate()+PROD_DAYS); const limS=lim.toISOString().slice(0,10);
-  let list=Object.values(ORDERS).filter(o=>o && o.date && o.date>=t && o.date<=limS && !o.confirm);
+  const erpDone=o=>{ const its=o.items||[]; return its.length>0 && its.every(it=>it&&(it.erpKg||it.erpTail)); };
+  let list=Object.values(ORDERS).filter(o=>o && o.date && o.date>=t && o.date<=limS && !o.confirm && !(o.chk&&o.chk.erp) && !erpDone(o));
   const doneN=list.filter(o=>o.chk&&o.chk.prod).length;
   if(PROD_HIDE_DONE) list=list.filter(o=>!(o.chk&&o.chk.prod));
   list.sort((a,b)=>(a.date<b.date?-1:a.date>b.date?1:0)||normVeh(a.vehicle||'').localeCompare(normVeh(b.vehicle||''))||String(a.client||'').localeCompare(String(b.client||''),'ko'));
@@ -2805,8 +2808,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.17';
-const APP_BUILD=617;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.18';
+const APP_BUILD=618;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3253,8 +3256,10 @@ function buildOrderCard(o){
         +esc(measText(it))+'</span>';
     }
     if(it.erpKg || it.erpTail){
-      meas+=' <span title="전산 실제값 (대조 결과)" style="font-size:11px;font-weight:800;color:#1f6b3a;background:#e7f2ea;border-radius:4px;padding:1px 5px">'
-        +(it.erpKg?String(it.erpKg).replace(/\.0+$/,'')+'kg':'')+(it.erpTail?'('+esc(it.erpTail)+')':'')+'</span>';
+      const et=(it.erpRows&&it.erpRows.length>1)
+        ? it.erpRows.map(r=>(r.kg?String(r.kg).replace(/\.0+$/,'')+'kg':'')+(r.tail?'('+esc(r.tail)+')':'')).join(' · ')
+        : (it.erpKg?String(it.erpKg).replace(/\.0+$/,'')+'kg':'')+(it.erpTail?'('+esc(it.erpTail)+')':'');
+      meas+=' <span title="전산 실제값 (대조 결과) — ERP 줄마다 표시" style="font-size:11px;font-weight:800;color:#1f6b3a;background:#e7f2ea;border-radius:4px;padding:1px 5px">'+et+'</span>';
     }
     return (isNewItem?'<b style="color:#8a1c1c">🆕</b> ':'· ')+t+meas+tools;
   }).join('<br>')||'<span style="color:#b71c1c">⚠ 품목 없음 (손상 주문)</span>';
