@@ -11,7 +11,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.14 — 2026-09-08
+  신화미트 주문방 (chat.html) v6.15 — 2026-09-08
+  · v6.15: 🏭 생산 탭 작업 보드 — 오늘 미처리 + 앞으로 4일 내 배송일 주문(주문노트 등록분)을
+    날짜·차량별로 표시. 카드는 미처리와 동일(⚖ 실측·주문/생산/전산 체크·수정)이라 여기서
+    입력한 중량·박스·생산확인이 그대로 기록됨. [생산확인 된 것 숨기기] 토글.
   · v6.14: 🧩 세트작업 = 채팅 없는 작업 보드. 엑셀식 열(거래처·주문수량·세트 중량/구성·
     택배발송·발송일·세트비·택배비). 블록마다 [▶ 생산시작]→투입상품·중량·식별번호 계속
     추가, [생산완료]에서 세트수·규격(2kg/B4/5근/10근/15근/20근/스킨3구·4구)·용품세트
@@ -379,6 +382,14 @@
   #lightbox .lb-top button{background:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:800;cursor:pointer}
   #lightbox .lb-body{flex:1;overflow:hidden;display:flex;align-items:center;justify-content:center;touch-action:none;position:relative}
   #lightbox img{max-width:100%;max-height:100%;object-fit:contain;transform-origin:0 0;will-change:transform;user-select:none;-webkit-user-drag:none}
+  /* 🏭 생산 작업 보드 */
+  #prodPanel{display:none;max-height:55vh;overflow:auto;background:#f3f7ee;border-bottom:2px solid #b9cfa6;padding:8px 10px}
+  #prodPanel.on{display:block}
+  #prodPanel.full{max-height:none;flex:1}
+  #prodPanel .oc{background:#fff}
+  .pp-day{font-size:13px;font-weight:800;color:#2e5a1c;margin:8px 0 4px;padding-top:6px;border-top:2px dashed #b9cfa6}
+  .pp-day:first-of-type{border-top:none;padding-top:0}
+  .pp-veh{display:inline-block;font-family:var(--mono);font-weight:800;font-size:12px;background:#e3eed9;border-radius:6px;padding:1px 8px;margin:4px 0}
   /* 🧩 세트작업 패널 */
   #setPanel{display:none;flex:1;overflow:auto;background:#f6f4ff;padding:8px 10px;min-height:0}
   #setPanel.on{display:block}
@@ -632,6 +643,7 @@
     <div id="vehBar"></div>
     <div id="vehPanel"></div>
     <div id="setPanel"></div>
+    <div id="prodPanel"></div>
     <div id="presenceBar"><span class="names">접속 확인 중…</span></div>
     <div id="searchBar">
       <span>🔍</span>
@@ -1509,7 +1521,7 @@ function startChat(){
   subscribeRoom();
   watchRoomsUnread();
   renderRoomTabs();
-  renderVehBar(); renderSetPanel();
+  renderVehBar(); renderSetPanel(); renderProdPanel();
 }
 
 /* 🗂 현재 방 구독 (v4.0) */
@@ -1542,7 +1554,7 @@ function switchRoom(id){
   try{ history.replaceState(null,'',location.pathname+'?room='+r.id+(IS_RUNNER?'&runner=1':'')); }catch(e){}
   subscribeRoom(); renderRoomTabs();
   markRead(r.id);
-  renderVehBar(); renderSetPanel();
+  renderVehBar(); renderSetPanel(); renderProdPanel();
 }
 function renderRoomTabs(){
   const el=document.getElementById('roomTabs'); if(!el) return;
@@ -1600,6 +1612,41 @@ function renderVehPanel(){
     h+='<div class="vp-row"><div class="c">'+esc(o.client||'(미지정)')+'</div><div class="i">'+items+'</div><div class="s" style="color:'+(c.prod?'#1f6b3a':'var(--muted)')+'">'+(st||'대기')+'</div></div>';
   });
   panel.innerHTML=h;
+}
+
+/* 🏭 생산 작업 보드 (v6.15) — 오늘 미처리 + 4일 내 배송일 주문 */
+let PROD_HIDE_DONE=true, PROD_FULL=false, PROD_DAYS=4;
+/* 같은 주문 카드가 미처리 패널과 작업 보드에 동시에 있을 수 있어, 생산 탭에서는 보드 쪽 요소를 우선 찾음 */
+function cardEl(id){
+  if(CUR_ROOM && CUR_ROOM.id==='prod'){ const el=document.querySelector('#prodPanel [id="'+id+'"]'); if(el) return el; }
+  return document.getElementById(id);
+}
+function renderProdPanel(){
+  const p=document.getElementById('prodPanel'); if(!p) return;
+  const on=CUR_ROOM.id==='prod';
+  p.classList.toggle('on', on); p.classList.toggle('full', on&&PROD_FULL);
+  if(!on) return;
+  const t=todayKST();
+  const lim=new Date(Date.now()+9*3600*1000); lim.setDate(lim.getDate()+PROD_DAYS); const limS=lim.toISOString().slice(0,10);
+  let list=Object.values(ORDERS).filter(o=>o && o.date && o.date>=t && o.date<=limS && !o.confirm);
+  const doneN=list.filter(o=>o.chk&&o.chk.prod).length;
+  if(PROD_HIDE_DONE) list=list.filter(o=>!(o.chk&&o.chk.prod));
+  list.sort((a,b)=>(a.date<b.date?-1:a.date>b.date?1:0)||normVeh(a.vehicle||'').localeCompare(normVeh(b.vehicle||''))||String(a.client||'').localeCompare(String(b.client||''),'ko'));
+  let h='<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:4px"><b style="color:#2e5a1c">🏭 작업 보드 · '+list.length+'건'+(doneN?' <span style="font-weight:400;color:var(--muted)">(생산확인 '+doneN+'건 '+(PROD_HIDE_DONE?'숨김':'표시')+')</span>':'')+'</b>'
+    +'<span style="display:flex;gap:6px"><select onchange="PROD_DAYS=Number(this.value);renderProdPanel()" style="padding:4px;border:1px solid var(--line);border-radius:5px;font-size:12px"><option value="0"'+(PROD_DAYS===0?' selected':'')+'>오늘만</option><option value="2"'+(PROD_DAYS===2?' selected':'')+'>2일</option><option value="4"'+(PROD_DAYS===4?' selected':'')+'>4일</option><option value="7"'+(PROD_DAYS===7?' selected':'')+'>7일</option></select>'
+    +'<button onclick="PROD_HIDE_DONE=!PROD_HIDE_DONE;renderProdPanel()" style="border:1px solid var(--line);background:#fff;border-radius:5px;padding:4px 9px;font-size:12px;font-weight:800;cursor:pointer">'+(PROD_HIDE_DONE?'✔ 생산확인 된 것 숨김':'생산확인 된 것 표시 중')+'</button>'
+    +'<button onclick="PROD_FULL=!PROD_FULL;renderProdPanel()" style="border:1px solid var(--line);background:#fff;border-radius:5px;padding:4px 9px;font-size:12px;font-weight:800;cursor:pointer">'+(PROD_FULL?'채팅 보기':'보드 크게')+'</button></span></div>';
+  const frag=document.createDocumentFragment();
+  const head=document.createElement('div'); head.innerHTML=h; frag.appendChild(head);
+  let lastD='', lastV='';
+  if(!list.length){ const e=document.createElement('div'); e.style.cssText='color:var(--muted);font-size:13px;padding:6px'; e.textContent='작업할 주문이 없습니다'; frag.appendChild(e); }
+  list.forEach(o=>{
+    if(o.date!==lastD){ const d=document.createElement('div'); d.className='pp-day'; d.textContent='📅 '+o.date.slice(5).replace('-','.')+(o.date===t?' (오늘)':'')+' · '+list.filter(x=>x.date===o.date).length+'건'; frag.appendChild(d); lastD=o.date; lastV=''; }
+    const v=normVeh(o.vehicle||'미지정');
+    if(v!==lastV){ const vd=document.createElement('div'); vd.innerHTML='<span class="pp-veh">'+esc(v)+'</span>'; frag.appendChild(vd); lastV=v; }
+    frag.appendChild(buildOrderCard(o));
+  });
+  p.innerHTML=''; p.appendChild(frag);
 }
 
 /* 🧩 세트작업 보드 (v6.14) — rooms/set/work */
@@ -2759,8 +2806,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.14';
-const APP_BUILD=614;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.15';
+const APP_BUILD=615;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3090,7 +3137,7 @@ function checkTaskPopup(){
 function closeTaskPop(){ document.getElementById('taskPopBg').classList.remove('on'); }
 
 function renderSide(){
-  try{ if(CUR_ROOM && CUR_ROOM.id==='deliv') renderVehBar(); }catch(e){}
+  try{ if(CUR_ROOM && CUR_ROOM.id==='deliv') renderVehBar(); if(CUR_ROOM && CUR_ROOM.id==='prod') renderProdPanel(); }catch(e){}
   document.getElementById('curDate').textContent=mmdd(PANEL_DATE)||'--.--';
   // 뱃지: 오늘 미처리 / 확인방 대기
   const nToday=pendListFor(todayStr()).length;
@@ -3275,7 +3322,7 @@ function boxesOf(it){
 }
 function openMeasure(id, keepState){
   const o=ORDERS[id]; if(!o) return;
-  const box=document.getElementById('meas_'+id); if(!box) return;
+  const box=cardEl('meas_'+id); if(!box) return;
   if(!keepState && box.style.display!=='none'){ box.style.display='none'; box.innerHTML=''; delete MEAS_OPEN[id]; delete BOX_EDIT[id]; return; }
   MEAS_OPEN[id]=true;
   if(!BOX_EDIT[id]) BOX_EDIT[id]=(o.items||[]).map(boxesOf);
@@ -3284,7 +3331,7 @@ function openMeasure(id, keepState){
   renderMeasure(id);
 }
 function renderMeasure(id){
-  const o=ORDERS[id]; const box=document.getElementById('meas_'+id); if(!o||!box) return;
+  const o=ORDERS[id]; const box=cardEl('meas_'+id); if(!o||!box) return;
   const ed=BOX_EDIT[id];
   let h='<div style="font-size:11.5px;font-weight:800;color:#1a4f9c;margin-bottom:5px">⚖ 생산 실측 — 박스별 중량(kg) · 식별번호 끝 4자리 <span style="font-weight:400;color:var(--muted)">(입력하면 자동 저장)</span></div>';
   (o.items||[]).forEach((it,idx)=>{
@@ -3354,7 +3401,7 @@ async function saveBoxes(id, idx){
     await db.ref('orders/'+id).update({items:items});
     o.items=items;
     // 태그만 조용히 갱신 (패널은 그대로) — 카드 전체는 패널 닫을 때 다시 그림
-    const box=document.getElementById('meas_'+id);
+    const box=cardEl('meas_'+id);
     if(box && !box.contains(document.activeElement)) renderSide();
   }catch(e){ alert('저장 실패: '+e.message); }
 }
@@ -3432,7 +3479,7 @@ async function editDate(id){
 /* 거래처 수정 — 입력창(마스터 자동완성)을 펼칩니다 */
 function openCliEdit(id){
   const o=ORDERS[id]; if(!o) return;
-  const box=document.getElementById('cliEdit_'+id); if(!box) return;
+  const box=cardEl('cliEdit_'+id); if(!box) return;
   if(box.style.display!=='none'){ box.style.display='none'; box.innerHTML=''; return; }
   box.style.display='';
   box.style.cssText+=';margin-bottom:7px;padding:7px 9px;background:#eef3fb;border:1px solid #b9cbe4;border-radius:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
