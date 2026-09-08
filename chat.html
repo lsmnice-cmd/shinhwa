@@ -11,7 +11,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.20 — 2026-09-08
+  신화미트 주문방 (chat.html) v6.21 — 2026-09-08
+  · v6.21: ↪ 메시지 다른 방으로 옮기기 — 말풍선·사진을 꾹 누르기(PC 우클릭) → [↪ 다른 방으로
+    이동] → 방 선택. 원래 방에는 "○○ 방으로 이동됨" 흔적, 옮긴 방에는 원문 그대로(옮긴 사람 표시).
+    주문방 주문 메시지(주문 생성된 것)는 주문 반영이 꼬이지 않게 복사만 하고 원본 유지.
   · v6.20: 작업보드에서 이미 인쇄되어 나간 주문(인쇄됨 도장) 제외 — 인쇄 이후 접수분과
     앞날짜 주문만 표시. [인쇄된 것 보기] 토글.
   · v6.19: 작업보드 숨김 기준 완화 — 품목 하나라도 ERP 매출이 확인된 주문(그날 전표 존재)은
@@ -1922,7 +1925,7 @@ function bubbleHtml(id,m){
   if(m.deleted){
     return '<div class="bubble-wrap">'
       +'<div class="m-name">'+esc(m.name||'')+'</div>'
-      +'<div class="bubble" style="opacity:.55" oncontextmenu="event.preventDefault();openMsgMenu(\''+esc(id)+'\')" title="꾹 누르면 복구"><i>🗑 삭제된 메시지</i>'
+      +'<div class="bubble" style="opacity:.55" oncontextmenu="event.preventDefault();openMsgMenu(\''+esc(id)+'\')" title="꾹 누르면 복구"><i>'+(m.movedTo?'↪ '+esc(m.movedTo)+' 방으로 이동됨':'🗑 삭제된 메시지')+'</i>'
       +((ME&&(m.uid===ME.uid||IS_ADMIN))?' <span onclick="event.stopPropagation();restoreMsg(\''+esc(id)+'\')" style="cursor:pointer;color:#1f6b3a;font-weight:800;font-style:normal;font-size:12px">♻ 복구</span>':'')+'</div>'
       +'</div><span><span class="m-time">'+hhmm(m.ts||Date.now())+'</span></span>';
   }
@@ -1948,7 +1951,7 @@ function bubbleHtml(id,m){
     +'<div class="bubble" onclick="bubbleTap(\''+esc(id)+'\')" oncontextmenu="event.preventDefault();openMsgMenu(\''+esc(id)+'\')" title="누르면 답장 · 꾹 누르면 메뉴(복사/답장)">'+quote+body+'</div>'
     +'</div>'
     +'<div class="react-col">'+reactHtml(id,m)+'</div>'
-    +'<span>'+stateHtml(id,m)+(m.edited?'<span style="font-size:10px;color:var(--muted)">(수정됨)</span>':'')+'<span class="m-time">'+hhmm(m.ts||Date.now())+'</span></span>'
+    +'<span>'+stateHtml(id,m)+(m.edited?'<span style="font-size:10px;color:var(--muted)">(수정됨)</span>':'')+(m.movedFrom?'<span style="font-size:10px;color:var(--muted)">↪ '+esc(m.movedFrom)+'에서 '+esc(m.movedBy||'')+'</span>':'')+(m.movedTo&&!m.deleted?'<span style="font-size:10px;color:var(--muted)">↪ '+esc(m.movedTo)+'에 사본</span>':'')+'<span class="m-time">'+hhmm(m.ts||Date.now())+'</span></span>'
     +'<button class="rbtn" title="이 메시지에 답장 (추가 주문)" onclick="setReply(\''+esc(id)+'\')">↩</button>';
 }
 /* 📊 생산 일지 사진 분석 → 생산일지 시트 (v5.5) */
@@ -2172,6 +2175,7 @@ function openMsgMenu(id){
   if(m.text) h+='<button id="mmCopy" onclick="copyMsg(\''+esc(id)+'\')">📋 전체 복사</button>'
     +'<button onclick="selectCopy(\''+esc(id)+'\')">✂ 선택 복사 (원하는 부분만)</button>';
   if(m.photo && m.photo.id) h+='<button onclick="closeMsgMenu();analyzeLog(\''+esc(id)+'\')" style="color:#1a4f9c">📊 일지로 분석 → 생산일지 시트</button>';
+  h+='<button onclick="moveMsgMenu(\''+esc(id)+'\')">↪ 다른 방으로 이동</button>';
   if(m.status==='error') h+='<button onclick="closeMsgMenu();retryMsg(\''+esc(id)+'\')" style="color:var(--accent)">🔄 다시 분석</button>';
   if((m.uid===(ME&&ME.uid) || IS_ADMIN) && !m.deleted){
     if(m.text) h+='<button onclick="closeMsgMenu();openEditMsg(\''+esc(id)+'\')">✏ 수정 (주문노트에 다시 반영)</button>';
@@ -2189,6 +2193,35 @@ function selectCopy(id){
     +'<textarea readonly style="width:100%;min-height:160px;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:15px;font-family:var(--sans);box-sizing:border-box;user-select:text;-webkit-user-select:text">'+esc(m.text||'')+'</textarea>'
     +'<button class="mm-x" onclick="closeMsgMenu()">닫기</button>';
   const ta=menu.querySelector('textarea'); if(ta){ ta.focus(); }
+}
+/* ↪ 다른 방으로 이동 (v6.21) */
+function moveMsgMenu(id){
+  const m=CHAT[id]; if(!m) return;
+  const menu=document.getElementById('msgMenu');
+  const cur=roomOf(id);
+  menu.innerHTML='<div class="mm-prev"><b>↪ 어느 방으로 옮길까요?</b> · '+esc(replyPreview(m))+'</div>'
+    +ROOMS.filter(r=>r.id!==cur.id && roomVisible(r)).map(r=>'<button onclick="moveMsg(\''+esc(id)+'\',\''+r.id+'\')">'+r.icon+' '+r.name+'</button>').join('')
+    +'<button class="mm-x" onclick="closeMsgMenu()">취소</button>';
+}
+async function moveMsg(id, roomId){
+  const m=CHAT[id]; const to=ROOMS.find(r=>r.id===roomId); if(!m||!to) return;
+  closeMsgMenu();
+  const from=roomOf(id);
+  const hasOrders=from.parse && (m.orders&&m.orders.length) || Object.values(ORDERS).some(o=>o&&o.chatMsg===id);
+  try{
+    const copy=Object.assign({}, m);
+    ['_room','_titled','status','orders','lock','lockAt','retries','reacts','replyTo'].forEach(k=>delete copy[k]);
+    copy.movedFrom=from.name; copy.movedBy=MYNAME; copy.movedAt=Date.now();
+    copy.status=null;
+    const ref=db.ref(to.path).push(); await ref.set(copy);
+    if(hasOrders){
+      // 주문이 만들어진 메시지는 원본을 남김 (주문 연결 유지) — 옮긴 방엔 사본
+      await msgRef(id).update({movedTo:to.name, movedToId:ref.key});
+    }else{
+      await msgRef(id).update({deleted:1, movedTo:to.name, movedToId:ref.key, status:null});
+    }
+    sendPushOut('↪ '+to.name+'으로 이동: '+replyPreview(m).slice(0,40));
+  }catch(e){ alert('이동 실패: '+e.message); }
 }
 async function copyMsg(id){
   const m=CHAT[id]; if(!m) return;
@@ -2818,8 +2851,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.20';
-const APP_BUILD=620;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.21';
+const APP_BUILD=621;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
