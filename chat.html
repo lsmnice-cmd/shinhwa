@@ -11,7 +11,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.21 — 2026-09-08
+  신화미트 주문방 (chat.html) v6.22 — 2026-09-09
+  · v6.22: 📝 주문 메모 — 파서가 뽑은 지시 문장("입금확인 후 출고" 등)을 미처리·작업보드 카드에
+    빨간 메모줄로 표시, ✏로 직접 입력·수정. 🤖 답장에도 메모 표시. 추가 메시지의 메모는 이어 붙임.
   · v6.21: ↪ 메시지 다른 방으로 옮기기 — 말풍선·사진을 꾹 누르기(PC 우클릭) → [↪ 다른 방으로
     이동] → 방 선택. 원래 방에는 "○○ 방으로 이동됨" 흔적, 옮긴 방에는 원문 그대로(옮긴 사람 표시).
     주문방 주문 메시지(주문 생성된 것)는 주문 반영이 꼬이지 않게 복사만 하고 원본 유지.
@@ -2740,6 +2742,7 @@ async function createOrders(text, forced, msgId, senderName, isEdit, guard){
         if(have.has(k)){ tot.dup++; return false; }
         have.add(k); return true;
       });
+      if(o.note && !(existing.note||'').includes(o.note)){ existing.note=(existing.note?existing.note+' / ':'')+o.note; tot.lines.push('📝 메모: '+o.note); }
       const shipNew=o.ship && (o.ship.phone||o.ship.addr||o.ship.name);
       if(shipNew){ existing.ship=Object.assign({}, existing.ship||{}, o.ship); }
       if(!toAdd.length && !repl && !shipNew) continue;
@@ -2752,6 +2755,7 @@ async function createOrders(text, forced, msgId, senderName, isEdit, guard){
       const upd={items:existing.items, hash:existing.hash, gapDone:false, ts:existing.ts, sts:firebase.database.ServerValue.TIMESTAMP, printed:false};
       existing.printed=false;
       if(existing.ship) upd.ship=existing.ship;
+      if(existing.note) upd.note=existing.note;
       // 이미 확인방으로 넘어간 주문에 품목이 추가되면 → 다시 미처리로 되돌림 (전산 재확인 필요)
       if(existing.confirm){ upd.confirm=null; upd.confirmAt=null; upd['chk/erp']=null; existing.confirm=null; if(existing.chk) delete existing.chk.erp; }
       await db.ref('orders/'+existing.id).update(upd);
@@ -2766,6 +2770,7 @@ async function createOrders(text, forced, msgId, senderName, isEdit, guard){
 
     o.done=false; o.ts=Date.now(); o.chatMsg=msgId; o.by=senderName;
     (o.items||[]).forEach(it=>{ if(it && !it.src) it.src=msgId; });
+    if(o.note) tot.lines.push('📝 메모: '+o.note);
     const ref=db.ref('orders').push();
     o.id=ref.key;
     await ref.set(Object.assign({}, o, {sts:firebase.database.ServerValue.TIMESTAMP, printed:false}));
@@ -2851,8 +2856,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.21';
-const APP_BUILD=621;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.22';
+const APP_BUILD=622;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3267,6 +3272,11 @@ function buildOrderCard(o){
   card.appendChild(head);
   const cliEdit=document.createElement('div'); cliEdit.id='cliEdit_'+o.id; cliEdit.style.display='none';
   card.appendChild(cliEdit);
+  { const nb=document.createElement('div');
+    nb.style.cssText='margin:2px 0 6px;padding:6px 9px;background:'+(o.note?'#fdecec':'#faf8f2')+';border:1px solid '+(o.note?'#e8a9a4':'var(--line)')+';border-radius:6px;font-size:12.5px;display:flex;gap:6px;align-items:flex-start';
+    nb.innerHTML='<span style="flex:1;color:'+(o.note?'#8a1c1c':'var(--muted)')+';font-weight:'+(o.note?'800':'400')+';white-space:pre-wrap">'+(o.note?'📝 '+esc(o.note):'📝 메모 없음')+'</span>'
+      +'<button onclick="editNote(\''+esc(o.id)+'\')" style="border:1px solid var(--line);background:#fff;border-radius:5px;padding:2px 7px;font-size:11px;font-weight:800;cursor:pointer">✏</button>';
+    card.appendChild(nb); }
   if(o.ship && (o.ship.name||o.ship.phone||o.ship.addr)){
     const sb=document.createElement('div');
     sb.style.cssText='margin:2px 0 6px;padding:7px 9px;background:#fff7e6;border:1px solid #e6c98a;border-radius:6px;font-size:12.5px;line-height:1.5';
@@ -3480,6 +3490,13 @@ async function shipQueue(id, btn){
     if(btn){ btn.disabled=false; btn.textContent='🚚 송장 대기로'; }
     alert('송장 대기 등록 실패: '+e.message);
   }
+}
+
+/* 📝 주문 메모 수정 */
+async function editNote(id){
+  const o=ORDERS[id]; if(!o) return;
+  const v=prompt('주문 메모 (입금확인 후 출고, 단가, 배송 조건 등)', o.note||''); if(v===null) return;
+  try{ await db.ref('orders/'+id).update({note:v.trim()||null}); o.note=v.trim()||null; renderSide(); }catch(e){ alert('저장 실패: '+e.message); }
 }
 
 /* 📦 택배 수취인 — 복사(이름·연락처·주소·메모 탭 구분) · 수정 */
