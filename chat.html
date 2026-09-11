@@ -11,7 +11,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.22 — 2026-09-09
+  신화미트 주문방 (chat.html) v6.23 — 2026-09-10
+  · v6.23: ⚖ 중량 입력 중 화면이 튕기던 문제 수정 — 주문이 저장될 때마다 목록 전체를
+    다시 그리며 스크롤이 맨 위로 가고 입력칸 포커스가 풀리던 것.
+    ① 목록 스크롤 위치 유지 ② 입력 중에는 다시 그리기를 미루고 입력을 마치면 반영
   · v6.22: 📝 주문 메모 — 파서가 뽑은 지시 문장("입금확인 후 출고" 등)을 미처리·작업보드 카드에
     빨간 메모줄로 표시, ✏로 직접 입력·수정. 🤖 답장에도 메모 표시. 추가 메시지의 메모는 이어 붙임.
   · v6.21: ↪ 메시지 다른 방으로 옮기기 — 말풍선·사진을 꾹 누르기(PC 우클릭) → [↪ 다른 방으로
@@ -1081,7 +1084,7 @@ async function onSignedIn(u){
       if(!o.id) o.id=id;
     }
     seenHashes=new Set(Object.values(ORDERS).map(o=>o.hash).filter(Boolean));
-    renderSide();
+    renderSideSafe();
   },async err=>{
     fbReady=false; showGate();
     setStat(false,'승인 대기');
@@ -1096,7 +1099,7 @@ async function onSignedIn(u){
   });
 
   // 🖨 인쇄 도장 구독 — 주문노트에서 인쇄하면 즉시 반영
-  db.ref('meta/printed').on('value',s2=>{ PRINTED=s2.val()||{}; renderSide(); });
+  db.ref('meta/printed').on('value',s2=>{ PRINTED=s2.val()||{}; renderSideSafe(); });
   startPresence();
   startChat();
   renderWhoami(u);
@@ -2856,8 +2859,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.22';
-const APP_BUILD=622;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.23';
+const APP_BUILD=623;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3195,7 +3198,21 @@ function checkTaskPopup(){
 }
 function closeTaskPop(){ document.getElementById('taskPopBg').classList.remove('on'); }
 
+/* 입력 중 다시 그리기 지연 + 스크롤 위치 유지 (v6.23) */
+let SIDE_DIRTY=false;
+function sideTyping(){
+  const a=document.activeElement, sc=document.getElementById('sideScroll');
+  return !!(a && sc && sc.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName));
+}
+function renderSideSafe(){ if(sideTyping()){ SIDE_DIRTY=true; return; } renderSide(); }
+document.addEventListener('focusout', ()=>{ setTimeout(()=>{ if(SIDE_DIRTY && !sideTyping()){ SIDE_DIRTY=false; renderSide(); } }, 180); });
 function renderSide(){
+  const sc=document.getElementById('sideScroll');
+  const keep=sc?sc.scrollTop:0;
+  renderSideCore();
+  if(sc && keep){ sc.scrollTop=keep; requestAnimationFrame(()=>{ sc.scrollTop=keep; }); }
+}
+function renderSideCore(){
   try{ if(CUR_ROOM && CUR_ROOM.id==='deliv') renderVehBar(); }catch(e){}
   try{ const mb=document.querySelector('.mnav button:last-child'); if(mb){ const prod=CUR_ROOM&&CUR_ROOM.id==='prod'; mb.childNodes[0].textContent=prod?'🏭 작업보드 ':'📋 미처리 주문 '; } }catch(e){}
   document.getElementById('curDate').textContent=mmdd(PANEL_DATE)||'--.--';
@@ -3469,8 +3486,7 @@ async function saveBoxes(id, idx){
     await db.ref('orders/'+id).update({items:items});
     o.items=items;
     // 태그만 조용히 갱신 (패널은 그대로) — 카드 전체는 패널 닫을 때 다시 그림
-    const box=cardEl('meas_'+id);
-    if(box && !box.contains(document.activeElement)) renderSide();
+    renderSideSafe();
   }catch(e){ alert('저장 실패: '+e.message); }
 }
 
