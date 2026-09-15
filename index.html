@@ -2494,6 +2494,8 @@ function firstDate(){
 function setNoteDate(d){ noteDate=d; renderNote(); }
 function setWorkDate(d){ workDate=d; renderWork(); }
 
+/* [v4.17] 전산대조로 매출 확인된 주문은 이월에서 제외 */
+/* [v4.16] 이월 미처리는 2026-09-15 이후 주문에만 (이전은 종이 처리분) */
 /* [v4.15] ⚠ 이월 미처리 — 이전 날짜(14일 내)인데 전산처리(확인방 이동)가 안 된 주문을 노트 맨 아래에
    빨간 묶음으로 표시·인쇄 (오늘 날짜 노트에서만). 누락 방지. */
 /* [v4.14] ?date= 로 열면 ② 주문노트 탭으로 바로 이동 (카톡 입력 탭이 아니라) */
@@ -2738,7 +2740,8 @@ function buildNoteTable(wrap, date, workMode){
     const today=todayStr();
     if(date===today){
       const lim=new Date(Date.now()-14*86400000); const loS=lim.getFullYear()+'-'+String(lim.getMonth()+1).padStart(2,'0')+'-'+String(lim.getDate()).padStart(2,'0');
-      const carry=Object.values(ORDERS).filter(o=>o && o.date && o.date<today && o.date>=loS && !o.confirm)
+      const erpV=o=>!!((o.recon&&o.recon.status==='ok') || (o.items||[]).some(it=>it&&(it.erpKg||it.erpTail)));
+      const carry=Object.values(ORDERS).filter(o=>o && o.date && o.date<today && o.date>=loS && o.date>='2026-09-15' && !o.confirm && !erpV(o))
         .sort((a,b)=>(a.date<b.date?-1:a.date>b.date?1:0)||String(a.client||'').localeCompare(String(b.client||''),'ko'));
       if(carry.length){
         html+='<div class="veh-page"><div class="veh-sec" data-veh="이월"><div class="veh-page-head"><span class="vp-veh" style="background:#fdecec;border:2px solid #b23b32;color:#8a1c1c">⚠ 이월 미처리</span>'
