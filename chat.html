@@ -11,7 +11,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.35 — 2026-09-15
+  신화미트 주문방 (chat.html) v6.36 — 2026-09-15
+  · v6.36: "연결 설정이 없습니다" 수정 — 저장된 설정이 일부만 있어도(주소만 있고 키·프로젝트
+    없음 등) 빠진 항목마다 내장 기본값을 채워 항상 로그인 가능. 설정이 깨졌을 때
+    [설정 초기화 후 다시] 버튼 제공.
   · v6.35: 다른 방 → 주문방으로 옮긴 메시지는 옮기는 즉시 주문 분석 시작
     (기존엔 "분석 없음" 상태로 들어가 10분 점검 때까지 방치됨)
   · v6.34: 옮겨온 메시지 표시 문구를 "↪ 온라인 방에서 옮김 (이충승)"으로 명확하게
@@ -776,8 +779,10 @@ const DEFAULT_FB={
   fbKey:'AIzaSyD4rYh_bfHjL5ajCf6_IKbA7gRb0CU3MJU',
   fbProj:'shinwha-note'
 };
-let cfg=JSON.parse(localStorage.getItem(LS)||'{}');
-if(!cfg.fbUrl && DEFAULT_FB.fbUrl){ cfg=Object.assign({}, DEFAULT_FB, cfg); }
+let cfg={};
+try{ cfg=JSON.parse(localStorage.getItem(LS)||'{}')||{}; }catch(e){ cfg={}; }
+// 빠진 항목마다 내장 기본값으로 보충 (일부만 저장된 설정이어도 접속되게)
+['fbUrl','fbKey','fbProj'].forEach(k=>{ if(!cfg[k]) cfg[k]=DEFAULT_FB[k]; });
 let db=null, auth=null, ME=null, fbReady=false, IS_ADMIN=false, ALLOWED=false;
 let MYNAME='';
 
@@ -976,7 +981,9 @@ function hideGate(){document.getElementById('gate').classList.add('hide');}
 function initFirebase(){
   if(!cfg.fbUrl||!cfg.fbKey||!cfg.fbProj){
     setStat(false,'설정 필요');
-    gateMsgSet('연결 설정이 없습니다. 관리자에게 문의하세요.',false);
+    gateMsgSet('연결 설정이 깨져 있습니다. 아래 버튼으로 초기화한 뒤 다시 로그인하세요.',false);
+    const card=document.querySelector('.gate-card');
+    if(card && !document.getElementById('cfgReset')){ const b=document.createElement('button'); b.id='cfgReset'; b.className='gbtn'; b.style.background='#4a4a42'; b.textContent='설정 초기화 후 다시'; b.onclick=()=>{ try{ localStorage.removeItem(LS); }catch(e){} location.reload(); }; card.appendChild(b); }
     return;
   }
   try{
@@ -3005,8 +3012,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.35';
-const APP_BUILD=635;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.36';
+const APP_BUILD=636;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
