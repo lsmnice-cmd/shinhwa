@@ -2494,6 +2494,8 @@ function firstDate(){
 function setNoteDate(d){ noteDate=d; renderNote(); }
 function setWorkDate(d){ workDate=d; renderWork(); }
 
+/* [v4.15] ⚠ 이월 미처리 — 이전 날짜(14일 내)인데 전산처리(확인방 이동)가 안 된 주문을 노트 맨 아래에
+   빨간 묶음으로 표시·인쇄 (오늘 날짜 노트에서만). 누락 방지. */
 /* [v4.14] ?date= 로 열면 ② 주문노트 탭으로 바로 이동 (카톡 입력 탭이 아니라) */
 /* [v4.13] 출력시각 표시를 옛 주문(도장 없음)에도 — 접수시각 vs 인쇄시각 비교로 판정 */
 /* [v4.12] ① 주소 ?date=YYYY-MM-DD&hl=주문ID 로 열면 그 날짜 노트에서 해당 거래처 행을 강조·스크롤
@@ -2731,6 +2733,27 @@ function buildNoteTable(wrap, date, workMode){
     html+='</div>';
   });
   if(!uniqVeh.length) html+='<div class="empty">이 날짜에 주문이 없습니다</div>';
+  // ⚠ 이월 미처리 (오늘 노트에만, 인쇄 포함)
+  if(!workMode){
+    const today=todayStr();
+    if(date===today){
+      const lim=new Date(Date.now()-14*86400000); const loS=lim.getFullYear()+'-'+String(lim.getMonth()+1).padStart(2,'0')+'-'+String(lim.getDate()).padStart(2,'0');
+      const carry=Object.values(ORDERS).filter(o=>o && o.date && o.date<today && o.date>=loS && !o.confirm)
+        .sort((a,b)=>(a.date<b.date?-1:a.date>b.date?1:0)||String(a.client||'').localeCompare(String(b.client||''),'ko'));
+      if(carry.length){
+        html+='<div class="veh-page"><div class="veh-sec" data-veh="이월"><div class="veh-page-head"><span class="vp-veh" style="background:#fdecec;border:2px solid #b23b32;color:#8a1c1c">⚠ 이월 미처리</span>'
+          +'<span class="vp-meta" style="color:#8a1c1c">지난 날짜인데 전산처리(확인방 이동)가 안 된 주문 '+carry.length+'건 — 처리하거나 삭제해야 사라집니다</span></div>'
+          +'<table class="note"><thead><tr><th style="width:70px">날짜</th><th style="width:60px">차량</th><th style="width:160px">거래처</th><th>품목</th><th style="width:60px">작업</th></tr></thead><tbody>';
+        carry.forEach(o=>{
+          const items=(o.items||[]).map(it=>esc(itemText(it))+(it.product&&it.product!==it.text?' <span style="color:#1a4f9c;font-size:11px">('+esc(it.product)+')</span>':'')).join(' · ');
+          html+='<tr data-ids="'+esc(o.id)+'" style="background:#fff5f5"><td style="font-family:var(--mono);font-weight:800">'+esc(o.date.slice(5).replace('-','.'))+'</td><td style="font-family:var(--mono)">'+esc(normVeh(o.vehicle||'미지정'))+'</td>'
+            +'<td class="cli"><span class="cli-edit" onclick="openOrderEditor(\''+esc(o.id)+'\')">'+esc(o.client||'(미지정)')+'<i class="pen">✎</i></span></td><td>'+items+'</td>'
+            +'<td>'+(o.done?'<span style="color:#1f6b3a;font-weight:800">완료</span>':'대기')+'</td></tr>';
+        });
+        html+='</tbody></table></div></div>';
+      }
+    }
+  }
   html+='<div class="legend no-print"><span><i style="background:var(--wait-soft)"></i><b>대기</b> 미작업</span>'
       +'<span><i style="background:var(--ok-soft)"></i><b>완료</b> 작업완료(클릭 토글)</span>'
       +'<span><span style="font-size:11px;font-weight:800;color:#1a4f9c;background:#e4edf9;border-radius:4px;padding:1px 5px">⚖15.15kg(1514)</span> 생산 실측(현장 입력) · <span style="font-size:11px;font-weight:800;color:#1f6b3a;background:#e7f2ea;border-radius:4px;padding:1px 5px">15.15kg(1514)</span> 전산 실제값(대조) · <b style="color:#1f6b3a">✔</b> 전산처리 체크됨</span>'
