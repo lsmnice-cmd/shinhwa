@@ -1158,6 +1158,7 @@ async function loadMasterFromSheet(){
     refreshProdList();
     renderAll();
     loadPending();          // 📚 학습 대기 목록
+    if(/[?&]date=/.test(location.search)){ tab('note'); setTimeout(()=>renderNote(), 50); }   // 🔗 주문방에서 넘어옴
   }catch(e){
     console.error('[마스터 '+step+' 단계]',e);
     setMsg('inMsg','마스터 처리 실패 ('+step+' 단계): '+e.message,false);
@@ -2493,6 +2494,7 @@ function firstDate(){
 function setNoteDate(d){ noteDate=d; renderNote(); }
 function setWorkDate(d){ workDate=d; renderWork(); }
 
+/* [v4.14] ?date= 로 열면 ② 주문노트 탭으로 바로 이동 (카톡 입력 탭이 아니라) */
 /* [v4.13] 출력시각 표시를 옛 주문(도장 없음)에도 — 접수시각 vs 인쇄시각 비교로 판정 */
 /* [v4.12] ① 주소 ?date=YYYY-MM-DD&hl=주문ID 로 열면 그 날짜 노트에서 해당 거래처 행을 강조·스크롤
    (주문방 말풍선 우클릭 → [📓 주문노트에서 보기]) ② 인쇄된 거래처는 이름 옆에 🖨 출력시각 표시 */
