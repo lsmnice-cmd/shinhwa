@@ -11,7 +11,14 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.37 — 2026-09-15
+  신화미트 주문방 (chat.html) v6.39 — 2026-09-15
+  · v6.39: 확인방에 "✅ 대조 완료 기록" — 통과한 주문을 날짜별로 남김(통과 방식: 자동대조·
+    짝짓기·수동통과·일괄종결, 시각, 전산 중량, 체크한 사람). 최근 14일, 접힘/펼침, 검색.
+    [↩ 미처리로] 되돌리기 가능.
+  · v6.38: 미처리 화면 정리 — ① 메인 목록: 인쇄 이후 접수분·택배·사무실·[미처리로] 보낸 것
+    ② 인쇄된 분량(종이 처리 중)과 출고완료만 체크된 것은 접힌 묶음 "🖨 인쇄됨 · 전산 미확인 N건"
+    으로 아래에 모음(펼쳐 볼 수 있음, 전산대조가 확인하면 자동 소멸)
+    ③ 다음날에도 전산 미확인이면 ⚠ 이월 미처리로 올라와 누락은 여전히 잡힘
   · v6.37: 🚨 접속 불가 수정 — v6.33의 미분석 점검 타이머가 파일 초기 실행 시 아직 정의되지
     않은 값을 참조해 스크립트 전체가 멈추던 문제(모든 기기 "연결 설정이 없습니다").
     타이머 시작을 초기화 이후로 이동.
@@ -3017,8 +3024,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.37';
-const APP_BUILD=637;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.39';
+const APP_BUILD=639;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3089,9 +3096,12 @@ function isPrinted(o){
 /* 전산 처리됨 판정: 확인방 이동(confirm) 또는 전산대조로 매출 확인(초록 태그·대조 일치) */
 function erpVerified(o){ return !!(o && ((o.recon&&o.recon.status==='ok') || (o.items||[]).some(it=>it&&(it.erpKg||it.erpTail)))); }
 function processed(o){ return !!(o.confirm || erpVerified(o)); }
-function pendListFor(date){
-  return Object.values(ORDERS).filter(o=>o && o.date===date && (!processed(o) || needOut(o)));
-}
+function pendAll(date){ return Object.values(ORDERS).filter(o=>o && o.date===date && (!processed(o) || needOut(o))); }
+/* 메인 목록: 인쇄 안 된 것(인쇄 이후 접수)·택배·사무실·[미처리로] 보낸 것. 출고완료만 체크된 것은 접힘 묶음으로 */
+function pendMain(o){ return (!isPrinted(o) || o.forcePend || KEEP_PEND_VEH.indexOf(normVeh(o.vehicle||''))>=0) && !(o.chk&&o.chk.out&&!o.confirm); }
+function pendListFor(date){ return pendAll(date).filter(pendMain); }
+function pendFolded(date){ return pendAll(date).filter(o=>!pendMain(o)); }
+let FOLD_OPEN=false;
 /* ⚠ 이월 미처리 — 이전 날짜(14일 내)인데 아직 전산처리·출고가 안 된 주문 */
 const CARRY_FROM='2026-09-15';   // 이월 미처리 적용 시작일 (이전 주문은 종이 처리분으로 간주)
 function legacyOpen(){ return Object.values(ORDERS).filter(o=>o && o.date && o.date<CARRY_FROM && !processed(o)); }
@@ -3419,8 +3429,9 @@ function renderPend(){
   const doneN=Object.values(ORDERS).filter(o=>o && o.date===PANEL_DATE && o.confirm).length;
   const pAt=printedAt(PANEL_DATE);
   const sum=document.createElement('div'); sum.className='side-sum';
+  const folded=pendFolded(PANEL_DATE);
   let sumHtml=esc(mmdd(PANEL_DATE))+' — 미처리 '+list.length+'건 · 확인방 이동 '+doneN+'건';
-  if(pAt) sumHtml+='<br>🖨 마지막 인쇄 '+hhmm(pAt)+' — 인쇄됐어도 전산처리·출고완료 전까지는 여기 남습니다';
+  if(pAt) sumHtml+='<br>🖨 마지막 인쇄 '+hhmm(pAt)+(folded.length?' · 인쇄분 중 전산 미확인 <b style="color:#8a1c1c">'+folded.length+'건</b> (아래 접힘 묶음)':' · 인쇄분은 모두 전산 확인됨');
   sum.innerHTML=sumHtml;
   box.appendChild(sum);
   // ⚠ 이월 미처리 (오늘 보기일 때만 맨 위)
@@ -3450,6 +3461,18 @@ function renderPend(){
     g[v].sort((a,b)=>String(a.client).localeCompare(String(b.client),'ko'))
         .forEach(o=>box.appendChild(buildOrderCard(o)));
   });
+  renderFolded(box, folded);
+}
+/* 🖨 인쇄됨·출고완료 — 전산 미확인 묶음 (접힘) */
+function renderFolded(box, folded){
+  if(!folded.length) return;
+  const h=document.createElement('div'); h.className='veh-h'; h.style.cursor='pointer';
+  h.innerHTML='<span class="v" style="background:#fff6e6;border-color:#e8c979;color:#7a5a00">'+(FOLD_OPEN?'▾':'▸')+' 🖨 인쇄됨 · 전산 미확인</span><span class="n">'+folded.length+'건 — 종이로 처리 중, 전산대조가 확인하면 사라짐 · 눌러서 '+(FOLD_OPEN?'접기':'펼치기')+'</span>';
+  h.onclick=()=>{ FOLD_OPEN=!FOLD_OPEN; renderSide(); };
+  box.appendChild(h);
+  if(!FOLD_OPEN) return;
+  folded.sort((a,b)=>normVeh(a.vehicle||'').localeCompare(normVeh(b.vehicle||''))||String(a.client||'').localeCompare(String(b.client||''),'ko'))
+    .forEach(o=>{ const c=buildOrderCard(o); c.style.opacity='.85'; box.appendChild(c); });
 }
 
 function buildOrderCard(o){
@@ -3960,9 +3983,10 @@ function renderConf(conf){
   box.appendChild(sum);
   if(!conf.length){
     const e=document.createElement('div'); e.className='empty';
-    e.innerHTML='확인방이 비어 있습니다 ✅<br><span style="font-size:11px">전산처리 체크된 주문이 여기로 오고, ERP 대조를 통과하면 자동으로 사라집니다</span>';
-    box.appendChild(e); return;
+    e.innerHTML='확인방이 비어 있습니다 ✅<br><span style="font-size:11px">전산처리 체크된 주문이 여기로 오고, ERP 대조를 통과하면 아래 "대조 완료 기록"으로 내려갑니다</span>';
+    box.appendChild(e); renderConfDone(box); return;
   }
+  renderConfDone(box);
   const byDate={};
   conf.forEach(o=>{ (byDate[o.date]=byDate[o.date]||[]).push(o); });
   Object.keys(byDate).sort().reverse().forEach(d=>{
@@ -4061,6 +4085,43 @@ function renderConf(conf){
     });
   });
 }
+/* ✅ 대조 완료 기록 (v6.39) — 최근 14일, 날짜별 접힘 */
+let DONE_OPEN=false, DONE_Q='';
+function renderConfDone(box){
+  const lim=new Date(Date.now()-14*86400000); const loS=lim.getFullYear()+'-'+String(lim.getMonth()+1).padStart(2,'0')+'-'+String(lim.getDate()).padStart(2,'0');
+  let done=Object.values(ORDERS).filter(o=>o && o.confirm==='done' && (o.date||'')>=loS);
+  const q=DONE_Q.trim().toLowerCase();
+  if(q) done=done.filter(o=>((o.client||'')+' '+(o.items||[]).map(itemText).join(' ')).toLowerCase().indexOf(q)>=0);
+  const h=document.createElement('div'); h.className='veh-h'; h.style.cssText='cursor:pointer;margin-top:16px';
+  h.innerHTML='<span class="v" style="background:#e7f2ea;border-color:#9cc9aa;color:#1f6b3a">'+(DONE_OPEN?'▾':'▸')+' ✅ 대조 완료 기록</span><span class="n">최근 14일 '+done.length+'건 · 눌러서 '+(DONE_OPEN?'접기':'펼치기')+'</span>';
+  h.onclick=()=>{ DONE_OPEN=!DONE_OPEN; renderSide(); };
+  box.appendChild(h);
+  if(!DONE_OPEN) return;
+  const sb=document.createElement('input'); sb.type='search'; sb.placeholder='🔍 거래처·품목 검색'; sb.value=DONE_Q;
+  sb.style.cssText='width:100%;padding:7px 9px;margin:4px 0 8px;border:1px solid var(--line);border-radius:6px;font-size:13px;font-family:var(--sans)';
+  sb.oninput=()=>{ DONE_Q=sb.value; clearTimeout(window._dq); window._dq=setTimeout(()=>{ const keep=sb.value; renderSide(); const nb=document.querySelector('#sideScroll input[type=search]'); if(nb){ nb.value=keep; nb.focus(); nb.setSelectionRange(keep.length,keep.length); } },300); };
+  box.appendChild(sb);
+  const byDate={}; done.forEach(o=>{ (byDate[o.date]=byDate[o.date]||[]).push(o); });
+  Object.keys(byDate).sort().reverse().forEach(d=>{
+    const dh=document.createElement('div'); dh.className='date-h'; dh.style.cssText='font-size:12px;margin:10px 2px 4px;border-bottom-color:#9cc9aa;color:#1f6b3a'; dh.textContent=d.replace(/-/g,'.')+' · '+byDate[d].length+'건';
+    box.appendChild(dh);
+    byDate[d].sort((a,b)=>(b.reconAt||b.confirmAt||0)-(a.reconAt||a.confirmAt||0)).forEach(o=>{
+      const r=o.recon||{}; const ck=o.chk||{};
+      const via=r.via||'자동대조'; const when=o.reconAt||r.at||o.confirmAt;
+      const kg=(o.items||[]).map(it=>it&&it.erpKg?String(it.erpKg).replace(/\.0+$/,'')+'kg'+(it.erpTail?'('+it.erpTail+')':''):'').filter(Boolean).join(' · ');
+      const row=document.createElement('div'); row.className='ccard'; row.style.cssText='padding:7px 10px;margin-bottom:5px;opacity:.9';
+      row.innerHTML='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b>'+esc(o.client||'')+'</b><span class="oc-meta">'+esc(normVeh(o.vehicle||''))+' · '+(o.items||[]).length+'품목</span>'
+        +'<span class="st ok" style="font-size:10.5px">✅ '+esc(via)+(r.weight?' · '+esc(r.weight):'')+'</span>'
+        +(when?'<span class="oc-meta">'+new Date(when).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+'</span>':'')
+        +(ck.erp?'<span class="oc-meta">전산 '+esc(ck.erp.by||'')+'</span>':'')
+        +'<button class="undo" onclick="undoConfirm(\''+esc(o.id)+'\')" title="다시 미처리로">↩</button></div>'
+        +'<div class="oc-items" style="margin:2px 0 0;font-size:12px;color:#555">'+(o.items||[]).map(it=>esc(itemText(it))).join(' · ')+(kg?'<div style="color:#1f6b3a;font-size:11px">'+kg+'</div>':'')+'</div>';
+      box.appendChild(row);
+    });
+  });
+  if(!done.length){ const e=document.createElement('div'); e.style.cssText='color:var(--muted);font-size:12px;padding:6px'; e.textContent='기록 없음'; box.appendChild(e); }
+}
+
 /* ERP 거래처 코드 매칭 — erpmap/{정규화된 거래처명} = {code, client, by, at}
    전산대조 프로그램이 다음 실행 때 이 코드를 최우선으로 써서 재대조합니다.
    한 번 매칭하면 학습되어 같은 거래처는 다음부터 자동 통과합니다. */
