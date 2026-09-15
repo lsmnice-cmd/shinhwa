@@ -11,7 +11,11 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.30 — 2026-09-15
+  신화미트 주문방 (chat.html) v6.32 — 2026-09-15
+  · v6.32: 전산대조로 ERP 매출이 확인된 주문(품목에 초록 태그 또는 대조 일치)은 전산처리 완료로
+    간주 — 미처리·이월·일괄종결 대상에서 제외. (체크 안 했어도 실제로 전산 입력된 건)
+  · v6.31: 이월 미처리는 2026-09-15 이후 접수 주문에만 적용 (그 전은 종이 처리분).
+    관리자용 [이전 미처리 일괄 종결] 버튼 — 09-15 이전의 전산처리 안 된 주문을 한 번에 종결.
   · v6.30: 누락 방지 — 미처리 규칙을 "전산처리(확인방 이동)+출고완료가 안 된 주문은 무조건 표시"로.
     인쇄됐어도 숨기지 않음(🖨 출력시각 배지로만 구분). 이전 날짜(14일 내)의 미처리도
     맨 위 "⚠ 이월 미처리" 묶음으로 항상 표시 → 날짜가 지나도 사라지지 않음. 배지에 합산.
@@ -1685,7 +1689,7 @@ function renderProdPanel(){
   const p=document.getElementById('sideScroll'); if(!p) return;
   const t=todayKST();
   const lim=new Date(Date.now()+9*3600*1000); lim.setDate(lim.getDate()+PROD_DAYS); const limS=lim.toISOString().slice(0,10);
-  const erpDone=o=>(o.recon&&o.recon.status==='ok') || (o.items||[]).some(it=>it&&(it.erpKg||it.erpTail));   // 전표 존재 = 전산 입력 끝남
+  const erpDone=erpVerified;   // 전표 존재 = 전산 입력 끝남
   let list=Object.values(ORDERS).filter(o=>o && o.date && o.date>=t && o.date<=limS && !o.confirm && !(o.chk&&o.chk.erp));
   const erpN=list.filter(erpDone).length;
   if(!PROD_SHOW_ERP) list=list.filter(o=>!erpDone(o));
@@ -2950,8 +2954,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.30';
-const APP_BUILD=630;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.32';
+const APP_BUILD=632;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3019,13 +3023,26 @@ function isPrinted(o){
   if(o.printed===false) return false;
   const p=printedAt(o.date); return !!(p && ((o.sts||o.ts)||0)<p);
 }
+/* 전산 처리됨 판정: 확인방 이동(confirm) 또는 전산대조로 매출 확인(초록 태그·대조 일치) */
+function erpVerified(o){ return !!(o && ((o.recon&&o.recon.status==='ok') || (o.items||[]).some(it=>it&&(it.erpKg||it.erpTail)))); }
+function processed(o){ return !!(o.confirm || erpVerified(o)); }
 function pendListFor(date){
-  return Object.values(ORDERS).filter(o=>o && o.date===date && (!o.confirm || needOut(o)));
+  return Object.values(ORDERS).filter(o=>o && o.date===date && (!processed(o) || needOut(o)));
 }
 /* ⚠ 이월 미처리 — 이전 날짜(14일 내)인데 아직 전산처리·출고가 안 된 주문 */
+const CARRY_FROM='2026-09-15';   // 이월 미처리 적용 시작일 (이전 주문은 종이 처리분으로 간주)
+function legacyOpen(){ return Object.values(ORDERS).filter(o=>o && o.date && o.date<CARRY_FROM && !processed(o)); }
+async function closeLegacy(){
+  if(!IS_ADMIN) return;
+  const list=legacyOpen(); if(!list.length){ alert('종결할 이전 미처리가 없습니다'); return; }
+  if(!confirm(CARRY_FROM+' 이전의 전산처리 안 된 주문 '+list.length+'건을 일괄 종결할까요?\n(확인방으로 보내지 않고 "종이 처리"로 완료 표시 — 되돌릴 수 없음)')) return;
+  const upd={}; const now=Date.now();
+  list.forEach(o=>{ upd['orders/'+o.id+'/confirm']='done'; upd['orders/'+o.id+'/confirmAt']=now; upd['orders/'+o.id+'/recon']={status:'ok', via:'일괄종결(종이처리)', by:MYNAME, at:now}; });
+  try{ await db.ref().update(upd); alert(list.length+'건 종결했습니다'); }catch(e){ alert('실패: '+e.message); }
+}
 function carryList(){
   const t=todayStr(); const lim=new Date(Date.now()-14*86400000); const loS=lim.getFullYear()+'-'+String(lim.getMonth()+1).padStart(2,'0')+'-'+String(lim.getDate()).padStart(2,'0');
-  return Object.values(ORDERS).filter(o=>o && o.date && o.date<t && o.date>=loS && (!o.confirm || needOut(o)))
+  return Object.values(ORDERS).filter(o=>o && o.date && o.date<t && o.date>=loS && o.date>=CARRY_FROM && (!processed(o) || needOut(o)))
     .sort((a,b)=>(a.date<b.date?-1:a.date>b.date?1:0)||String(a.client||'').localeCompare(String(b.client||''),'ko'));
 }
 function toggleShowAll(){ SHOW_ALL=!SHOW_ALL; renderSide(); }
@@ -3345,6 +3362,7 @@ function renderPend(){
   box.appendChild(sum);
   // ⚠ 이월 미처리 (오늘 보기일 때만 맨 위)
   if(PANEL_DATE===todayStr()){
+    if(IS_ADMIN){ const lg=legacyOpen().length; if(lg){ const b=document.createElement('button'); b.textContent='🧹 '+CARRY_FROM+' 이전 미처리 '+lg+'건 일괄 종결 (종이 처리분)'; b.style.cssText='width:100%;margin:2px 0 8px;border:1px dashed #b23b32;background:#fff;color:#8a1c1c;border-radius:6px;padding:7px;font-size:12px;font-weight:800;cursor:pointer'; b.onclick=closeLegacy; box.appendChild(b); } }
     const carry=carryList();
     if(carry.length){
       const h=document.createElement('div'); h.className='veh-h';
