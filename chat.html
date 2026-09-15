@@ -11,7 +11,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.27 — 2026-09-15
+  신화미트 주문방 (chat.html) v6.28 — 2026-09-15
+  · v6.28: "분석중…"에 3분 넘게 멈춘 메시지는 ⏳ 표시 + 눌러서 강제 재분석 가능
+    (수정 후 재분석이 끊긴 경우 등). 꾹 누르기 메뉴에도 [🔄 다시 분석] 항상 표시.
   · v6.27: ① 주문 말풍선 우클릭/꾹 → [📓 주문노트에서 보기] — 그 날짜 노트가 열리며
     해당 거래처 행이 빨간 테두리로 강조·스크롤 (index v4.12) ② 인쇄된 주문은 미처리·작업보드
     카드의 거래처 옆에 (🖨 출력시각) 표시
@@ -1899,7 +1901,11 @@ async function toggleReact(id){
   try{ await msgRef(id).child('reacts/'+ME.uid).set(has?null:{name:MYNAME, at:Date.now()}); }catch(e){ alert('실패: '+e.message); }
 }
 function stateHtml(id,m){
-  if(m.status==='parsing'||m.status==='retrying') return '<span class="m-state parsing">분석중…</span>';
+  if(m.status==='parsing'||m.status==='retrying'){
+    const stale=Date.now()-((m.lockAt||m.ts)||0) > 3*60*1000;
+    if(stale) return '<span class="m-state parsing" style="cursor:pointer;text-decoration:underline" onclick="event.stopPropagation();forceRetry(\''+esc(id)+'\')" title="3분 넘게 멈춤 — 눌러서 다시 분석">⏳ 분석 멈춤 · 다시</span>';
+    return '<span class="m-state parsing">분석중…</span>';
+  }
   if(m.status==='error')   return '<span class="m-state error" style="cursor:pointer;text-decoration:underline" '
     +'onclick="event.stopPropagation();retryMsg(\''+esc(id)+'\')" title="눌러서 다시 분석">⚠ 실패·재시도</span>';
   if(m.status==='done')    return '<span class="m-state done">✓</span>';
@@ -1939,6 +1945,19 @@ function scheduleAutoRetry(id, m){
   }, AUTO_RETRY_DELAYS[Math.min(r,2)]);
 }
 
+/* 🔄 강제 재분석 — 상태와 무관하게 되돌린 뒤 다시 분석 (멈춘 분석·재처리용) */
+async function forceRetry(id){
+  const m=CHAT[id]; if(!m||m.sys||!m.text) return;
+  const busy=(m.status==='parsing'||m.status==='retrying') && Date.now()-((m.lockAt||m.ts)||0) < 60*1000;
+  if(busy && !confirm('아직 분석 중일 수 있습니다(1분 이내). 그래도 다시 분석할까요?')) return;
+  if(m.status==='done' && !confirm('이미 반영된 메시지입니다. 이전 반영을 되돌리고 다시 분석할까요?')) return;
+  try{
+    if(m.status==='done' || (m.orders&&m.orders.length)) await rollbackMsg(id);
+    const tok=newTok();
+    await msgRef(id).update({status:'parsing', lock:tok, lockAt:Date.now(), orders:null, retries:0});
+    await processMessage(id, Object.assign({}, m, {status:'parsing'}), tok);
+  }catch(e){ alert('재분석 실패: '+e.message); }
+}
 /* 🔄 실패 메시지 재분석 — 누구든 누를 수 있고, 중복 실행은 transaction으로 방지 */
 async function retryMsg(id){
   const m=CHAT[id];
@@ -2216,7 +2235,7 @@ function openMsgMenu(id){
     const o0=oids.map(k=>ORDERS[k]).find(Boolean);
     if(o0) h+='<button onclick="closeMsgMenu();window.open(\'index.html?date='+esc(o0.date||'')+'&hl='+esc(o0.id)+'\',\'_blank\')" style="color:#1a4f9c">📓 주문노트에서 보기 ('+esc(o0.client||'')+' · '+esc(mmdd(o0.date||''))+')</button>'; }
   h+='<button onclick="moveMsgMenu(\''+esc(id)+'\')">↪ 다른 방으로 이동</button>';
-  if(m.status==='error') h+='<button onclick="closeMsgMenu();retryMsg(\''+esc(id)+'\')" style="color:var(--accent)">🔄 다시 분석</button>';
+  if(roomOf(id).parse && m.text) h+='<button onclick="closeMsgMenu();forceRetry(\''+esc(id)+'\')" style="color:var(--accent)">🔄 다시 분석'+(m.status==='parsing'||m.status==='retrying'?' (멈춘 분석 강제 재시작)':'')+'</button>';
   if((m.uid===(ME&&ME.uid) || IS_ADMIN) && !m.deleted){
     if(m.text) h+='<button onclick="closeMsgMenu();openEditMsg(\''+esc(id)+'\')">✏ 수정 (주문노트에 다시 반영)</button>';
     h+='<button onclick="closeMsgMenu();delMsg(\''+esc(id)+'\')" style="color:var(--accent)">🗑 삭제 (등록된 주문도 취소)</button>';
@@ -2904,8 +2923,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.27';
-const APP_BUILD=627;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.28';
+const APP_BUILD=628;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
