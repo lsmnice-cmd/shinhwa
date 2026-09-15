@@ -2480,6 +2480,9 @@ function updateGapBadge(){
 function renderAll(){renderNote();renderWork();renderMaster();updateGapBadge();}
 
 let noteDate=null, workDate=null;
+let PRINTED_AT={};   // 날짜 -> 인쇄 시각 (표시용)
+(function(){ const m=location.search.match(/[?&]date=(\d{4}-\d{2}-\d{2})/); if(m) noteDate=m[1]; })();
+const HL_ID=(location.search.match(/[?&]hl=([A-Za-z0-9_-]+)/)||[])[1]||'';
 function dateExists(d){ return !!ordersByDate()[d]; }
 function firstDate(){
   const t=todayStr();
@@ -2490,6 +2493,9 @@ function firstDate(){
 function setNoteDate(d){ noteDate=d; renderNote(); }
 function setWorkDate(d){ workDate=d; renderWork(); }
 
+/* [v4.13] 출력시각 표시를 옛 주문(도장 없음)에도 — 접수시각 vs 인쇄시각 비교로 판정 */
+/* [v4.12] ① 주소 ?date=YYYY-MM-DD&hl=주문ID 로 열면 그 날짜 노트에서 해당 거래처 행을 강조·스크롤
+   (주문방 말풍선 우클릭 → [📓 주문노트에서 보기]) ② 인쇄된 거래처는 이름 옆에 🖨 출력시각 표시 */
 /* [v4.11] 📝 주문 메모(입금확인 후 출고 등)를 거래처 행 아래 빨간 줄로 표시 (인쇄 포함) */
 /* [v4.10] 전산 태그를 ERP 줄마다 표시 (3.74kg(0933) · 11.39kg(0933)) */
 /* [v4.9] 인쇄 시 그 날짜 주문에 printed 도장 → 주문방 미처리는 도장 없는 주문만 표시 */
@@ -2696,9 +2702,13 @@ function buildNoteTable(wrap, date, workMode){
         html+='<tr data-ids="'+esc(ids)+'"'+(isDone?' class="done"':'')+(noCli?' class="nocli"':'')+'>';
         const allErp=allItems.length && allItems.every(it=>it._erp||it.erpKg||it.erpTail);
         const anyPend=orders.some(o=>!o.confirm);
+        const pAtN=PRINTED_AT[date]||0;
+        const wasPrinted=o=>o.printed===true || (o.printed!==false && pAtN && ((o.sts||o.ts)||0)<pAtN);   // 옛 주문은 시각 비교
+        const prAt=pAtN&&orders.some(wasPrinted)?new Date(pAtN).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'';
         const noteTxt=orders.map(o=>o.note).filter(Boolean).join(' / ');
         html+='<td class="cli"><span class="cli-edit" onclick="openOrderEditor(\''+esc(ids)+'\')">'+esc(c||'(미지정)')
           +(allErp?' <span style="font-size:10px;font-weight:800;color:#1f6b3a" title="전산처리 완료">✔전산</span>':'')
+          +(prAt?' <span style="font-size:10px;color:#7a5a00;font-weight:400" title="이 시각에 인쇄된 분량">(🖨'+prAt+')</span>':'')
           +(function(){ const o1=orders.find(o=>o.chk&&o.chk.erp); if(!o1) return ''; const c=o1.chk.erp; return '<div style="font-size:9.5px;color:#1f6b3a;font-weight:400">'+esc(c.by||'')+' '+new Date(c.at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+'</div>'; })()
           +'<i class="pen">✎</i></span>'
           +(noteTxt?'<div style="margin-top:3px;padding:4px 7px;background:#fdecec;border:1px solid #e8a9a4;border-radius:5px;font-size:11px;color:#8a1c1c;font-weight:800;text-align:left;white-space:pre-wrap">📝 '+esc(noteTxt)+'</div>':'')
@@ -2732,7 +2742,13 @@ function buildNoteTable(wrap, date, workMode){
       if(!at) return;
       const el=wrap.querySelector('.print-stamp');
       if(el) el.textContent='🖨 마지막 인쇄 '+new Date(at).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})+' — 이후 접수분은 주문방 미처리에 표시됩니다';
+      if(PRINTED_AT[date]!==at){ PRINTED_AT[date]=at; buildNoteTable(wrap, date, workMode); return; }
     }).catch(()=>{});
+  }
+  // 🔗 주문방에서 넘어온 강조 (?hl=주문ID)
+  if(HL_ID){
+    const tr=[...wrap.querySelectorAll('tr[data-ids]')].find(t=>(t.dataset.ids||'').split(',').indexOf(HL_ID)>=0);
+    if(tr){ tr.style.outline='3px solid #8a1c1c'; tr.style.background='#fdf0ee'; setTimeout(()=>tr.scrollIntoView({block:'center',behavior:'smooth'}),100); }
   }
 }
 
