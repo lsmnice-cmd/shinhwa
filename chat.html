@@ -11,7 +11,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.28 — 2026-09-15
+  신화미트 주문방 (chat.html) v6.29 — 2026-09-15
+  · v6.29: 주문 말풍선 옆(체크 스티커 위)에 처리 진행 칩 — 주문·생산·전산·출고 4단계를
+    작게 표시(체크되면 초록). 미처리 카드에서 체크하면 채팅 말풍선에도 즉시 반영.
   · v6.28: "분석중…"에 3분 넘게 멈춘 메시지는 ⏳ 표시 + 눌러서 강제 재분석 가능
     (수정 후 재분석이 끊긴 경우 등). 꾹 누르기 메뉴에도 [🔄 다시 분석] 항상 표시.
   · v6.27: ① 주문 말풍선 우클릭/꾹 → [📓 주문노트에서 보기] — 그 날짜 노트가 열리며
@@ -459,6 +461,12 @@
   .msg-row.hit .bubble a{color:#1a4f9c !important}
   .bubble{user-select:text;-webkit-user-select:text}
   .msg-row.hit-cur .bubble{box-shadow:0 0 0 3px var(--accent)}
+  /* 📋 주문 진행 칩 (말풍선 옆) */
+  .ochips{display:flex;gap:2px;flex-wrap:wrap;max-width:150px}
+  .msg-row.mine .ochips{justify-content:flex-end}
+  .ochip{font-size:9.5px;line-height:1;padding:3px 5px;border-radius:6px;background:#f1eee6;color:#a39d90;border:1px solid #ddd8cc;white-space:nowrap}
+  .ochip.on{background:#e7f2ea;color:#1f6b3a;border-color:#9cc9aa;font-weight:800}
+  .ochip.half{background:#fff6e6;color:#7a5a00;border-color:#e8c979}
   /* ✅ 체크 스티커 */
   .react-col{display:flex;flex-direction:column;align-items:flex-start;gap:3px;align-self:flex-end;margin:0 4px;max-width:150px}
   .msg-row.mine .react-col{align-items:flex-end}
@@ -1118,7 +1126,7 @@ async function onSignedIn(u){
       if(!o.id) o.id=id;
     }
     seenHashes=new Set(Object.values(ORDERS).map(o=>o.hash).filter(Boolean));
-    renderSideSafe();
+    renderSideSafe(); try{ refreshOrderChips(); }catch(e){}
   },async err=>{
     fbReady=false; showGate();
     setStat(false,'승인 대기');
@@ -1884,6 +1892,22 @@ function updateMsg(id, m){
   }
 }
 function sysHtml(m){ return '<span class="tag">🤖</span> '+esc(m.text||'')+(m.by?' <span style="font-size:10px;color:#aaa">· 처리: '+esc(m.by)+'</span>':''); }
+/* 📋 주문 진행 칩 — 이 메시지가 만든/추가한 주문의 4단계 체크 (v6.29) */
+function ordersOfMsg(id){
+  const m=CHAT[id]; if(!m) return [];
+  const set=new Set((m.orders||[]).filter(k=>ORDERS[k]));
+  Object.keys(ORDERS).forEach(k=>{ const o=ORDERS[k]; if(o && (o.chatMsg===id || (o.items||[]).some(it=>it&&it.src===id))) set.add(k); });
+  return [...set].map(k=>ORDERS[k]);
+}
+function orderChips(id){
+  const os=ordersOfMsg(id); if(!os.length) return '<div class="ochips" id="chip_'+esc(id)+'"></div>';
+  const lab={ord:'주문',prod:'생산',erp:'전산',out:'출고'};
+  const h=CHK_DEF.map(([k])=>{ const n=os.filter(o=>o.chk&&o.chk[k]).length; const cls=n===os.length?'on':n?'half':''; return '<span class="ochip '+cls+'" title="'+lab[k]+(n===os.length?' 완료':n?' '+n+'/'+os.length:' 대기')+'">'+(cls==='on'?'✔':'·')+lab[k]+'</span>'; }).join('');
+  return '<div class="ochips" id="chip_'+esc(id)+'" title="'+esc(os.map(o=>(o.client||'')+' '+mmdd(o.date||'')).join(', '))+'">'+h+'</div>';
+}
+function refreshOrderChips(){
+  for(const id in CHAT){ const el=document.getElementById('chip_'+id); if(!el) continue; const nh=orderChips(id); if(el.outerHTML!==nh) el.outerHTML=nh; }
+}
 /* ✅ 체크 스티커 (v6.4) */
 function reactHtml(id,m){
   const r=m.reacts||{}; const mine=ME&&r[ME.uid];
@@ -2006,7 +2030,7 @@ function bubbleHtml(id,m){
     +'<div class="m-name">'+esc(m.name||'')+'</div>'
     +'<div class="bubble" onclick="bubbleTap(\''+esc(id)+'\')" oncontextmenu="event.preventDefault();openMsgMenu(\''+esc(id)+'\')" title="누르면 답장 · 꾹 누르면 메뉴(복사/답장)">'+quote+body+'</div>'
     +'</div>'
-    +'<div class="react-col">'+reactHtml(id,m)+'</div>'
+    +'<div class="react-col">'+(roomOf(id).parse?orderChips(id):'')+reactHtml(id,m)+'</div>'
     +'<span>'+stateHtml(id,m)+(m.edited?'<span style="font-size:10px;color:var(--muted)">(수정됨)</span>':'')+(m.movedFrom?'<span style="font-size:10px;color:var(--muted)">↪ '+esc(m.movedFrom)+'에서 '+esc(m.movedBy||'')+'</span>':'')+(m.movedTo&&!m.deleted?'<span style="font-size:10px;color:var(--muted)">↪ '+esc(m.movedTo)+'에 사본</span>':'')+'<span class="m-time">'+hhmm(m.ts||Date.now())+'</span></span>'
     +'<button class="rbtn" title="이 메시지에 답장 (추가 주문)" onclick="setReply(\''+esc(id)+'\')">↩</button>';
 }
@@ -2923,8 +2947,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.28';
-const APP_BUILD=628;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.29';
+const APP_BUILD=629;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
