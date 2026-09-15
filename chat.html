@@ -11,7 +11,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.29 — 2026-09-15
+  신화미트 주문방 (chat.html) v6.30 — 2026-09-15
+  · v6.30: 누락 방지 — 미처리 규칙을 "전산처리(확인방 이동)+출고완료가 안 된 주문은 무조건 표시"로.
+    인쇄됐어도 숨기지 않음(🖨 출력시각 배지로만 구분). 이전 날짜(14일 내)의 미처리도
+    맨 위 "⚠ 이월 미처리" 묶음으로 항상 표시 → 날짜가 지나도 사라지지 않음. 배지에 합산.
   · v6.29: 주문 말풍선 옆(체크 스티커 위)에 처리 진행 칩 — 주문·생산·전산·출고 4단계를
     작게 표시(체크되면 초록). 미처리 카드에서 체크하면 채팅 말풍선에도 즉시 반영.
   · v6.28: "분석중…"에 3분 넘게 멈춘 메시지는 ⏳ 표시 + 눌러서 강제 재분석 가능
@@ -2947,8 +2950,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.29';
-const APP_BUILD=629;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.30';
+const APP_BUILD=630;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3017,8 +3020,13 @@ function isPrinted(o){
   const p=printedAt(o.date); return !!(p && ((o.sts||o.ts)||0)<p);
 }
 function pendListFor(date){
-  return Object.values(ORDERS).filter(o=>o && o.date===date && (!o.confirm || needOut(o))
-    && (SHOW_ALL || !isPrinted(o) || o.forcePend || KEEP_PEND_VEH.indexOf(normVeh(o.vehicle||''))>=0));
+  return Object.values(ORDERS).filter(o=>o && o.date===date && (!o.confirm || needOut(o)));
+}
+/* ⚠ 이월 미처리 — 이전 날짜(14일 내)인데 아직 전산처리·출고가 안 된 주문 */
+function carryList(){
+  const t=todayStr(); const lim=new Date(Date.now()-14*86400000); const loS=lim.getFullYear()+'-'+String(lim.getMonth()+1).padStart(2,'0')+'-'+String(lim.getDate()).padStart(2,'0');
+  return Object.values(ORDERS).filter(o=>o && o.date && o.date<t && o.date>=loS && (!o.confirm || needOut(o)))
+    .sort((a,b)=>(a.date<b.date?-1:a.date>b.date?1:0)||String(a.client||'').localeCompare(String(b.client||''),'ko'));
 }
 function toggleShowAll(){ SHOW_ALL=!SHOW_ALL; renderSide(); }
 /* ============================================================
@@ -3307,7 +3315,7 @@ function renderSideCore(){
   try{ const mb=document.querySelector('.mnav button:last-child'); if(mb){ const prod=CUR_ROOM&&CUR_ROOM.id==='prod'; mb.childNodes[0].textContent=prod?'🏭 작업보드 ':'📋 미처리 주문 '; } }catch(e){}
   document.getElementById('curDate').textContent=mmdd(PANEL_DATE)||'--.--';
   // 뱃지: 오늘 미처리 / 확인방 대기
-  const nToday=pendListFor(todayStr()).length;
+  const nToday=pendListFor(todayStr()).length+carryList().length;
   const pb=document.getElementById('pendBadge'), mb=document.getElementById('mBadge');
   pb.style.display=nToday?'':'none'; pb.textContent=nToday;
   mb.style.display=nToday?'':'none'; mb.textContent=nToday;
@@ -3332,18 +3340,22 @@ function renderPend(){
   const pAt=printedAt(PANEL_DATE);
   const sum=document.createElement('div'); sum.className='side-sum';
   let sumHtml=esc(mmdd(PANEL_DATE))+' — 미처리 '+list.length+'건 · 확인방 이동 '+doneN+'건';
-  if(pAt){
-    sumHtml += SHOW_ALL
-      ? '<br>전체 표시 중 <a href="#" onclick="toggleShowAll();return false" style="color:#1e4f7a;font-weight:800">[🖨 '+hhmm(pAt)+' 인쇄 이후만 보기]</a>'
-      : '<br>🖨 '+hhmm(pAt)+' 인쇄 이후 접수분만 표시 <a href="#" onclick="toggleShowAll();return false" style="color:#1e4f7a;font-weight:800">[전체 보기]</a>';
-  }
+  if(pAt) sumHtml+='<br>🖨 마지막 인쇄 '+hhmm(pAt)+' — 인쇄됐어도 전산처리·출고완료 전까지는 여기 남습니다';
   sum.innerHTML=sumHtml;
   box.appendChild(sum);
+  // ⚠ 이월 미처리 (오늘 보기일 때만 맨 위)
+  if(PANEL_DATE===todayStr()){
+    const carry=carryList();
+    if(carry.length){
+      const h=document.createElement('div'); h.className='veh-h';
+      h.innerHTML='<span class="v" style="background:#fdecec;border-color:#e8a9a4;color:#8a1c1c">⚠ 이월 미처리</span><span class="n" style="color:#8a1c1c">'+carry.length+'건 — 지난 날짜인데 전산처리·출고가 안 됨</span>';
+      box.appendChild(h);
+      carry.forEach(o=>{ const c=buildOrderCard(o); c.style.borderLeftColor='#b23b32'; box.appendChild(c); });
+    }
+  }
   if(!list.length){
     const e=document.createElement('div'); e.className='empty';
-    e.innerHTML=(pAt&&!SHOW_ALL)
-      ? '🖨 '+hhmm(pAt)+' 인쇄 이후 새로 들어온 주문이 없습니다<br><span style="font-size:11px">인쇄된 분량은 종이로 처리 중 — 위 [전체 보기]로 볼 수 있습니다</span>'
-      : (doneN?'🎉 이 날짜의 주문이 모두 처리되어<br>확인방으로 넘어갔습니다':'이 날짜에 미처리 주문이 없습니다');
+    e.innerHTML=doneN?'🎉 이 날짜의 주문이 모두 처리되어<br>확인방으로 넘어갔습니다':'이 날짜에 미처리 주문이 없습니다';
     box.appendChild(e); return;
   }
   const g={};
