@@ -11,7 +11,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.26 — 2026-09-11
+  신화미트 주문방 (chat.html) v6.27 — 2026-09-15
+  · v6.27: ① 주문 말풍선 우클릭/꾹 → [📓 주문노트에서 보기] — 그 날짜 노트가 열리며
+    해당 거래처 행이 빨간 테두리로 강조·스크롤 (index v4.12) ② 인쇄된 주문은 미처리·작업보드
+    카드의 거래처 옆에 (🖨 출력시각) 표시
   · v6.26: ⚖ 중량·식별번호 입력을 모바일에 맞게 — 큰 입력칸(확대 안 됨), 숫자 키패드,
     Enter로 다음 칸 이동(마지막에서 박스 자동 추가), [↓ 같은 번호] 한 번에 채우기,
     합계·박스수 크게, 삭제/추가 버튼 터치 영역 확대. (입력 중 화면 튕김은 v6.23에서 해결)
@@ -2209,6 +2212,9 @@ function openMsgMenu(id){
   if(m.text) h+='<button id="mmCopy" onclick="copyMsg(\''+esc(id)+'\')">📋 전체 복사</button>'
     +'<button onclick="selectCopy(\''+esc(id)+'\')">✂ 선택 복사 (원하는 부분만)</button>';
   if(m.photo && m.photo.id) h+='<button onclick="closeMsgMenu();analyzeLog(\''+esc(id)+'\')" style="color:#1a4f9c">📊 일지로 분석 → 생산일지 시트</button>';
+  { const oids=(m.orders&&m.orders.length)?m.orders:Object.keys(ORDERS).filter(k=>ORDERS[k]&&(ORDERS[k].chatMsg===id||(ORDERS[k].items||[]).some(it=>it&&it.src===id)));
+    const o0=oids.map(k=>ORDERS[k]).find(Boolean);
+    if(o0) h+='<button onclick="closeMsgMenu();window.open(\'index.html?date='+esc(o0.date||'')+'&hl='+esc(o0.id)+'\',\'_blank\')" style="color:#1a4f9c">📓 주문노트에서 보기 ('+esc(o0.client||'')+' · '+esc(mmdd(o0.date||''))+')</button>'; }
   h+='<button onclick="moveMsgMenu(\''+esc(id)+'\')">↪ 다른 방으로 이동</button>';
   if(m.status==='error') h+='<button onclick="closeMsgMenu();retryMsg(\''+esc(id)+'\')" style="color:var(--accent)">🔄 다시 분석</button>';
   if((m.uid===(ME&&ME.uid) || IS_ADMIN) && !m.deleted){
@@ -2898,8 +2904,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.26';
-const APP_BUILD=626;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.27';
+const APP_BUILD=627;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3322,6 +3328,7 @@ function buildOrderCard(o){
     +'<span onclick="editDate(\''+esc(o.id)+'\')" title="누르면 배송 날짜 수정" '
     +'style="cursor:pointer;font-size:11px;font-weight:800;color:#5a5045;background:#f0ece1;border-radius:8px;padding:2px 7px">📅'+esc(mmdd(o.date||''))+'</span>'
     +(isLate?'<span style="font-size:10px;font-weight:800;background:#f3e4e2;color:#8a1c1c;border-radius:8px;padding:1px 7px">🆕 인쇄 이후</span>':'')
+    +((isPrinted(o)&&pAt)?'<span title="이 시각 인쇄분" style="font-size:10px;color:#7a5a00;background:#fff6e6;border-radius:8px;padding:1px 6px">🖨 '+hhmm(pAt)+' 출력</span>':'')
     +'<span class="oc-meta">'+(o.by?esc(o.by)+' · ':'')+(o.items||[]).length+'품목</span>'
     +(o.raw?'<span class="oc-src" onclick="alert(this.dataset.r)" data-r="'+esc((o.raw||'').slice(0,600))+'">원문</span>':'')
     +((normVeh(o.vehicle||'')==='택배' && !(o.ship&&(o.ship.name||o.ship.phone||o.ship.addr)))?'<span onclick="editShip(\''+esc(o.id)+'\')" title="택배 수취인 정보 입력" style="cursor:pointer;font-size:11px;background:#fff7e6;border:1px solid #e6c98a;border-radius:8px;padding:1px 6px;color:#8a5a00">📦 수취인</span>':'')
