@@ -11,7 +11,11 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.41 — 2026-09-16
+  신화미트 주문방 (chat.html) v6.43 — 2026-09-16
+  · v6.43: 품목 학습 강화 — 짝짓기·수정 학습 때 품목 원문과 정리명을 둘 다 사전에 등록, 파싱 교정도
+    원문·정리명·정규화키 전부로 사전을 찾음. (전산대조 v3.0은 사전을 직접 참조 → 반복 짝짓기 제거)
+  · v6.42: 확인방 카드에 📅 대조일 변경(전산을 다른 날 친 경우) — 바꾸면 다음 대조 때 그 날짜로 재대조.
+    전산대조 v2.9와 짝: 코드가 학습돼 있으면 ±3일을 자동 탐색해 통과. 카드에 "코드 학습됨" 표시.
   · v6.41: "⏳ 다음 주문 대기"를 작은 한 줄 배지로 — 누르면 목록 펼침/접힘, 기본은 접힘
   · v6.40: ⏳ "다음 주문시" 이월 — 날짜 없이 "다음 주문에 삼겹 5kg 같이"라고 올리면 그 거래처
     대기함(meta/deferred)에 넣고, 그 거래처 주문이 다음에 만들어질 때 품목을 자동으로 합침
@@ -890,14 +894,11 @@ function learnKey(s){
 }
 function correctProduct(client, product, text){
   const key=learnKey(product);
-  if(!key) return null;
+  if(!key && !learnKey(text)) return null;
   const pc=LEARNED.perCustomer[client];
-  if(pc){
-    if(pc[product]!==undefined) return {item:pc[product], via:'거래처'};
-    if(pc[key]!==undefined) return {item:pc[key], via:'거래처'};
-  }
-  if(LEARNED.global[product]!==undefined) return {item:LEARNED.global[product], via:'공통'};
-  if(LEARNED.global[key]!==undefined) return {item:LEARNED.global[key], via:'공통'};
+  const keys=[product, key, text, learnKey(text)].filter(Boolean);
+  if(pc){ for(const k of keys){ if(pc[k]!==undefined) return {item:pc[k], via:'거래처'}; } }
+  for(const k of keys){ if(LEARNED.global[k]!==undefined) return {item:LEARNED.global[k], via:'공통'}; }
   const cands=recentCandidates(client, product);
   if(cands.length===1) return {item:cands[0].item, via:'최근', cands};
   if(cands.length>1)  return {item:cands[0].item, via:'최근', cands};
@@ -3062,8 +3063,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.41';
-const APP_BUILD=641;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.43';
+const APP_BUILD=643;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -4057,7 +4058,10 @@ function renderConf(conf){
       }
       const head=document.createElement('div');
       head.style.cssText='display:flex;align-items:center;gap:8px;margin-bottom:4px';
+      const rd=o.reconDate&&o.reconDate!==o.date?o.reconDate:'';
       head.innerHTML='<b>'+esc(o.client||'')+'</b> <span class="oc-meta">'+esc(normVeh(o.vehicle))+' · '+(o.items||[]).length+'품목</span> '+st
+        +'<span onclick="editReconDate(\''+esc(o.id)+'\')" title="전산을 다른 날 쳤으면 대조일을 바꾸세요" style="cursor:pointer;font-size:11px;font-weight:800;color:'+(rd?'#1a4f9c':'#5a5045')+';background:'+(rd?'#e4edf9':'#f0ece1')+';border-radius:8px;padding:2px 7px">📅 대조일 '+esc(mmdd(rd||o.date||''))+'</span>'
+        +(ERPMAP_HAS(o.client)?'<span title="ERP 거래처 코드가 학습되어 있음 — 다음부터 자동" style="font-size:10px;color:#1f6b3a">코드 학습됨 ✓</span>':'')
         +'<button class="undo" onclick="undoConfirm(\''+esc(o.id)+'\')">↩ 되돌리기</button>';
       card.appendChild(head);
       const items=document.createElement('div'); items.className='oc-items'; items.style.marginBottom='0';
@@ -4178,6 +4182,26 @@ function renderConfDone(box){
   if(!done.length){ const e=document.createElement('div'); e.style.cssText='color:var(--muted);font-size:12px;padding:6px'; e.textContent='기록 없음'; box.appendChild(e); }
 }
 
+/* 📅 대조일 변경 — 전산을 다른 날 입력한 주문 */
+let ERPMAP={};
+function ERPMAP_HAS(client){ try{ return !!ERPMAP[cliNorm(client)]; }catch(e){ return false; } }
+try{ setTimeout(()=>{ if(db) db.ref('erpmap').on('value', s=>{ ERPMAP=s.val()||{}; }, ()=>{}); }, 4000); }catch(e){}
+async function editReconDate(id){
+  const o=ORDERS[id]; if(!o) return;
+  const v=prompt('ERP에 매출을 입력한 날짜 (예: 0917 또는 2026-09-17)\n비우면 배송일('+mmdd(o.date||'')+')로 되돌림', (o.reconDate||o.date||'').replace(/-/g,'').slice(4));
+  if(v===null) return;
+  const t=v.trim().replace(/[.\/\s]/g,''); let nd=null;
+  if(!t) nd=null;
+  else if(/^\d{4}$/.test(t)) nd=new Date().getFullYear()+'-'+t.slice(0,2)+'-'+t.slice(2);
+  else if(/^\d{8}$/.test(t)) nd=t.slice(0,4)+'-'+t.slice(4,6)+'-'+t.slice(6);
+  else if(/^\d{4}-\d{2}-\d{2}$/.test(v.trim())) nd=v.trim();
+  else { alert('날짜 형식을 인식하지 못했습니다'); return; }
+  try{
+    await db.ref('orders/'+id).update({reconDate:nd, recon:null, reconReq:Date.now()});
+    o.reconDate=nd; o.recon=null; renderSide();
+  }catch(e){ alert('저장 실패: '+e.message); }
+}
+
 /* ERP 거래처 코드 매칭 — erpmap/{정규화된 거래처명} = {code, client, by, at}
    전산대조 프로그램이 다음 실행 때 이 코드를 최우선으로 써서 재대조합니다.
    한 번 매칭하면 학습되어 같은 거래처는 다음부터 자동 통과합니다. */
@@ -4213,10 +4237,11 @@ async function pairLearnAll(id, btn){
     const items=(o.items||[]).slice();
     for(const m of chosen){
       const erp=psel[m.i];
-      await gsCall('addLearned',{client:o.client, katok:m.name, item:erp});
+      const it0=items[m.i]||{};
+      const srcs=[...new Set([m.name, it0.text, it0.product, it0.wasProduct].map(x=>String(x||'').trim()).filter(x=>x && learnKey(x)))];
+      for(const src of srcs){ await gsCall('addLearned',{client:o.client, katok:src, item:erp}); }
       if(!LEARNED.perCustomer[o.client]) LEARNED.perCustomer[o.client]={};
-      LEARNED.perCustomer[o.client][m.name]=erp;
-      LEARNED.perCustomer[o.client][learnKey(m.name)]=erp;
+      srcs.forEach(src=>{ LEARNED.perCustomer[o.client][src]=erp; LEARNED.perCustomer[o.client][learnKey(src)]=erp; });
       if(items[m.i]){
         items[m.i]=Object.assign({}, items[m.i], {wasProduct:items[m.i].product||m.name, product:erp, fixed:1, via:'짝짓기'});
       }
