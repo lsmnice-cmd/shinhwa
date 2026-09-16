@@ -11,7 +11,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.47 — 2026-09-17
+  신화미트 주문방 (chat.html) v6.48 — 2026-09-17
+  · v6.48: 확인방 카드 모바일 레이아웃 — 거래처명이 세로로 쪼개지고 버튼이 옆으로 삐져나가던 것.
+    머리줄 줄바꿈, 이름은 한 줄, 상태·대조일·되돌리기 버튼은 다음 줄로. 가로 스크롤 없음.
   · v6.47: "처리됨" 판정을 품목 단위로 — 전산처리 체크가 없으면 품목 전부가 ERP 확인돼야 처리됨.
     일부만 확인된 주문(예: 입고시 품목)은 미처리·이월에 남고 미확인 품목에 "⚠ 전산 미입력" 표시.
     (작업보드는 기존대로 하나라도 확인되면 숨김)
@@ -659,13 +661,21 @@
   .chk:active{transform:scale(.97)}
 
   /* 확인방 */
-  .ccard{background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:9px 11px;margin-bottom:8px}
-  .ccard .st{font-size:11px;font-weight:800;padding:2px 8px;border-radius:10px;white-space:nowrap}
+  .ccard{background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:9px 11px;margin-bottom:8px;overflow:hidden;max-width:100%}
+  .ccard .oc-head{display:flex;flex-wrap:wrap;align-items:center;gap:5px 8px}
+  .ccard .oc-head>b{font-size:15px;white-space:nowrap;flex:0 1 auto;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+  .ccard .st{font-size:11px;font-weight:800;padding:2px 8px;border-radius:10px;white-space:normal;line-height:1.35;flex:1 1 100%}
+  @media (max-width:640px){
+    .ccard .oc-head>b{flex:1 1 60%}
+    .ccard .st{order:5}
+    .ccard .undo{margin-left:0;order:6}
+  }
   .st.wait{background:#e6eef5;color:#1e4f7a}
   .st.ok{background:var(--ok-soft);color:var(--ok)}
   .st.ng{background:var(--accent-soft);color:var(--accent)}
   .ccard .undo{margin-left:auto;border:1px solid var(--line);background:#fff;border-radius:5px;
-               padding:3px 9px;font-size:11px;cursor:pointer;color:#6f6a5d}
+               padding:3px 9px;font-size:11px;cursor:pointer;color:#6f6a5d;white-space:nowrap}
+  .ccard .oc-items{word-break:break-word;overflow-wrap:anywhere}
   .date-h{font-family:var(--mono);font-weight:800;font-size:14px;letter-spacing:1px;margin:14px 2px 6px;
           border-bottom:2px solid var(--line-strong);padding-bottom:3px}
   .empty{padding:40px 10px;text-align:center;color:var(--muted);font-size:13px;line-height:1.7}
@@ -3078,8 +3088,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.47';
-const APP_BUILD=647;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.48';
+const APP_BUILD=648;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -4164,7 +4174,7 @@ function renderConf(conf){
           const fix=document.createElement('div');
           fix.style.cssText='display:flex;gap:6px;align-items:center;margin-top:7px;padding:7px 9px;background:#fdf3f3;border:1px solid #e8c4c0;border-radius:6px;flex-wrap:wrap';
           const lb=document.createElement('span');
-          lb.style.cssText='font-size:11.5px;color:#8a1c1c;font-weight:700;white-space:nowrap';
+          lb.style.cssText='font-size:11.5px;color:#8a1c1c;font-weight:700;white-space:nowrap;flex:1 1 100%';
           lb.textContent='ERP 거래처 코드:';
           const inp=document.createElement('input');
           inp.type='text'; inp.placeholder='예) 10234';
