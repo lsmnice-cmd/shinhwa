@@ -11,7 +11,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.43 — 2026-09-16
+  신화미트 주문방 (chat.html) v6.44 — 2026-09-16
+  · v6.44: 📦 다중 수취인을 한 주문 안에 — 카드에 "수취인 1/3, 2/3…" 블록이 차례로 표시(각각 복사·✏·📞),
+    보내는 분은 위에 한 번. [🚚 송장 대기로]는 수취인 수만큼 등록. 수취인 추가/삭제 가능.
+    (Code v5.1: 주문을 쪼개지 않으므로 전산대조는 주문자 한 건으로 대조)
   · v6.43: 품목 학습 강화 — 짝짓기·수정 학습 때 품목 원문과 정리명을 둘 다 사전에 등록, 파싱 교정도
     원문·정리명·정규화키 전부로 사전을 찾음. (전산대조 v3.0은 사전을 직접 참조 → 반복 짝짓기 제거)
   · v6.42: 확인방 카드에 📅 대조일 변경(전산을 다른 날 친 경우) — 바꾸면 다음 대조 때 그 날짜로 재대조.
@@ -2927,8 +2930,11 @@ async function createOrders(text, forced, msgId, senderName, isEdit, guard){
         have.add(k); return true;
       });
       if(o.note && !(existing.note||'').includes(o.note)){ existing.note=(existing.note?existing.note+' / ':'')+o.note; tot.lines.push('📝 메모: '+o.note); }
-      const shipNew=o.ship && (o.ship.phone||o.ship.addr||o.ship.name);
-      if(shipNew){ existing.ship=Object.assign({}, existing.ship||{}, o.ship); }
+      const shipNew=(o.ships&&o.ships.length) || (o.ship && (o.ship.phone||o.ship.addr||o.ship.name));
+      if(shipNew){
+        if(o.ships&&o.ships.length){ const cur=(existing.ships&&existing.ships.length)?existing.ships.slice():[]; o.ships.forEach(x=>{ if(!cur.some(y=>(y.phone&&y.phone===x.phone)||(y.addr&&y.addr===x.addr))) cur.push(x); }); existing.ships=cur; existing.ship=Object.assign({}, cur[0], {sender:(o.ship&&o.ship.sender)||(existing.ship&&existing.ship.sender)||'', senderPhone:(o.ship&&o.ship.senderPhone)||(existing.ship&&existing.ship.senderPhone)||''}); if(o.shipSender) existing.shipSender=o.shipSender; }
+        else existing.ship=Object.assign({}, existing.ship||{}, o.ship);
+      }
       const dfx=pullDeferred(sk, existing, toAdd, tot, msgId);
       if(!toAdd.length && !repl && !shipNew && !dfx) continue;
       toAdd.forEach(it=>{ it.at=Date.now(); it.src=it.src||msgId; });   // 출처 메시지 기록 (🆕 표시·되돌리기용)
@@ -2940,6 +2946,8 @@ async function createOrders(text, forced, msgId, senderName, isEdit, guard){
       const upd={items:existing.items, hash:existing.hash, gapDone:false, ts:existing.ts, sts:firebase.database.ServerValue.TIMESTAMP, printed:false};
       existing.printed=false;
       if(existing.ship) upd.ship=existing.ship;
+      if(existing.ships) upd.ships=existing.ships;
+      if(existing.shipSender) upd.shipSender=existing.shipSender;
       if(existing.note) upd.note=existing.note;
       // 이미 확인방으로 넘어간 주문에 품목이 추가되면 → 다시 미처리로 되돌림 (전산 재확인 필요)
       if(existing.confirm){ upd.confirm=null; upd.confirmAt=null; upd['chk/erp']=null; existing.confirm=null; if(existing.chk) delete existing.chk.erp; }
@@ -3063,8 +3071,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.43';
-const APP_BUILD=643;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.44';
+const APP_BUILD=644;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3557,21 +3565,28 @@ function buildOrderCard(o){
     nb.innerHTML='<span style="flex:1;color:'+(o.note?'#8a1c1c':'var(--muted)')+';font-weight:'+(o.note?'800':'400')+';white-space:pre-wrap">'+(o.note?'📝 '+esc(o.note):'📝 메모 없음')+'</span>'
       +'<button onclick="editNote(\''+esc(o.id)+'\')" style="border:1px solid var(--line);background:#fff;border-radius:5px;padding:2px 7px;font-size:11px;font-weight:800;cursor:pointer">✏</button>';
     card.appendChild(nb); }
-  if(o.ship && (o.ship.name||o.ship.phone||o.ship.addr)){
-    const sb=document.createElement('div');
-    sb.style.cssText='margin:2px 0 6px;padding:7px 9px;background:#fff7e6;border:1px solid #e6c98a;border-radius:6px;font-size:12.5px;line-height:1.5';
-    sb.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center"><b style="color:#8a5a00">📦 택배 수취인</b><span>'
-      +'<button onclick="copyShip(\''+esc(o.id)+'\',this)" style="border:1px solid #d9b96a;background:#fff;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:800;cursor:pointer">📋 복사</button> '
-      +'<button onclick="editShip(\''+esc(o.id)+'\')" style="border:1px solid #d9b96a;background:#fff;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:800;cursor:pointer">✏</button></span></div>'
-      +(o.ship.name?'<div>👤 '+esc(o.ship.name)+'</div>':'')
-      +(o.ship.phone?'<div>📞 <a href="tel:'+esc(o.ship.phone)+'" style="color:#1a4f9c">'+esc(o.ship.phone)+'</a></div>':'')
-      +(o.ship.addr?'<div>🏠 '+esc(o.ship.addr)+'</div>':'')
-      +(o.ship.memo?'<div style="color:#8a5a00">📝 '+esc(o.ship.memo)+'</div>':'')
-      +((o.ship.sender||o.ship.senderPhone)?'<div style="border-top:1px dashed #e6c98a;margin-top:4px;padding-top:3px;color:#5a4a1a">📤 보내는 분: '+esc(o.ship.sender||'')+(o.ship.senderPhone?' <a href="tel:'+esc(o.ship.senderPhone)+'" style="color:#1a4f9c">'+esc(o.ship.senderPhone)+'</a>':'')+'</div>':'')
-      +'<div style="margin-top:5px">'+(o.shipQ?'<span style="font-size:11px;color:#1f6b3a;font-weight:800">🚚 송장 대기 등록됨 ('+(o.shipQ.boxes||'?')+'박스 · '+esc(o.shipQ.by||'')+' '+new Date(o.shipQ.at).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})+')</span> ':'')
-      +'<button onclick="shipQueue(\''+esc(o.id)+'\',this)" style="border:1px solid #d9b96a;background:#fff;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:800;cursor:pointer">'+(o.shipQ?'🚚 다시 등록':'🚚 송장 대기로')+'</button></div>';
-    card.appendChild(sb);
-  }
+  { const ships=(o.ships&&o.ships.length)?o.ships:((o.ship&&(o.ship.name||o.ship.phone||o.ship.addr))?[o.ship]:[]);
+    if(ships.length){
+      const snd=(o.shipSender&&(o.shipSender.name||o.shipSender.phone))?o.shipSender:((o.ship&&(o.ship.sender||o.ship.senderPhone))?{name:o.ship.sender,phone:o.ship.senderPhone}:null);
+      const sb=document.createElement('div');
+      sb.style.cssText='margin:2px 0 6px;padding:7px 9px;background:#fff7e6;border:1px solid #e6c98a;border-radius:6px;font-size:12.5px;line-height:1.5';
+      let h='<div style="display:flex;justify-content:space-between;align-items:center"><b style="color:#8a5a00">📦 택배 수취인'+(ships.length>1?' '+ships.length+'명':'')+'</b><span>'
+        +'<button onclick="editShip(\''+esc(o.id)+'\',-1)" title="수취인 추가" style="border:1px solid #d9b96a;background:#fff;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:800;cursor:pointer">+ 수취인</button></span></div>';
+      if(snd) h+='<div style="color:#5a4a1a;margin-bottom:3px">📤 보내는 분: '+esc(snd.name||'')+(snd.phone?' <a href="tel:'+esc(snd.phone)+'" style="color:#1a4f9c">'+esc(snd.phone)+'</a>':'')+' <span onclick="editSender(\''+esc(o.id)+'\')" style="cursor:pointer;opacity:.6">✏</span></div>';
+      ships.forEach((sh,k)=>{
+        h+='<div style="border-top:1px dashed #e6c98a;padding-top:4px;margin-top:3px"><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:11px;color:#8a5a00;font-weight:800">'+(ships.length>1?'수취인 '+(k+1)+'/'+ships.length:'수취인')+'</span><span>'
+          +'<button onclick="copyShip(\''+esc(o.id)+'\',this,'+k+')" style="border:1px solid #d9b96a;background:#fff;border-radius:5px;padding:2px 7px;font-size:11px;font-weight:800;cursor:pointer">📋 복사</button> '
+          +'<button onclick="editShip(\''+esc(o.id)+'\','+k+')" style="border:1px solid #d9b96a;background:#fff;border-radius:5px;padding:2px 7px;font-size:11px;font-weight:800;cursor:pointer">✏</button>'
+          +(ships.length>1?' <span onclick="delShip(\''+esc(o.id)+'\','+k+')" style="cursor:pointer;opacity:.5">✕</span>':'')+'</span></div>'
+          +(sh.name?'<div>👤 '+esc(sh.name)+'</div>':'')
+          +(sh.phone?'<div>📞 <a href="tel:'+esc(sh.phone)+'" style="color:#1a4f9c">'+esc(sh.phone)+'</a></div>':'')
+          +(sh.addr?'<div>🏠 '+esc(sh.addr)+'</div>':'')
+          +(sh.memo?'<div style="color:#8a5a00">📝 '+esc(sh.memo)+'</div>':'')+'</div>';
+      });
+      h+='<div style="margin-top:6px">'+(o.shipQ?'<span style="font-size:11px;color:#1f6b3a;font-weight:800">🚚 송장 대기 등록됨 ('+(o.shipQ.n||1)+'건 · '+(o.shipQ.boxes||'?')+'박스 · '+esc(o.shipQ.by||'')+' '+new Date(o.shipQ.at).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})+')</span> ':'')
+        +'<button onclick="shipQueue(\''+esc(o.id)+'\',this)" style="border:1px solid #d9b96a;background:#fff;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:800;cursor:pointer">'+(o.shipQ?'🚚 다시 등록':'🚚 송장 대기로'+(ships.length>1?' ('+ships.length+'건)':''))+'</button></div>';
+      sb.innerHTML=h; card.appendChild(sb);
+    } }
   const measBox=document.createElement('div'); measBox.id='meas_'+o.id; measBox.style.display='none';
   card.appendChild(measBox);
   if(MEAS_OPEN[o.id]) setTimeout(()=>openMeasure(o.id, true), 0);
@@ -3783,11 +3798,11 @@ async function shipQueue(id, btn){
   const o=ORDERS[id]; if(!o) return;
   if(btn){ btn.disabled=true; btn.textContent='등록 중…'; }
   try{
-    const snap={id:o.id, date:o.date, client:o.client, ship:o.ship||null, items:(o.items||[]).map(it=>({text:it.text||'', product:it.product||'', boxN:it.boxN||null, prodKg:it.prodKg||null}))};
+    const snap={id:o.id, date:o.date, client:o.client, ship:o.ship||null, ships:shipsOf(o), shipSender:o.shipSender||null, items:(o.items||[]).map(it=>({text:it.text||'', product:it.product||'', boxN:it.boxN||null, prodKg:it.prodKg||null}))};
     const r=await gsCall('shipQueue',{order:JSON.stringify(snap), by:MYNAME});
     if(!r.ok) throw new Error(r.error||'등록 실패');
-    await db.ref('orders/'+id).update({shipQ:{at:Date.now(), boxes:r.boxes||0, by:MYNAME, state:r.already?'가져옴':'대기'}});
-    o.shipQ={at:Date.now(), boxes:r.boxes||0, by:MYNAME, state:r.already?'가져옴':'대기'};
+    await db.ref('orders/'+id).update({shipQ:{at:Date.now(), boxes:r.boxes||0, n:r.n||1, by:MYNAME, state:r.already?'가져옴':'대기'}});
+    o.shipQ={at:Date.now(), boxes:r.boxes||0, n:r.n||1, by:MYNAME, state:r.already?'가져옴':'대기'};
     if(btn) btn.textContent='등록됨 ✓';
     renderSide();
   }catch(e){
@@ -3806,23 +3821,42 @@ async function editNote(id){
 }
 
 /* 📦 택배 수취인 — 복사(이름·연락처·주소·메모 탭 구분) · 수정 */
-async function copyShip(id, btn){
-  const o=ORDERS[id]; if(!o||!o.ship) return;
-  const t=[o.ship.name||'', o.ship.phone||'', o.ship.addr||'', o.ship.memo||'', o.ship.sender||'', o.ship.senderPhone||''].join('\t');
+function shipsOf(o){ return (o.ships&&o.ships.length)?o.ships.slice():((o.ship&&(o.ship.name||o.ship.phone||o.ship.addr))?[Object.assign({},o.ship)]:[]); }
+async function saveShips(id, ships){
+  const o=ORDERS[id]; if(!o) return;
+  const snd=o.shipSender||{name:(o.ship&&o.ship.sender)||'', phone:(o.ship&&o.ship.senderPhone)||''};
+  const first=ships[0]?Object.assign({}, ships[0], {sender:snd.name||'', senderPhone:snd.phone||''}):null;
+  await db.ref('orders/'+id).update({ships:ships.length?ships:null, ship:first, shipSender:snd});
+  o.ships=ships; o.ship=first; o.shipSender=snd; renderSide();
+}
+async function copyShip(id, btn, k){
+  const o=ORDERS[id]; if(!o) return;
+  const sh=shipsOf(o)[k||0]; if(!sh) return;
+  const snd=o.shipSender||{name:sh.sender||'', phone:sh.senderPhone||''};
+  const t=[sh.name||'', sh.phone||'', sh.addr||'', sh.memo||'', snd.name||'', snd.phone||''].join('\t');
   try{ await navigator.clipboard.writeText(t); if(btn){ btn.textContent='복사됨 ✓'; setTimeout(()=>btn.textContent='📋 복사',1200); } }
   catch(e){ prompt('길게 눌러 복사하세요', t); }
 }
-async function editShip(id){
+async function editShip(id, k){
   const o=ORDERS[id]; if(!o) return;
-  const sh=Object.assign({name:'',phone:'',addr:'',memo:'',sender:'',senderPhone:''}, o.ship||{});
-  const name=prompt('수취인 이름', sh.name); if(name===null) return;
+  const ships=shipsOf(o); const add=(k===undefined||k<0);
+  const sh=Object.assign({name:'',phone:'',addr:'',memo:''}, add?{}:(ships[k]||{}));
+  const name=prompt((add?'추가 ':'')+'수취인 이름', sh.name); if(name===null) return;
   const phone=prompt('연락처', sh.phone); if(phone===null) return;
   const addr=prompt('주소', sh.addr); if(addr===null) return;
   const memo=prompt('요청사항 (없으면 비움)', sh.memo); if(memo===null) return;
-  const sender=prompt('보내는 분 이름 (없으면 비움)', sh.sender||''); if(sender===null) return;
-  const senderPhone=prompt('보내는 분 연락처 (없으면 비움)', sh.senderPhone||''); if(senderPhone===null) return;
-  const ns={name:name.trim(), phone:phone.trim(), addr:addr.trim(), memo:memo.trim(), sender:sender.trim(), senderPhone:senderPhone.trim()};
-  try{ await db.ref('orders/'+id).update({ship:ns}); o.ship=ns; renderSide(); }catch(e){ alert('저장 실패: '+e.message); }
+  const ns={name:name.trim(), phone:phone.trim(), addr:addr.trim(), memo:memo.trim()};
+  if(add) ships.push(ns); else ships[k]=ns;
+  try{ await saveShips(id, ships); }catch(e){ alert('저장 실패: '+e.message); }
+}
+async function delShip(id, k){ const o=ORDERS[id]; if(!o) return; const ships=shipsOf(o); if(!confirm('수취인 '+(k+1)+'('+(ships[k]&&ships[k].name||'')+')을 삭제할까요?')) return; ships.splice(k,1); try{ await saveShips(id, ships); }catch(e){ alert('실패: '+e.message); } }
+async function editSender(id){
+  const o=ORDERS[id]; if(!o) return;
+  const snd=o.shipSender||{name:(o.ship&&o.ship.sender)||'', phone:(o.ship&&o.ship.senderPhone)||''};
+  const nm=prompt('보내는 분 이름', snd.name||''); if(nm===null) return;
+  const ph=prompt('보내는 분 연락처', snd.phone||''); if(ph===null) return;
+  o.shipSender={name:nm.trim(), phone:ph.trim()};
+  try{ await saveShips(id, shipsOf(o)); }catch(e){ alert('실패: '+e.message); }
 }
 
 /* 📅 배송 날짜 수정 — 의심 주문(먼 미래 날짜 등)을 바로잡습니다 */
