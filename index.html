@@ -2494,6 +2494,7 @@ function firstDate(){
 function setNoteDate(d){ noteDate=d; renderNote(); }
 function setWorkDate(d){ workDate=d; renderWork(); }
 
+/* [v4.18] 📦 다중 수취인 표시 (보내는 분 1회 + 수취인 1. 2. 3. 각각 복사) */
 /* [v4.17] 전산대조로 매출 확인된 주문은 이월에서 제외 */
 /* [v4.16] 이월 미처리는 2026-09-15 이후 주문에만 (이전은 종이 처리분) */
 /* [v4.15] ⚠ 이월 미처리 — 이전 날짜(14일 내)인데 전산처리(확인방 이동)가 안 된 주문을 노트 맨 아래에
@@ -2718,11 +2719,13 @@ function buildNoteTable(wrap, date, workMode){
           +(function(){ const o1=orders.find(o=>o.chk&&o.chk.erp); if(!o1) return ''; const c=o1.chk.erp; return '<div style="font-size:9.5px;color:#1f6b3a;font-weight:400">'+esc(c.by||'')+' '+new Date(c.at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+'</div>'; })()
           +'<i class="pen">✎</i></span>'
           +(noteTxt?'<div style="margin-top:3px;padding:4px 7px;background:#fdecec;border:1px solid #e8a9a4;border-radius:5px;font-size:11px;color:#8a1c1c;font-weight:800;text-align:left;white-space:pre-wrap">📝 '+esc(noteTxt)+'</div>':'')
-          +(function(){ const so=orders.find(o=>o.ship&&(o.ship.name||o.ship.phone||o.ship.addr)); if(!so) return ''; const sh=so.ship;
+          +(function(){ const so=orders.find(o=>(o.ships&&o.ships.length)||(o.ship&&(o.ship.name||o.ship.phone||o.ship.addr))); if(!so) return '';
+              const ships=(so.ships&&so.ships.length)?so.ships:[so.ship]; const snd=so.shipSender||{name:so.ship&&so.ship.sender, phone:so.ship&&so.ship.senderPhone};
               return '<div style="margin-top:4px;padding:5px 7px;background:#fff7e6;border:1px solid #e6c98a;border-radius:5px;font-size:11px;line-height:1.45;text-align:left;font-weight:400">'
-                +'<div style="display:flex;justify-content:space-between;align-items:center"><b style="color:#8a5a00">📦 택배</b><button type="button" class="no-print" onclick="event.stopPropagation();copyShip(\''+esc(so.id)+'\',this)" style="border:1px solid #d9b96a;background:#fff;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:800;cursor:pointer">복사</button></div>'
-                +(sh.name?'<div>'+esc(sh.name)+'</div>':'')+(sh.phone?'<div>'+esc(sh.phone)+'</div>':'')+(sh.addr?'<div>'+esc(sh.addr)+'</div>':'')+(sh.memo?'<div style="color:#8a5a00">'+esc(sh.memo)+'</div>':'')
-                +((sh.sender||sh.senderPhone)?'<div style="border-top:1px dashed #e6c98a;margin-top:2px;padding-top:2px;color:#5a4a1a">보내는 분: '+esc(sh.sender||'')+' '+esc(sh.senderPhone||'')+'</div>':'')+'</div>'; })()
+                +'<div style="display:flex;justify-content:space-between;align-items:center"><b style="color:#8a5a00">📦 택배'+(ships.length>1?' 수취인 '+ships.length+'명':'')+'</b></div>'
+                +((snd.name||snd.phone)?'<div style="color:#5a4a1a">보내는 분: '+esc(snd.name||'')+' '+esc(snd.phone||'')+'</div>':'')
+                +ships.map((sh,k)=>'<div style="border-top:1px dashed #e6c98a;margin-top:2px;padding-top:2px">'+(ships.length>1?'<span style="color:#8a5a00;font-weight:800">'+(k+1)+'.</span> ':'')+esc(sh.name||'')+(sh.phone?' '+esc(sh.phone):'')+(sh.addr?'<br>'+esc(sh.addr):'')+(sh.memo?'<br><span style="color:#8a5a00">'+esc(sh.memo)+'</span>':'')
+                  +' <button type="button" class="no-print" onclick="event.stopPropagation();copyShip(\''+esc(so.id)+'\',this,'+k+')" style="border:1px solid #d9b96a;background:#fff;border-radius:4px;padding:0 5px;font-size:10px;font-weight:800;cursor:pointer">복사</button></div>').join('')+'</div>'; })()
           +(anyPend?'<div class="no-print"><button type="button" onclick="event.stopPropagation();sendToPend(\''+esc(ids)+'\',this)" title="주문방 미처리 블록에 다시 표시" style="margin-top:3px;border:1px solid var(--line);background:#fff;border-radius:5px;padding:2px 7px;font-size:10.5px;font-weight:800;cursor:pointer;color:#8a1c1c">'+(orders.some(o=>o.forcePend)?'📋 미처리에 있음':'📋 미처리로')+'</button></div>':'')
           +'</td>';
         html+='<td class="items">'+(itemHtml||'<span style="color:#b71c1c;font-size:12px">⚠ 품목 없음 (분석 중단 등으로 손상된 주문) — 거래처명을 클릭해 삭제하세요</span>')+'</td>';
@@ -3042,9 +3045,10 @@ function measText(it){
   return (nb>1?nb+'박스 ':'')+parts.join(' · ');
 }
 /* 📦 택배 수취인 복사 (이름·연락처·주소·메모 탭 구분) */
-async function copyShip(id, btn){
-  const o=ORDERS[id]; if(!o||!o.ship) return;
-  const t=[o.ship.name||'', o.ship.phone||'', o.ship.addr||'', o.ship.memo||'', o.ship.sender||'', o.ship.senderPhone||''].join('\t');
+async function copyShip(id, btn, k){
+  const o=ORDERS[id]; if(!o) return;
+  const ships=(o.ships&&o.ships.length)?o.ships:[o.ship||{}]; const sh=ships[k||0]||{}; const snd=o.shipSender||{name:sh.sender, phone:sh.senderPhone};
+  const t=[sh.name||'', sh.phone||'', sh.addr||'', sh.memo||'', snd.name||'', snd.phone||''].join('\t');
   try{ await navigator.clipboard.writeText(t); if(btn){ btn.textContent='복사됨 ✓'; setTimeout(()=>btn.textContent='복사',1200); } }
   catch(e){ prompt('길게 눌러 복사하세요', t); }
 }
