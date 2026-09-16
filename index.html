@@ -2494,6 +2494,7 @@ function firstDate(){
 function setNoteDate(d){ noteDate=d; renderNote(); }
 function setWorkDate(d){ workDate=d; renderWork(); }
 
+/* [v4.19] 이월 미처리 기준을 품목 전부 확인으로 (주문방 v6.47과 동일), 이월 표에 품목별 ✔전산/⚠미입력 표시 */
 /* [v4.18] 📦 다중 수취인 표시 (보내는 분 1회 + 수취인 1. 2. 3. 각각 복사) */
 /* [v4.17] 전산대조로 매출 확인된 주문은 이월에서 제외 */
 /* [v4.16] 이월 미처리는 2026-09-15 이후 주문에만 (이전은 종이 처리분) */
@@ -2743,7 +2744,7 @@ function buildNoteTable(wrap, date, workMode){
     const today=todayStr();
     if(date===today){
       const lim=new Date(Date.now()-14*86400000); const loS=lim.getFullYear()+'-'+String(lim.getMonth()+1).padStart(2,'0')+'-'+String(lim.getDate()).padStart(2,'0');
-      const erpV=o=>!!((o.recon&&o.recon.status==='ok') || (o.items||[]).some(it=>it&&(it.erpKg||it.erpTail)));
+      const erpV=o=>{ const its=o.items||[]; return !!((o.recon&&o.recon.status==='ok') || (its.length>0 && its.every(it=>it&&(it.erpKg||it.erpTail)))); };   // 품목 전부 확인돼야 처리됨 (주문방과 동일)
       const carry=Object.values(ORDERS).filter(o=>o && o.date && o.date<today && o.date>=loS && o.date>='2026-09-15' && !o.confirm && !erpV(o))
         .sort((a,b)=>(a.date<b.date?-1:a.date>b.date?1:0)||String(a.client||'').localeCompare(String(b.client||''),'ko'));
       if(carry.length){
@@ -2751,7 +2752,7 @@ function buildNoteTable(wrap, date, workMode){
           +'<span class="vp-meta" style="color:#8a1c1c">지난 날짜인데 전산처리(확인방 이동)가 안 된 주문 '+carry.length+'건 — 처리하거나 삭제해야 사라집니다</span></div>'
           +'<table class="note"><thead><tr><th style="width:70px">날짜</th><th style="width:60px">차량</th><th style="width:160px">거래처</th><th>품목</th><th style="width:60px">작업</th></tr></thead><tbody>';
         carry.forEach(o=>{
-          const items=(o.items||[]).map(it=>esc(itemText(it))+(it.product&&it.product!==it.text?' <span style="color:#1a4f9c;font-size:11px">('+esc(it.product)+')</span>':'')).join(' · ');
+          const items=(o.items||[]).map(it=>esc(itemText(it))+(it.product&&it.product!==it.text?' <span style="color:#1a4f9c;font-size:11px">('+esc(it.product)+')</span>':'')+((it.erpKg||it.erpTail)?' <span style="color:#1f6b3a;font-size:10px">✔전산</span>':' <span style="color:#8a1c1c;font-size:10px;font-weight:800">⚠미입력</span>')).join(' · ');
           html+='<tr data-ids="'+esc(o.id)+'" style="background:#fff5f5"><td style="font-family:var(--mono);font-weight:800">'+esc(o.date.slice(5).replace('-','.'))+'</td><td style="font-family:var(--mono)">'+esc(normVeh(o.vehicle||'미지정'))+'</td>'
             +'<td class="cli"><span class="cli-edit" onclick="openOrderEditor(\''+esc(o.id)+'\')">'+esc(o.client||'(미지정)')+'<i class="pen">✎</i></span></td><td>'+items+'</td>'
             +'<td>'+(o.done?'<span style="color:#1f6b3a;font-weight:800">완료</span>':'대기')+'</td></tr>';
