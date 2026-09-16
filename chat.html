@@ -11,7 +11,14 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.44 — 2026-09-16
+  신화미트 주문방 (chat.html) v6.47 — 2026-09-17
+  · v6.47: "처리됨" 판정을 품목 단위로 — 전산처리 체크가 없으면 품목 전부가 ERP 확인돼야 처리됨.
+    일부만 확인된 주문(예: 입고시 품목)은 미처리·이월에 남고 미확인 품목에 "⚠ 전산 미입력" 표시.
+    (작업보드는 기존대로 하나라도 확인되면 숨김)
+  · v6.46: 인쇄된 주문은 출고완료로 간주 — 출고완료 체크는 인쇄 이후 접수분(앱으로만 처리)에만 요구.
+    카드의 [출고완료] 버튼도 인쇄분에서는 "🖨 인쇄됨(출고)"로 표시
+  · v6.45: 출고완료 조건은 오늘 날짜 주문에만 — 지난 날짜는 전산처리(체크 또는 대조 확인)만 되면
+    미처리·이월에서 빠짐 (어제 전산 확인된 주문이 출고완료 미체크로 이월에 쌓이던 문제)
   · v6.44: 📦 다중 수취인을 한 주문 안에 — 카드에 "수취인 1/3, 2/3…" 블록이 차례로 표시(각각 복사·✏·📞),
     보내는 분은 위에 한 번. [🚚 송장 대기로]는 수취인 수만큼 등록. 수취인 추가/삭제 가능.
     (Code v5.1: 주문을 쪼개지 않으므로 전산대조는 주문자 한 건으로 대조)
@@ -3071,8 +3078,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.44';
-const APP_BUILD=644;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.47';
+const APP_BUILD=647;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3101,7 +3108,7 @@ let SIDE='pend';
 let PANEL_DATE=todayStr();
 const CHK_DEF=[['ord','주문확인'],['prod','생산확인'],['erp','전산처리'],['out','출고완료']];
 const OUT_REQ_FROM='2026-09-11';   // 이 날짜 이후 주문부터 출고완료까지 되어야 미처리에서 빠짐
-function needOut(o){ return (o.date||'')>=OUT_REQ_FROM && !(o.chk&&o.chk.out); }
+function needOut(o){ return (o.date||'')>=OUT_REQ_FROM && (o.date||'')>=todayStr() && !(o.chk&&o.chk.out) && !isPrinted(o); }   // 오늘·앞날짜, 인쇄 안 된 것만 (인쇄분 = 출고됨)
 
 function applySideForRoom(){
   const prod=CUR_ROOM && CUR_ROOM.id==='prod';
@@ -3141,8 +3148,9 @@ function isPrinted(o){
   const p=printedAt(o.date); return !!(p && ((o.sts||o.ts)||0)<p);
 }
 /* 전산 처리됨 판정: 확인방 이동(confirm) 또는 전산대조로 매출 확인(초록 태그·대조 일치) */
-function erpVerified(o){ return !!(o && ((o.recon&&o.recon.status==='ok') || (o.items||[]).some(it=>it&&(it.erpKg||it.erpTail)))); }
-function processed(o){ return !!(o.confirm || erpVerified(o)); }
+function erpVerified(o){ return !!(o && ((o.recon&&o.recon.status==='ok') || (o.items||[]).some(it=>it&&(it.erpKg||it.erpTail)))); }          // 하나라도 (작업보드용)
+function erpVerifiedAll(o){ const its=(o&&o.items)||[]; return !!(o && ((o.recon&&o.recon.status==='ok') || (its.length>0 && its.every(it=>it&&(it.erpKg||it.erpTail))))); }   // 전부 (미처리·이월용)
+function processed(o){ return !!(o.confirm || erpVerifiedAll(o)); }
 function pendAll(date){ return Object.values(ORDERS).filter(o=>o && o.date===date && (!processed(o) || needOut(o))); }
 /* 메인 목록: 인쇄 안 된 것(인쇄 이후 접수)·택배·사무실·[미처리로] 보낸 것. 출고완료만 체크된 것은 접힘 묶음으로 */
 function pendMain(o){ return (!isPrinted(o) || o.forcePend || KEEP_PEND_VEH.indexOf(normVeh(o.vehicle||''))>=0) && !(o.chk&&o.chk.out&&!o.confirm); }
@@ -3609,6 +3617,9 @@ function buildOrderCard(o){
       meas=' <span title="생산 실측 (현장 입력) — 식별번호 같은 박스끼리 합산" style="font-size:11px;font-weight:800;color:#1a4f9c;background:#e4edf9;border-radius:4px;padding:1px 5px">⚖'
         +esc(measText(it))+'</span>';
     }
+    if(!(it.erpKg||it.erpTail) && !o.confirm && erpVerified(o) && !erpVerifiedAll(o)){
+      meas+=' <span title="같은 주문의 다른 품목은 전산 확인됐는데 이 품목은 ERP에 없음" style="font-size:11px;font-weight:800;color:#8a1c1c;background:#fdecec;border-radius:4px;padding:1px 5px">⚠ 전산 미입력</span>';
+    }
     if(it.erpKg || it.erpTail){
       const et=(it.erpRows&&it.erpRows.length>1)
         ? it.erpRows.map(r=>(r.kg?String(r.kg).replace(/\.0+$/,'')+'kg':'')+(r.tail?'('+esc(r.tail)+')':'')).join(' · ')
@@ -3647,6 +3658,10 @@ function buildOrderCard(o){
   const row=document.createElement('div'); row.className='oc-checks';
   CHK_DEF.forEach(([key,label])=>{
     const c=o.chk&&o.chk[key];
+    if(key==='out' && !c && isPrinted(o)){
+      const p=document.createElement('label'); p.className='chk on'; p.style.cssText='opacity:.75;cursor:default'; p.title='인쇄되어 종이로 출고된 분량 — 출고완료로 간주';
+      p.innerHTML='<span>🖨 인쇄됨(출고)</span>'; row.appendChild(p); return;
+    }
     const b=document.createElement('label');
     b.className='chk'+(c?' on':'');
     b.title=c?(c.by+' · '+new Date(c.at).toLocaleString('ko-KR')):label+' 체크';
