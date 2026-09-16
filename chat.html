@@ -11,7 +11,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.40 — 2026-09-16
+  신화미트 주문방 (chat.html) v6.41 — 2026-09-16
+  · v6.41: "⏳ 다음 주문 대기"를 작은 한 줄 배지로 — 누르면 목록 펼침/접힘, 기본은 접힘
   · v6.40: ⏳ "다음 주문시" 이월 — 날짜 없이 "다음 주문에 삼겹 5kg 같이"라고 올리면 그 거래처
     대기함(meta/deferred)에 넣고, 그 거래처 주문이 다음에 만들어질 때 품목을 자동으로 합침
     (🤖 답장 "↪ 이월분 포함"). 미처리 상단에 "⏳ 다음 주문 대기" 목록·✕ 취소.
@@ -3061,8 +3062,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.40';
-const APP_BUILD=640;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.41';
+const APP_BUILD=641;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3475,14 +3476,17 @@ function renderPend(){
   // ⏳ 다음 주문 대기 (거래처별 이월분)
   { const ks=Object.keys(DEFERRED).filter(k=>DEFERRED[k]).sort((a,b)=>(DEFERRED[a].ts||0)-(DEFERRED[b].ts||0));
     if(ks.length && PANEL_DATE===todayStr()){
-      const h=document.createElement('div'); h.className='veh-h';
-      h.innerHTML='<span class="v" style="background:#eef3fb;border-color:#b9cbe4;color:#1a4f9c">⏳ 다음 주문 대기</span><span class="n">'+ks.length+'건 — 그 거래처 주문이 들어오면 자동으로 붙습니다</span>';
+      const h=document.createElement('div');
+      h.style.cssText='display:inline-flex;align-items:center;gap:6px;margin:2px 0 6px;padding:3px 10px;background:#eef3fb;border:1px solid #b9cbe4;border-radius:12px;font-size:12px;color:#1a4f9c;font-weight:800;cursor:pointer';
+      h.innerHTML=(DEF_OPEN?'▾':'▸')+' ⏳ 다음 주문 대기 '+ks.length+'건';
+      h.title='그 거래처 주문이 들어오면 자동으로 붙습니다 · 눌러서 목록 '+(DEF_OPEN?'접기':'보기');
+      h.onclick=()=>{ DEF_OPEN=!DEF_OPEN; renderSide(); };
       box.appendChild(h);
-      ks.forEach(k=>{ const d=DEFERRED[k]; const c=document.createElement('div'); c.className='ocard'; c.style.borderLeftColor='#1a4f9c';
-        c.innerHTML='<div class="oc-head"><span class="oc-cli">'+esc(d.client)+'</span><span class="oc-meta">'+esc(d.by||'')+' · '+new Date(d.ts||0).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric'})+' 요청</span>'
-          +'<span onclick="delDeferred(\''+esc(k)+'\')" title="이월 취소" style="margin-left:auto;cursor:pointer">🗑</span></div>'
-          +'<div class="oc-items">'+(d.items||[]).map(it=>'· '+esc(it.text||it.product)).join('<br>')+(d.note?'<div style="color:#8a1c1c;font-size:12px">📝 '+esc(d.note)+'</div>':'')+'</div>';
-        box.appendChild(c); });
+      if(DEF_OPEN){
+        const list=document.createElement('div'); list.style.cssText='margin:0 0 8px;padding:6px 8px;background:#f6f9fe;border:1px solid #d6e2f5;border-radius:8px;font-size:12.5px';
+        list.innerHTML=ks.map(k=>{ const d=DEFERRED[k]; return '<div style="display:flex;gap:6px;align-items:center;padding:3px 0;border-bottom:1px dashed #d6e2f5"><b style="min-width:70px">'+esc(d.client)+'</b><span style="flex:1">'+esc((d.items||[]).map(it=>it.text||it.product).join(', '))+(d.note?' <span style="color:#8a1c1c">📝 '+esc(d.note)+'</span>':'')+'</span><span style="font-size:10.5px;color:var(--muted);white-space:nowrap">'+esc(d.by||'')+' '+new Date(d.ts||0).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric'})+'</span><span onclick="delDeferred(\''+esc(k)+'\')" title="이월 취소" style="cursor:pointer;opacity:.6">🗑</span></div>'; }).join('');
+        box.appendChild(list);
+      }
     } }
   // ⚠ 이월 미처리 (오늘 보기일 때만 맨 위)
   if(PANEL_DATE===todayStr()){
@@ -3791,6 +3795,7 @@ async function shipQueue(id, btn){
   }
 }
 
+let DEF_OPEN=false;
 async function delDeferred(k){ const d=DEFERRED[k]; if(!d) return; if(!confirm(d.client+' 다음 주문 이월분을 취소할까요?')) return; try{ await db.ref('meta/deferred/'+k).remove(); }catch(e){ alert('실패: '+e.message); } }
 /* 📝 주문 메모 수정 */
 async function editNote(id){
