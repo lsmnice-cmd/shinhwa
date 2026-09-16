@@ -1763,9 +1763,11 @@ async function moveDateSilent(ids, newDate){
   if(!newDate) return;
   for(const id of ids){
     const o=ORDERS[id]; if(!o) continue;
-    o.date=newDate;
+    const oldD=o.date; o.date=newDate;
     o.hash=hashOrder(o);
-    if(fbReady) await db.ref('orders/'+id).update({date:newDate, hash:o.hash});
+    const hist=(o.dateHist||[]).concat([{from:oldD, to:newDate, by:(auth&&auth.currentUser&&auth.currentUser.displayName)||'노트', at:Date.now(), printed:!!o.printed}]);
+    o.dateHist=hist;
+    if(fbReady) await db.ref('orders/'+id).update({date:newDate, hash:o.hash, dateHist:hist, printed:false});
   }
   renderAll();
 }
@@ -2494,6 +2496,8 @@ function firstDate(){
 function setNoteDate(d){ noteDate=d; renderNote(); }
 function setWorkDate(d){ workDate=d; renderWork(); }
 
+/* [v4.21] 날짜 이동 시 이력(dateHist) 기록 — 주문방 '📅 날짜 변경' 목록에 표시 */
+/* [v4.20] 품목 전부 기준은 09-17 이후 주문만 */
 /* [v4.19] 이월 미처리 기준을 품목 전부 확인으로 (주문방 v6.47과 동일), 이월 표에 품목별 ✔전산/⚠미입력 표시 */
 /* [v4.18] 📦 다중 수취인 표시 (보내는 분 1회 + 수취인 1. 2. 3. 각각 복사) */
 /* [v4.17] 전산대조로 매출 확인된 주문은 이월에서 제외 */
@@ -2744,7 +2748,7 @@ function buildNoteTable(wrap, date, workMode){
     const today=todayStr();
     if(date===today){
       const lim=new Date(Date.now()-14*86400000); const loS=lim.getFullYear()+'-'+String(lim.getMonth()+1).padStart(2,'0')+'-'+String(lim.getDate()).padStart(2,'0');
-      const erpV=o=>{ const its=o.items||[]; return !!((o.recon&&o.recon.status==='ok') || (its.length>0 && its.every(it=>it&&(it.erpKg||it.erpTail)))); };   // 품목 전부 확인돼야 처리됨 (주문방과 동일)
+      const erpV=o=>{ const its=o.items||[]; const all=its.length>0 && its.every(it=>it&&(it.erpKg||it.erpTail)); const any=its.some(it=>it&&(it.erpKg||it.erpTail)); return !!((o.recon&&o.recon.status==='ok') || ((o.date||'')>='2026-09-17' ? all : any)); };   // 09-17 이후만 품목 전부 기준 (주문방 v6.49와 동일)
       const carry=Object.values(ORDERS).filter(o=>o && o.date && o.date<today && o.date>=loS && o.date>='2026-09-15' && !o.confirm && !erpV(o))
         .sort((a,b)=>(a.date<b.date?-1:a.date>b.date?1:0)||String(a.client||'').localeCompare(String(b.client||''),'ko'));
       if(carry.length){
