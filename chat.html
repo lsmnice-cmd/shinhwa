@@ -11,7 +11,12 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.48 — 2026-09-17
+  신화미트 주문방 (chat.html) v6.50 — 2026-09-17
+  · v6.50: 📅 날짜 변경 목록 — 주문 날짜를 바꾸면 이력(dateHist: 원날짜→새날짜·누가·언제·인쇄됐었는지)
+    을 남기고, 미처리 상단 "⏳ 다음 주문 대기" 옆에 "📅 날짜 변경 N건" 배지 → 펼치면 목록.
+    (오늘이 원날짜이거나 새날짜인 것, 최근 3일)
+  · v6.49: "품목 전부 확인" 규칙은 2026-09-17 이후 주문에만 — 그 전 주문은 예전 기준(하나라도 확인)
+    유지해 이미 처리된 것으로 보던 주문이 다시 올라오지 않게
   · v6.48: 확인방 카드 모바일 레이아웃 — 거래처명이 세로로 쪼개지고 버튼이 옆으로 삐져나가던 것.
     머리줄 줄바꿈, 이름은 한 줄, 상태·대조일·되돌리기 버튼은 다음 줄로. 가로 스크롤 없음.
   · v6.47: "처리됨" 판정을 품목 단위로 — 전산처리 체크가 없으면 품목 전부가 ERP 확인돼야 처리됨.
@@ -3088,8 +3093,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.48';
-const APP_BUILD=648;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.50';
+const APP_BUILD=650;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3160,7 +3165,8 @@ function isPrinted(o){
 /* 전산 처리됨 판정: 확인방 이동(confirm) 또는 전산대조로 매출 확인(초록 태그·대조 일치) */
 function erpVerified(o){ return !!(o && ((o.recon&&o.recon.status==='ok') || (o.items||[]).some(it=>it&&(it.erpKg||it.erpTail)))); }          // 하나라도 (작업보드용)
 function erpVerifiedAll(o){ const its=(o&&o.items)||[]; return !!(o && ((o.recon&&o.recon.status==='ok') || (its.length>0 && its.every(it=>it&&(it.erpKg||it.erpTail))))); }   // 전부 (미처리·이월용)
-function processed(o){ return !!(o.confirm || erpVerifiedAll(o)); }
+const ALLITEM_FROM='2026-09-17';   // 이 날짜 이후 주문만 "품목 전부 확인" 기준
+function processed(o){ return !!(o.confirm || ((o.date||'')>=ALLITEM_FROM ? erpVerifiedAll(o) : erpVerified(o))); }
 function pendAll(date){ return Object.values(ORDERS).filter(o=>o && o.date===date && (!processed(o) || needOut(o))); }
 /* 메인 목록: 인쇄 안 된 것(인쇄 이후 접수)·택배·사무실·[미처리로] 보낸 것. 출고완료만 체크된 것은 접힘 묶음으로 */
 function pendMain(o){ return (!isPrinted(o) || o.forcePend || KEEP_PEND_VEH.indexOf(normVeh(o.vehicle||''))>=0) && !(o.chk&&o.chk.out&&!o.confirm); }
@@ -3500,6 +3506,29 @@ function renderPend(){
   if(pAt) sumHtml+='<br>🖨 마지막 인쇄 '+hhmm(pAt)+(folded.length?' · 인쇄분 중 전산 미확인 <b style="color:#8a1c1c">'+folded.length+'건</b> (아래 접힘 묶음)':' · 인쇄분은 모두 전산 확인됨');
   sum.innerHTML=sumHtml;
   box.appendChild(sum);
+  // 📅 날짜 변경 목록 (오늘이 원날짜 또는 새날짜, 최근 3일)
+  if(PANEL_DATE===todayStr()){
+    const t=todayStr(); const lim=Date.now()-3*86400000;
+    const ch=[]; Object.values(ORDERS).forEach(o=>{ (o&&o.dateHist||[]).forEach(h=>{ if(h && h.at>=lim && (h.from===t||h.to===t)) ch.push(Object.assign({o}, h)); }); });
+    ch.sort((a,b)=>b.at-a.at);
+    if(ch.length){
+      const b=document.createElement('div');
+      b.style.cssText='display:inline-flex;align-items:center;gap:6px;margin:2px 6px 6px 0;padding:3px 10px;background:#fff6e6;border:1px solid #e8c979;border-radius:12px;font-size:12px;color:#7a5a00;font-weight:800;cursor:pointer';
+      b.innerHTML=(DCH_OPEN?'▾':'▸')+' 📅 날짜 변경 '+ch.length+'건'; b.title='오늘로 오거나 오늘에서 옮겨간 주문 · 눌러서 목록';
+      b.onclick=()=>{ DCH_OPEN=!DCH_OPEN; renderSide(); };
+      box.appendChild(b);
+      if(DCH_OPEN){
+        const list=document.createElement('div'); list.style.cssText='margin:0 0 8px;padding:6px 8px;background:#fffbf0;border:1px solid #ecd9a8;border-radius:8px;font-size:12.5px';
+        list.innerHTML=ch.map(h=>'<div style="display:flex;gap:6px;align-items:center;padding:3px 0;border-bottom:1px dashed #ecd9a8;flex-wrap:wrap"><b style="min-width:70px">'+esc(h.o.client||'')+'</b>'
+          +'<span>'+esc(mmdd(h.from))+' → <b style="color:'+(h.to===t?'#1f6b3a':'#8a1c1c')+'">'+esc(mmdd(h.to))+'</b></span>'
+          +(h.printed?'<span style="font-size:10px;background:#f0ece1;border-radius:6px;padding:1px 5px">🖨 '+esc(mmdd(h.from))+' 인쇄됐던 건</span>':'')
+          +'<span style="flex:1;font-size:11.5px;color:#5a5045">'+esc((h.o.items||[]).slice(0,3).map(itemText).join(', '))+((h.o.items||[]).length>3?' 외':'')+'</span>'
+          +'<span style="font-size:10.5px;color:var(--muted);white-space:nowrap">'+esc(h.by||'')+' '+new Date(h.at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+'</span>'
+          +'<span onclick="PANEL_DATE=\''+esc(h.o.date)+'\';renderSide()" title="그 날짜 미처리로 이동" style="cursor:pointer;color:#1a4f9c;font-size:11px;font-weight:800">보기 ›</span></div>').join('');
+        box.appendChild(list);
+      }
+    }
+  }
   // ⏳ 다음 주문 대기 (거래처별 이월분)
   { const ks=Object.keys(DEFERRED).filter(k=>DEFERRED[k]).sort((a,b)=>(DEFERRED[a].ts||0)-(DEFERRED[b].ts||0));
     if(ks.length && PANEL_DATE===todayStr()){
@@ -3627,7 +3656,7 @@ function buildOrderCard(o){
       meas=' <span title="생산 실측 (현장 입력) — 식별번호 같은 박스끼리 합산" style="font-size:11px;font-weight:800;color:#1a4f9c;background:#e4edf9;border-radius:4px;padding:1px 5px">⚖'
         +esc(measText(it))+'</span>';
     }
-    if(!(it.erpKg||it.erpTail) && !o.confirm && erpVerified(o) && !erpVerifiedAll(o)){
+    if(!(it.erpKg||it.erpTail) && !o.confirm && (o.date||'')>=ALLITEM_FROM && erpVerified(o) && !erpVerifiedAll(o)){
       meas+=' <span title="같은 주문의 다른 품목은 전산 확인됐는데 이 품목은 ERP에 없음" style="font-size:11px;font-weight:800;color:#8a1c1c;background:#fdecec;border-radius:4px;padding:1px 5px">⚠ 전산 미입력</span>';
     }
     if(it.erpKg || it.erpTail){
@@ -3836,7 +3865,7 @@ async function shipQueue(id, btn){
   }
 }
 
-let DEF_OPEN=false;
+let DEF_OPEN=false, DCH_OPEN=false;
 async function delDeferred(k){ const d=DEFERRED[k]; if(!d) return; if(!confirm(d.client+' 다음 주문 이월분을 취소할까요?')) return; try{ await db.ref('meta/deferred/'+k).remove(); }catch(e){ alert('실패: '+e.message); } }
 /* 📝 주문 메모 수정 */
 async function editNote(id){
@@ -3910,7 +3939,9 @@ async function editDate(id){
   try{
     const old=o.date;
     o.date=nd; o.hash=hashOrder(o); o.ts=Date.now();
-    await db.ref('orders/'+id).update({date:nd, hash:o.hash, ts:o.ts, dateSrc:'수동수정'});
+    const hist=(o.dateHist||[]).concat([{from:old, to:nd, by:MYNAME, at:Date.now(), printed:!!isPrinted(Object.assign({},o,{date:old}))}]);
+    o.dateHist=hist;
+    await db.ref('orders/'+id).update({date:nd, hash:o.hash, ts:o.ts, dateSrc:'수동수정', dateHist:hist, printed:false});
     seenHashes=new Set(Object.values(ORDERS).map(x=>x&&x.hash).filter(Boolean));
     renderSide();
   }catch(e){ alert('저장 실패: '+e.message); }
