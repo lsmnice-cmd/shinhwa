@@ -11,7 +11,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.53 — 2026-09-17
+  신화미트 주문방 (chat.html) v6.54 — 2026-09-17
+  · v6.54: 날짜 변경 배지를 누르면 조건에 안 걸린 것까지 "최근 7일 변경 흔적" 진단 목록으로 표시
+    (이력·수동수정 표시·원문 날짜와 현재 날짜) — 놓치는 원인 확인용
   · v6.53: 날짜 변경 배지 항상 표시(0건이면 회색) · 앞 날짜로 옮긴 것도 포함 · 원문 대조용 메시지를
     화면에 없으면 Firebase에서 직접 읽어 판정(옛 메시지·다른 방 주문도 잡힘)
   · v6.52: 날짜 변경 조회 보강 — 이력이 없어도 채팅 원문 머리말 날짜와 현재 주문 날짜가 다르면
@@ -3099,8 +3101,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.53';
-const APP_BUILD=653;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.54';
+const APP_BUILD=654;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3536,6 +3538,29 @@ function renderPend(){
       b.innerHTML=(DCH_OPEN?'▾':'▸')+' 📅 날짜 변경 '+ch.length+'건'; b.title='이 날짜에서 다른 날짜로 옮겨진 주문 · 눌러서 목록';
       b.onclick=()=>{ DCH_OPEN=!DCH_OPEN; renderSide(); };
       box.appendChild(b);
+      if(DCH_OPEN){
+        // 🔎 진단: 조건과 무관하게 최근 7일 변경 흔적 전부
+        const lim7=new Date(Date.now()-7*86400000).toISOString().slice(0,10);
+        const trace=[];
+        Object.values(ORDERS).forEach(o=>{
+          if(!o || (o.date||'')<lim7) return;
+          const hist=o.dateHist||[]; const manual=o.dateSrc==='수동수정';
+          const txt=(CHAT[o.chatMsg]&&CHAT[o.chatMsg].text)||MSGTXT[o.chatMsg]||'';
+          const hd=txt?headerDateOf(txt,o.date):'';
+          const inferred=hd && hd!==o.date;
+          if(!hist.length && !manual && !inferred) return;
+          const why=[]; if(hist.length) why.push('이력 '+hist.map(h=>mmdd(h.from)+'→'+mmdd(h.to)+(h.via?'('+h.via+')':'')).join(', '));
+          if(manual && !hist.length) why.push('카드📅 수정 표시(이력 없음)');
+          if(hd) why.push('원문 '+mmdd(hd)+' / 현재 '+mmdd(o.date)); else if(o.chatMsg) why.push('원문 날짜 없음'); else why.push('채팅 원문 없음(노트 입력)');
+          const shown=ch.some(x=>x.o.id===o.id);
+          trace.push({o, why:why.join(' · '), shown});
+        });
+        if(trace.length){
+          const d=document.createElement('div'); d.style.cssText='margin:0 0 8px;padding:6px 8px;background:#f4f4f4;border:1px dashed #bbb;border-radius:8px;font-size:11.5px;color:#444';
+          d.innerHTML='<b>🔎 최근 7일 변경 흔적 '+trace.length+'건</b> (✔=위 목록에 표시됨, ✗=조건 밖)<br>'+trace.map(x=>'<div style="padding:2px 0;border-bottom:1px dashed #ddd">'+(x.shown?'✔':'<span style="color:#b23b32">✗</span>')+' <b>'+esc(x.o.client||'')+'</b> '+esc(mmdd(x.o.date||''))+' — '+esc(x.why)+'</div>').join('');
+          box.appendChild(d);
+        }
+      }
       if(DCH_OPEN && ch.length){
         const list=document.createElement('div'); list.style.cssText='margin:0 0 8px;padding:6px 8px;background:#fffbf0;border:1px solid #ecd9a8;border-radius:8px;font-size:12.5px';
         list.innerHTML=ch.map(h=>'<div style="display:flex;gap:6px;align-items:center;padding:3px 0;border-bottom:1px dashed #ecd9a8;flex-wrap:wrap"><b style="min-width:70px">'+esc(h.o.client||'')+'</b>'
