@@ -11,7 +11,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.54 — 2026-09-17
+  신화미트 주문방 (chat.html) v6.55 — 2026-09-17
+  · v6.55: 말풍선 수정으로 날짜가 바뀐 경우도 잡음 — 수정 시 휴지통으로 간 이전 주문(원 날짜·인쇄 여부)
+    과 같은 메시지의 새 주문을 짝지어 "📅 날짜 변경" 목록에 표시 (과거 수정분 포함)
   · v6.54: 날짜 변경 배지를 누르면 조건에 안 걸린 것까지 "최근 7일 변경 흔적" 진단 목록으로 표시
     (이력·수동수정 표시·원문 날짜와 현재 날짜) — 놓치는 원인 확인용
   · v6.53: 날짜 변경 배지 항상 표시(0건이면 회색) · 앞 날짜로 옮긴 것도 포함 · 원문 대조용 메시지를
@@ -3101,8 +3103,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.54';
-const APP_BUILD=654;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.55';
+const APP_BUILD=655;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3201,12 +3203,13 @@ function toggleShowAll(){ SHOW_ALL=!SHOW_ALL; renderSide(); }
 /* ============================================================
    👥 직원 목록 · ✅ 할일 (v5.0)
    ============================================================ */
-let USERS={}, TASKS={}, DEFERRED={};
+let USERS={}, TASKS={}, DEFERRED={}, TRASH={};
 function watchUsersTasks(){
   if(!db) return;
   db.ref('users').on('value', s=>{ USERS=s.val()||{}; if(document.getElementById('peopleBg').classList.contains('on')) renderPeople(); }, ()=>{});
   db.ref('tasks').on('value', s=>{ TASKS=s.val()||{}; renderSide(); checkTaskPopup(); }, ()=>{});
   db.ref('meta/deferred').on('value', s=>{ DEFERRED=s.val()||{}; renderSideSafe(); }, ()=>{});
+  db.ref('trash').limitToLast(400).on('value', s=>{ TRASH=s.val()||{}; renderSideSafe(); }, ()=>{});
 }
 function userName(uid){ const u=USERS[uid]||{}; return u.nick||u.name||(u.email||'').split('@')[0]||uid.slice(0,6); }
 function openPeople(){ renderPeople(); document.getElementById('peopleBg').classList.add('on'); }
@@ -3521,6 +3524,15 @@ function renderPend(){
     const ch=[]; const seen=new Set();
     const keep=(from,to)=> from===t && to!==t && (to<t || to>today);   // 이 날짜에서 딴 날짜로 (뒤로 옮긴 건 그 날이 오면 제외)
     Object.values(ORDERS).forEach(o=>{ (o&&o.dateHist||[]).forEach(h=>{ if(h && keep(h.from,h.to) && o.date===h.to){ ch.push(Object.assign({o}, h)); seen.add(o.id); } }); });
+    // 말풍선 수정으로 바뀐 경우: 휴지통의 이전 주문(같은 메시지) 날짜 ≠ 새 주문 날짜
+    Object.values(TRASH).forEach(tr=>{
+      if(!tr || !tr.chatMsg || !tr.date || !/수정/.test(String(tr.delWhy||''))) return;
+      Object.values(ORDERS).forEach(o=>{
+        if(!o || seen.has(o.id) || o.chatMsg!==tr.chatMsg || cliNorm(o.client||'')!==cliNorm(tr.client||'')) return;
+        if(!keep(tr.date, o.date) || o.date===tr.date) return;
+        ch.push({o, from:tr.date, to:o.date, by:tr.delBy||'(말풍선 수정)', at:tr.delAt||o.ts||0, printed:!!tr.printed, via:'말풍선 수정'}); seen.add(o.id);
+      });
+    });
     // 이력이 없는 옛 변경분: 채팅 원문 머리말 날짜 ≠ 현재 날짜 (메시지가 화면에 없으면 Firebase에서 읽어옴)
     Object.values(ORDERS).forEach(o=>{
       if(!o || seen.has(o.id) || !o.chatMsg || o.date===t) return;
@@ -3548,8 +3560,11 @@ function renderPend(){
           const txt=(CHAT[o.chatMsg]&&CHAT[o.chatMsg].text)||MSGTXT[o.chatMsg]||'';
           const hd=txt?headerDateOf(txt,o.date):'';
           const inferred=hd && hd!==o.date;
-          if(!hist.length && !manual && !inferred) return;
+          const tr=Object.values(TRASH).find(t=>t&&t.chatMsg&&t.chatMsg===o.chatMsg&&/수정/.test(String(t.delWhy||''))&&t.date!==o.date);
+          if(!hist.length && !manual && !inferred && !tr) return;
+          if(tr) why.push('말풍선 수정: 이전 '+mmdd(tr.date)+(tr.printed?'(인쇄됨)':''));
           const why=[]; if(hist.length) why.push('이력 '+hist.map(h=>mmdd(h.from)+'→'+mmdd(h.to)+(h.via?'('+h.via+')':'')).join(', '));
+          if(false) why.push('');
           if(manual && !hist.length) why.push('카드📅 수정 표시(이력 없음)');
           if(hd) why.push('원문 '+mmdd(hd)+' / 현재 '+mmdd(o.date)); else if(o.chatMsg) why.push('원문 날짜 없음'); else why.push('채팅 원문 없음(노트 입력)');
           const shown=ch.some(x=>x.o.id===o.id);
