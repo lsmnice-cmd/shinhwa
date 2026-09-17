@@ -11,7 +11,11 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.55 — 2026-09-17
+  신화미트 주문방 (chat.html) v6.57 — 2026-09-17
+  · v6.57: 날짜 변경을 한 번 찾으면 그 주문에 이력(dateHist)으로 저장 — 이후엔 저장된 이력만 읽어서
+    표시(매번 휴지통·원문을 다시 뒤지지 않음). 목록도 이력 기준으로 단순화.
+  · v6.56: 날짜 변경 목록이 빈칸으로 나오던 것 — 목록 생성 오류를 화면에 표시하고, 0건이면 안내 문구.
+    목록·진단을 별도 함수로 분리(오류가 나도 미처리 카드 그리기는 계속)
   · v6.55: 말풍선 수정으로 날짜가 바뀐 경우도 잡음 — 수정 시 휴지통으로 간 이전 주문(원 날짜·인쇄 여부)
     과 같은 메시지의 새 주문을 짝지어 "📅 날짜 변경" 목록에 표시 (과거 수정분 포함)
   · v6.54: 날짜 변경 배지를 누르면 조건에 안 걸린 것까지 "최근 7일 변경 흔적" 진단 목록으로 표시
@@ -3103,8 +3107,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.55';
-const APP_BUILD=655;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.57';
+const APP_BUILD=657;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3517,8 +3521,8 @@ function renderPend(){
   if(pAt) sumHtml+='<br>🖨 마지막 인쇄 '+hhmm(pAt)+(folded.length?' · 인쇄분 중 전산 미확인 <b style="color:#8a1c1c">'+folded.length+'건</b> (아래 접힘 묶음)':' · 인쇄분은 모두 전산 확인됨');
   sum.innerHTML=sumHtml;
   box.appendChild(sum);
-  // 📅 날짜 변경 목록 (오늘이 원날짜 또는 새날짜, 최근 3일)
-  {
+  // 📅 날짜 변경 목록
+  try{
     const t=PANEL_DATE, today=todayStr();
     // 이 날짜에서 이후 날짜로 옮겨간 주문 (옮겨간 날짜가 아직 안 왔을 때만)
     const ch=[]; const seen=new Set();
@@ -3529,8 +3533,10 @@ function renderPend(){
       if(!tr || !tr.chatMsg || !tr.date || !/수정/.test(String(tr.delWhy||''))) return;
       Object.values(ORDERS).forEach(o=>{
         if(!o || seen.has(o.id) || o.chatMsg!==tr.chatMsg || cliNorm(o.client||'')!==cliNorm(tr.client||'')) return;
-        if(!keep(tr.date, o.date) || o.date===tr.date) return;
-        ch.push({o, from:tr.date, to:o.date, by:tr.delBy||'(말풍선 수정)', at:tr.delAt||o.ts||0, printed:!!tr.printed, via:'말풍선 수정'}); seen.add(o.id);
+        if(o.date===tr.date) return;
+        const h={from:tr.date, to:o.date, by:tr.delBy||'(말풍선 수정)', at:tr.delAt||o.ts||0, printed:!!tr.printed, via:'말풍선 수정'};
+        persistHist(o, h);                       // 한 번 찾으면 저장 → 다음부턴 이력에서 읽음
+        if(keep(h.from,h.to)){ ch.push(Object.assign({o}, h)); seen.add(o.id); }
       });
     });
     // 이력이 없는 옛 변경분: 채팅 원문 머리말 날짜 ≠ 현재 날짜 (메시지가 화면에 없으면 Firebase에서 읽어옴)
@@ -3541,7 +3547,8 @@ function renderPend(){
       let txt=(CHAT[o.chatMsg]&&CHAT[o.chatMsg].text)||MSGTXT[o.chatMsg];
       if(txt===undefined){ MSGTXT[o.chatMsg]=null; db.ref('chat/'+o.chatMsg+'/text').once('value').then(sn=>{ MSGTXT[o.chatMsg]=sn.val()||''; renderSideSafe(); }).catch(()=>{}); return; }
       if(!txt) return;
-      const hd=headerDateOf(txt, o.date); if(hd===t) ch.push({o, from:t, to:o.date, by:'(이력 없음)', at:o.ts||0, printed:false, inferred:true});
+      const hd=headerDateOf(txt, o.date);
+      if(hd && hd!==o.date){ const h={from:hd, to:o.date, by:'(원문 대조)', at:o.ts||0, printed:false, via:'원문대조'}; persistHist(o, h); if(hd===t && !seen.has(o.id)){ ch.push(Object.assign({o}, h)); seen.add(o.id); } }
     });
     ch.sort((a,b)=>b.at-a.at);
     {
@@ -3570,11 +3577,11 @@ function renderPend(){
           const shown=ch.some(x=>x.o.id===o.id);
           trace.push({o, why:why.join(' · '), shown});
         });
-        if(trace.length){
-          const d=document.createElement('div'); d.style.cssText='margin:0 0 8px;padding:6px 8px;background:#f4f4f4;border:1px dashed #bbb;border-radius:8px;font-size:11.5px;color:#444';
-          d.innerHTML='<b>🔎 최근 7일 변경 흔적 '+trace.length+'건</b> (✔=위 목록에 표시됨, ✗=조건 밖)<br>'+trace.map(x=>'<div style="padding:2px 0;border-bottom:1px dashed #ddd">'+(x.shown?'✔':'<span style="color:#b23b32">✗</span>')+' <b>'+esc(x.o.client||'')+'</b> '+esc(mmdd(x.o.date||''))+' — '+esc(x.why)+'</div>').join('');
-          box.appendChild(d);
-        }
+        const d=document.createElement('div'); d.style.cssText='margin:0 0 8px;padding:6px 8px;background:#f4f4f4;border:1px dashed #bbb;border-radius:8px;font-size:11.5px;color:#444';
+        d.innerHTML=trace.length
+          ? '<b>🔎 최근 7일 변경 흔적 '+trace.length+'건</b> (✔=위 목록에 표시됨, ✗=조건 밖)<br>'+trace.map(x=>'<div style="padding:2px 0;border-bottom:1px dashed #ddd">'+(x.shown?'✔':'<span style="color:#b23b32">✗</span>')+' <b>'+esc(x.o.client||'')+'</b> '+esc(mmdd(x.o.date||''))+' — '+esc(x.why)+'</div>').join('')
+          : '🔎 최근 7일 안에 날짜 변경 흔적이 없습니다 (이력·카드📅 표시·원문 날짜 차이·말풍선 수정 휴지통 모두 없음) · 휴지통 '+Object.keys(TRASH).length+'건 · 메시지 '+Object.keys(CHAT).length+'건 확인';
+        box.appendChild(d);
       }
       if(DCH_OPEN && ch.length){
         const list=document.createElement('div'); list.style.cssText='margin:0 0 8px;padding:6px 8px;background:#fffbf0;border:1px solid #ecd9a8;border-radius:8px;font-size:12.5px';
@@ -3587,6 +3594,9 @@ function renderPend(){
         box.appendChild(list);
       }
     }
+  }catch(e){
+    const err=document.createElement('div'); err.style.cssText='margin:2px 0 8px;padding:6px 8px;background:#fdecec;border:1px solid #e8a9a4;border-radius:8px;font-size:11.5px;color:#8a1c1c';
+    err.textContent='📅 날짜 변경 목록 오류: '+(e&&e.message||e); box.appendChild(err); console.error('dateChange', e);
   }
   // ⏳ 다음 주문 대기 (거래처별 이월분)
   { const ks=Object.keys(DEFERRED).filter(k=>DEFERRED[k]).sort((a,b)=>(DEFERRED[a].ts||0)-(DEFERRED[b].ts||0));
@@ -3924,7 +3934,19 @@ async function shipQueue(id, btn){
   }
 }
 
-let DEF_OPEN=false, DCH_OPEN=false; const MSGTXT={};
+let DEF_OPEN=false, DCH_OPEN=false; const MSGTXT={}; const HIST_SAVED=new Set();
+/* 찾아낸 날짜 변경을 주문 이력에 저장 (같은 from→to 가 이미 있으면 안 함) */
+function persistHist(o, h){
+  try{
+    if(!o||!o.id||!db) return;
+    const hist=o.dateHist||[];
+    if(hist.some(x=>x&&x.from===h.from&&x.to===h.to)) return;
+    if(HIST_SAVED.has(o.id+'|'+h.from+'|'+h.to)) return;
+    HIST_SAVED.add(o.id+'|'+h.from+'|'+h.to);
+    const nh=hist.concat([h]); o.dateHist=nh;
+    db.ref('orders/'+o.id+'/dateHist').set(nh).catch(()=>{});
+  }catch(e){}
+}
 /* 채팅 원문 머리말 날짜 (0917 / 9.17 / 9/17) → YYYY-MM-DD (연도는 기준 날짜 것) */
 function headerDateOf(text, ref){
   const lines=String(text||'').split(/\n/).map(x=>x.trim()).filter(Boolean).slice(0,3);
