@@ -11,7 +11,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.59 — 2026-09-17
+  신화미트 주문방 (chat.html) v6.60 — 2026-09-17
+  · v6.60: 날짜 변경 목록 정확도·속도 — "원문 날짜 대조" 추정을 제거(실제 변경이 아닌 것까지 잡던 원인),
+    실제 변경 경로(카드📅·노트 편집기·말풍선 수정)만 표시. 휴지통 짝짓기는 세션당 한 번만 돌리고
+    결과를 이력에 저장 → 이후 화면은 저장된 이력만 읽어 즉시 표시. 예전에 잘못 저장된 원문대조 이력은 자동 정리.
   · v6.59: 날짜 변경 목록 오류("Cannot access why before initialization") 수정 — 진단 목록 변수 순서
   · v6.58: 모바일 키보드 지연 완화 — 화면 밖 카드·말풍선은 배치 계산에서 제외(content-visibility),
     키보드로 화면 크기가 바뀔 때 다시 배치할 양을 줄임 (채팅 말풍선은 스크롤 정확도를 위해 제외).
@@ -3113,8 +3116,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.59';
-const APP_BUILD=659;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.60';
+const APP_BUILD=660;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3533,28 +3536,23 @@ function renderPend(){
     // 이 날짜에서 이후 날짜로 옮겨간 주문 (옮겨간 날짜가 아직 안 왔을 때만)
     const ch=[]; const seen=new Set();
     const keep=(from,to)=> from===t && to!==t && (to<t || to>today);   // 이 날짜에서 딴 날짜로 (뒤로 옮긴 건 그 날이 오면 제외)
-    Object.values(ORDERS).forEach(o=>{ (o&&o.dateHist||[]).forEach(h=>{ if(h && keep(h.from,h.to) && o.date===h.to){ ch.push(Object.assign({o}, h)); seen.add(o.id); } }); });
-    // 말풍선 수정으로 바뀐 경우: 휴지통의 이전 주문(같은 메시지) 날짜 ≠ 새 주문 날짜
-    Object.values(TRASH).forEach(tr=>{
-      if(!tr || !tr.chatMsg || !tr.date || !/수정/.test(String(tr.delWhy||''))) return;
-      Object.values(ORDERS).forEach(o=>{
-        if(!o || seen.has(o.id) || o.chatMsg!==tr.chatMsg || cliNorm(o.client||'')!==cliNorm(tr.client||'')) return;
-        if(o.date===tr.date) return;
-        const h={from:tr.date, to:o.date, by:tr.delBy||'(말풍선 수정)', at:tr.delAt||o.ts||0, printed:!!tr.printed, via:'말풍선 수정'};
-        persistHist(o, h);                       // 한 번 찾으면 저장 → 다음부턴 이력에서 읽음
-        if(keep(h.from,h.to)){ ch.push(Object.assign({o}, h)); seen.add(o.id); }
+    // 세션당 1회: 말풍선 수정으로 바뀐 경우를 휴지통에서 찾아 이력에 저장 (그 뒤엔 이력만 읽음)
+    if(!TRASH_SCANNED && Object.keys(TRASH).length){
+      TRASH_SCANNED=true;
+      Object.values(TRASH).forEach(tr=>{
+        if(!tr || !tr.chatMsg || !tr.date || !/수정/.test(String(tr.delWhy||''))) return;
+        Object.values(ORDERS).forEach(o=>{
+          if(!o || o.chatMsg!==tr.chatMsg || cliNorm(o.client||'')!==cliNorm(tr.client||'') || o.date===tr.date) return;
+          persistHist(o, {from:tr.date, to:o.date, by:tr.delBy||'(말풍선 수정)', at:tr.delAt||o.ts||0, printed:!!tr.printed, via:'말풍선 수정'});
+        });
       });
-    });
-    // 이력이 없는 옛 변경분: 채팅 원문 머리말 날짜 ≠ 현재 날짜 (메시지가 화면에 없으면 Firebase에서 읽어옴)
+    }
+    // 이력만 사용 (원문대조 추정 이력은 무시 + 자동 정리)
     Object.values(ORDERS).forEach(o=>{
-      if(!o || seen.has(o.id) || !o.chatMsg || o.date===t) return;
-      if(!(o.date<t || o.date>today)) return;
-      const lim=new Date(Date.now()-10*86400000).toISOString().slice(0,10); if((o.date||'')<lim && t<lim) return;
-      let txt=(CHAT[o.chatMsg]&&CHAT[o.chatMsg].text)||MSGTXT[o.chatMsg];
-      if(txt===undefined){ MSGTXT[o.chatMsg]=null; db.ref('chat/'+o.chatMsg+'/text').once('value').then(sn=>{ MSGTXT[o.chatMsg]=sn.val()||''; renderSideSafe(); }).catch(()=>{}); return; }
-      if(!txt) return;
-      const hd=headerDateOf(txt, o.date);
-      if(hd && hd!==o.date){ const h={from:hd, to:o.date, by:'(원문 대조)', at:o.ts||0, printed:false, via:'원문대조'}; persistHist(o, h); if(hd===t && !seen.has(o.id)){ ch.push(Object.assign({o}, h)); seen.add(o.id); } }
+      if(!o||!o.dateHist) return;
+      const bad=(o.dateHist||[]).some(h=>h&&h.via==='원문대조');
+      if(bad){ const clean=o.dateHist.filter(h=>h&&h.via!=='원문대조'); o.dateHist=clean; if(!CLEANED.has(o.id)){ CLEANED.add(o.id); db.ref('orders/'+o.id+'/dateHist').set(clean.length?clean:null).catch(()=>{}); } }
+      (o.dateHist||[]).forEach(h=>{ if(h && keep(h.from,h.to) && o.date===h.to && !seen.has(o.id)){ ch.push(Object.assign({o}, h)); seen.add(o.id); } });
     });
     ch.sort((a,b)=>b.at-a.at);
     {
@@ -3570,16 +3568,14 @@ function renderPend(){
         Object.values(ORDERS).forEach(o=>{
           if(!o || (o.date||'')<lim7) return;
           const hist=o.dateHist||[]; const manual=o.dateSrc==='수동수정';
-          const txt=(CHAT[o.chatMsg]&&CHAT[o.chatMsg].text)||MSGTXT[o.chatMsg]||'';
-          const hd=txt?headerDateOf(txt,o.date):'';
-          const inferred=hd && hd!==o.date;
+          const hd=''; const inferred=false;
           const tr=Object.values(TRASH).find(t=>t&&t.chatMsg&&t.chatMsg===o.chatMsg&&/수정/.test(String(t.delWhy||''))&&t.date!==o.date);
           if(!hist.length && !manual && !inferred && !tr) return;
           const why=[];
           if(hist.length) why.push('이력 '+hist.map(h=>mmdd(h.from)+'→'+mmdd(h.to)+(h.via?'('+h.via+')':'')).join(', '));
           if(tr) why.push('말풍선 수정: 이전 '+mmdd(tr.date)+(tr.printed?'(인쇄됨)':''));
           if(manual && !hist.length) why.push('카드📅 수정 표시(이력 없음)');
-          if(hd) why.push('원문 '+mmdd(hd)+' / 현재 '+mmdd(o.date)); else if(o.chatMsg) why.push('원문 날짜 없음'); else why.push('채팅 원문 없음(노트 입력)');
+          if(!o.chatMsg) why.push('노트 직접 입력');
           const shown=ch.some(x=>x.o.id===o.id);
           trace.push({o, why:why.join(' · '), shown});
         });
@@ -3940,7 +3936,7 @@ async function shipQueue(id, btn){
   }
 }
 
-let DEF_OPEN=false, DCH_OPEN=false; const MSGTXT={}; const HIST_SAVED=new Set();
+let DEF_OPEN=false, DCH_OPEN=false, TRASH_SCANNED=false; const MSGTXT={}; const HIST_SAVED=new Set(); const CLEANED=new Set();
 /* 찾아낸 날짜 변경을 주문 이력에 저장 (같은 from→to 가 이미 있으면 안 함) */
 function persistHist(o, h){
   try{
