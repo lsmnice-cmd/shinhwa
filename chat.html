@@ -11,7 +11,11 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.50 — 2026-09-17
+  신화미트 주문방 (chat.html) v6.52 — 2026-09-17
+  · v6.52: 날짜 변경 조회 보강 — 이력이 없어도 채팅 원문 머리말 날짜와 현재 주문 날짜가 다르면
+    변경된 것으로 잡아 표시(과거 변경분 포함). 주문노트 편집기 날짜 변경도 이력 기록(index v4.22).
+  · v6.51: 날짜 변경 목록 기준 — 보고 있는 날짜(오늘)에서 이후 날짜로 옮겨진 주문만 표시,
+    옮겨간 날짜가 되면 자동으로 빠짐. 배지가 없으면 변경 건이 없는 것(이력은 v6.50 이후부터 기록).
   · v6.50: 📅 날짜 변경 목록 — 주문 날짜를 바꾸면 이력(dateHist: 원날짜→새날짜·누가·언제·인쇄됐었는지)
     을 남기고, 미처리 상단 "⏳ 다음 주문 대기" 옆에 "📅 날짜 변경 N건" 배지 → 펼치면 목록.
     (오늘이 원날짜이거나 새날짜인 것, 최근 3일)
@@ -3093,8 +3097,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.50';
-const APP_BUILD=650;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.52';
+const APP_BUILD=652;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3507,14 +3511,22 @@ function renderPend(){
   sum.innerHTML=sumHtml;
   box.appendChild(sum);
   // 📅 날짜 변경 목록 (오늘이 원날짜 또는 새날짜, 최근 3일)
-  if(PANEL_DATE===todayStr()){
-    const t=todayStr(); const lim=Date.now()-3*86400000;
-    const ch=[]; Object.values(ORDERS).forEach(o=>{ (o&&o.dateHist||[]).forEach(h=>{ if(h && h.at>=lim && (h.from===t||h.to===t)) ch.push(Object.assign({o}, h)); }); });
+  {
+    const t=PANEL_DATE, today=todayStr();
+    // 이 날짜에서 이후 날짜로 옮겨간 주문 (옮겨간 날짜가 아직 안 왔을 때만)
+    const ch=[]; const seen=new Set();
+    Object.values(ORDERS).forEach(o=>{ (o&&o.dateHist||[]).forEach(h=>{ if(h && h.from===t && h.to>t && h.to>today && o.date===h.to){ ch.push(Object.assign({o}, h)); seen.add(o.id); } }); });
+    // 이력이 없는 옛 변경분: 채팅 원문 머리말 날짜 ≠ 현재 날짜
+    Object.values(ORDERS).forEach(o=>{
+      if(!o || seen.has(o.id) || !o.chatMsg || !(o.date>t && o.date>today)) return;
+      const m=CHAT[o.chatMsg]; if(!m||!m.text) return;
+      const hd=headerDateOf(m.text, o.date); if(hd===t) ch.push({o, from:t, to:o.date, by:'(이력 없음)', at:o.ts||0, printed:false, inferred:true});
+    });
     ch.sort((a,b)=>b.at-a.at);
     if(ch.length){
       const b=document.createElement('div');
       b.style.cssText='display:inline-flex;align-items:center;gap:6px;margin:2px 6px 6px 0;padding:3px 10px;background:#fff6e6;border:1px solid #e8c979;border-radius:12px;font-size:12px;color:#7a5a00;font-weight:800;cursor:pointer';
-      b.innerHTML=(DCH_OPEN?'▾':'▸')+' 📅 날짜 변경 '+ch.length+'건'; b.title='오늘로 오거나 오늘에서 옮겨간 주문 · 눌러서 목록';
+      b.innerHTML=(DCH_OPEN?'▾':'▸')+' 📅 날짜 변경 '+ch.length+'건'; b.title='이 날짜에서 이후로 옮겨진 주문 · 눌러서 목록';
       b.onclick=()=>{ DCH_OPEN=!DCH_OPEN; renderSide(); };
       box.appendChild(b);
       if(DCH_OPEN){
@@ -3523,7 +3535,7 @@ function renderPend(){
           +'<span>'+esc(mmdd(h.from))+' → <b style="color:'+(h.to===t?'#1f6b3a':'#8a1c1c')+'">'+esc(mmdd(h.to))+'</b></span>'
           +(h.printed?'<span style="font-size:10px;background:#f0ece1;border-radius:6px;padding:1px 5px">🖨 '+esc(mmdd(h.from))+' 인쇄됐던 건</span>':'')
           +'<span style="flex:1;font-size:11.5px;color:#5a5045">'+esc((h.o.items||[]).slice(0,3).map(itemText).join(', '))+((h.o.items||[]).length>3?' 외':'')+'</span>'
-          +'<span style="font-size:10.5px;color:var(--muted);white-space:nowrap">'+esc(h.by||'')+' '+new Date(h.at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+'</span>'
+          +'<span style="font-size:10.5px;color:var(--muted);white-space:nowrap">'+(h.inferred?'원문 '+esc(mmdd(h.from))+' → 현재 '+esc(mmdd(h.to)):esc(h.by||'')+' '+new Date(h.at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}))+'</span>'
           +'<span onclick="PANEL_DATE=\''+esc(h.o.date)+'\';renderSide()" title="그 날짜 미처리로 이동" style="cursor:pointer;color:#1a4f9c;font-size:11px;font-weight:800">보기 ›</span></div>').join('');
         box.appendChild(list);
       }
@@ -3866,6 +3878,19 @@ async function shipQueue(id, btn){
 }
 
 let DEF_OPEN=false, DCH_OPEN=false;
+/* 채팅 원문 머리말 날짜 (0917 / 9.17 / 9/17) → YYYY-MM-DD (연도는 기준 날짜 것) */
+function headerDateOf(text, ref){
+  const lines=String(text||'').split(/\n/).map(x=>x.trim()).filter(Boolean).slice(0,3);
+  const y=(ref||todayStr()).slice(0,4);
+  for(const l of lines){
+    const m=l.match(/^(?:(\d{1,2})\s*[.\/]\s*(\d{1,2})|(\d{4}))(?=[\s(（가-힣]|$)/);
+    if(!m) continue;
+    let mm,dd; if(m[3]){ mm=+m[3].slice(0,2); dd=+m[3].slice(2); } else { mm=+m[1]; dd=+m[2]; }
+    if(mm<1||mm>12||dd<1||dd>31) continue;
+    return y+'-'+String(mm).padStart(2,'0')+'-'+String(dd).padStart(2,'0');
+  }
+  return '';
+}
 async function delDeferred(k){ const d=DEFERRED[k]; if(!d) return; if(!confirm(d.client+' 다음 주문 이월분을 취소할까요?')) return; try{ await db.ref('meta/deferred/'+k).remove(); }catch(e){ alert('실패: '+e.message); } }
 /* 📝 주문 메모 수정 */
 async function editNote(id){
