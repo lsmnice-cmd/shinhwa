@@ -2496,6 +2496,7 @@ function firstDate(){
 function setNoteDate(d){ noteDate=d; renderNote(); }
 function setWorkDate(d){ workDate=d; renderWork(); }
 
+/* [v4.22] 편집기에서 날짜를 바꿀 때도 이력 기록 (빠져 있던 경로) */
 /* [v4.21] 날짜 이동 시 이력(dateHist) 기록 — 주문방 '📅 날짜 변경' 목록에 표시 */
 /* [v4.20] 품목 전부 기준은 09-17 이후 주문만 */
 /* [v4.19] 이월 미처리 기준을 품목 전부 확인으로 (주문방 v6.47과 동일), 이월 표에 품목별 ✔전산/⚠미입력 표시 */
@@ -3161,11 +3162,12 @@ async function saveOrderEdit(){
       const items=byOid[id]||[];
       if(!items.length){ await deleteOrder(id,true); continue; }
       o.items=items;
+      if(newDate && newDate!==o.date){ o.dateHist=(o.dateHist||[]).concat([{from:o.date, to:newDate, by:(auth&&auth.currentUser&&auth.currentUser.displayName)||'노트', at:Date.now(), printed:!!o.printed, via:'편집기'}]); o.printed=false; }
       o.date=newDate||o.date;
       if(sk){ o.client=sk; o.needClient=false; }
       o.vehicle=newVeh;
       o.hash=hashOrder(o);
-      if(fbReady) await db.ref('orders/'+id).update({items:o.items, date:o.date, client:o.client, needClient:!!o.needClient, vehicle:o.vehicle, hash:o.hash});
+      if(fbReady) await db.ref('orders/'+id).update({items:o.items, date:o.date, client:o.client, needClient:!!o.needClient, vehicle:o.vehicle, hash:o.hash, dateHist:o.dateHist||null, printed:o.printed===false?false:(o.printed||null)});
     }
     // 학습 큐 처리
     for(const q of LEARN_QUEUE.splice(0)){
