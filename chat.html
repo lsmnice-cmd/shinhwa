@@ -11,7 +11,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.52 — 2026-09-17
+  신화미트 주문방 (chat.html) v6.53 — 2026-09-17
+  · v6.53: 날짜 변경 배지 항상 표시(0건이면 회색) · 앞 날짜로 옮긴 것도 포함 · 원문 대조용 메시지를
+    화면에 없으면 Firebase에서 직접 읽어 판정(옛 메시지·다른 방 주문도 잡힘)
   · v6.52: 날짜 변경 조회 보강 — 이력이 없어도 채팅 원문 머리말 날짜와 현재 주문 날짜가 다르면
     변경된 것으로 잡아 표시(과거 변경분 포함). 주문노트 편집기 날짜 변경도 이력 기록(index v4.22).
   · v6.51: 날짜 변경 목록 기준 — 보고 있는 날짜(오늘)에서 이후 날짜로 옮겨진 주문만 표시,
@@ -3097,8 +3099,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.52';
-const APP_BUILD=652;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.53';
+const APP_BUILD=653;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3515,21 +3517,26 @@ function renderPend(){
     const t=PANEL_DATE, today=todayStr();
     // 이 날짜에서 이후 날짜로 옮겨간 주문 (옮겨간 날짜가 아직 안 왔을 때만)
     const ch=[]; const seen=new Set();
-    Object.values(ORDERS).forEach(o=>{ (o&&o.dateHist||[]).forEach(h=>{ if(h && h.from===t && h.to>t && h.to>today && o.date===h.to){ ch.push(Object.assign({o}, h)); seen.add(o.id); } }); });
-    // 이력이 없는 옛 변경분: 채팅 원문 머리말 날짜 ≠ 현재 날짜
+    const keep=(from,to)=> from===t && to!==t && (to<t || to>today);   // 이 날짜에서 딴 날짜로 (뒤로 옮긴 건 그 날이 오면 제외)
+    Object.values(ORDERS).forEach(o=>{ (o&&o.dateHist||[]).forEach(h=>{ if(h && keep(h.from,h.to) && o.date===h.to){ ch.push(Object.assign({o}, h)); seen.add(o.id); } }); });
+    // 이력이 없는 옛 변경분: 채팅 원문 머리말 날짜 ≠ 현재 날짜 (메시지가 화면에 없으면 Firebase에서 읽어옴)
     Object.values(ORDERS).forEach(o=>{
-      if(!o || seen.has(o.id) || !o.chatMsg || !(o.date>t && o.date>today)) return;
-      const m=CHAT[o.chatMsg]; if(!m||!m.text) return;
-      const hd=headerDateOf(m.text, o.date); if(hd===t) ch.push({o, from:t, to:o.date, by:'(이력 없음)', at:o.ts||0, printed:false, inferred:true});
+      if(!o || seen.has(o.id) || !o.chatMsg || o.date===t) return;
+      if(!(o.date<t || o.date>today)) return;
+      const lim=new Date(Date.now()-10*86400000).toISOString().slice(0,10); if((o.date||'')<lim && t<lim) return;
+      let txt=(CHAT[o.chatMsg]&&CHAT[o.chatMsg].text)||MSGTXT[o.chatMsg];
+      if(txt===undefined){ MSGTXT[o.chatMsg]=null; db.ref('chat/'+o.chatMsg+'/text').once('value').then(sn=>{ MSGTXT[o.chatMsg]=sn.val()||''; renderSideSafe(); }).catch(()=>{}); return; }
+      if(!txt) return;
+      const hd=headerDateOf(txt, o.date); if(hd===t) ch.push({o, from:t, to:o.date, by:'(이력 없음)', at:o.ts||0, printed:false, inferred:true});
     });
     ch.sort((a,b)=>b.at-a.at);
-    if(ch.length){
+    {
       const b=document.createElement('div');
-      b.style.cssText='display:inline-flex;align-items:center;gap:6px;margin:2px 6px 6px 0;padding:3px 10px;background:#fff6e6;border:1px solid #e8c979;border-radius:12px;font-size:12px;color:#7a5a00;font-weight:800;cursor:pointer';
-      b.innerHTML=(DCH_OPEN?'▾':'▸')+' 📅 날짜 변경 '+ch.length+'건'; b.title='이 날짜에서 이후로 옮겨진 주문 · 눌러서 목록';
+      b.style.cssText='display:inline-flex;align-items:center;gap:6px;margin:2px 6px 6px 0;padding:3px 10px;background:'+(ch.length?'#fff6e6':'#f3f1ea')+';border:1px solid '+(ch.length?'#e8c979':'#ddd8cc')+';border-radius:12px;font-size:12px;color:'+(ch.length?'#7a5a00':'#a39d90')+';font-weight:800;cursor:pointer';
+      b.innerHTML=(DCH_OPEN?'▾':'▸')+' 📅 날짜 변경 '+ch.length+'건'; b.title='이 날짜에서 다른 날짜로 옮겨진 주문 · 눌러서 목록';
       b.onclick=()=>{ DCH_OPEN=!DCH_OPEN; renderSide(); };
       box.appendChild(b);
-      if(DCH_OPEN){
+      if(DCH_OPEN && ch.length){
         const list=document.createElement('div'); list.style.cssText='margin:0 0 8px;padding:6px 8px;background:#fffbf0;border:1px solid #ecd9a8;border-radius:8px;font-size:12.5px';
         list.innerHTML=ch.map(h=>'<div style="display:flex;gap:6px;align-items:center;padding:3px 0;border-bottom:1px dashed #ecd9a8;flex-wrap:wrap"><b style="min-width:70px">'+esc(h.o.client||'')+'</b>'
           +'<span>'+esc(mmdd(h.from))+' → <b style="color:'+(h.to===t?'#1f6b3a':'#8a1c1c')+'">'+esc(mmdd(h.to))+'</b></span>'
@@ -3877,7 +3884,7 @@ async function shipQueue(id, btn){
   }
 }
 
-let DEF_OPEN=false, DCH_OPEN=false;
+let DEF_OPEN=false, DCH_OPEN=false; const MSGTXT={};
 /* 채팅 원문 머리말 날짜 (0917 / 9.17 / 9/17) → YYYY-MM-DD (연도는 기준 날짜 것) */
 function headerDateOf(text, ref){
   const lines=String(text||'').split(/\n/).map(x=>x.trim()).filter(Boolean).slice(0,3);
