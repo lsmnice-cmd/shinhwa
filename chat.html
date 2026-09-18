@@ -11,7 +11,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.61 — 2026-09-17
+  신화미트 주문방 (chat.html) v6.62 — 2026-09-18
+  · v6.62: ① 검색 — 띄어쓰기 무시·여러 단어(공백 구분) 모두 포함 매칭(부분 일치)
+           ② 말풍선 시각 26/09/17 HH:MM 형식 + 그 아래 🤖 AI 처리 시각(doneAt 저장, 옛 메시지는 시스템 답장 시각)
+           ③ AI 미처리 재확인 강화 — done인데 주문이 없는 건·실패 1회 이상·상태 없음도 포함, 점검 주기 단축(자동처리 3분·일반 5분)
   · v6.61: 확인방 짝짓기 드롭다운에 "매칭없음" — ERP에 없는 품목(서비스·포함분 등)으로 표시하면
     그 품목은 대조에서 제외(noMatch)되고 거래처 사전에 "매칭없음"으로 학습 → 다음부터 자동 제외.
     (전산대조 v3.4와 짝)
@@ -585,7 +588,8 @@
           padding:8px 11px;font-size:13.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word;
           box-shadow:0 1px 0 rgba(0,0,0,.04)}
   .msg-row.mine .bubble{background:var(--mine);color:var(--mine-txt);border-color:var(--mine)}
-  .m-time{font-size:10px;color:var(--muted);white-space:nowrap;padding-bottom:2px}
+  .m-time{font-size:10px;color:var(--muted);white-space:nowrap;padding-bottom:2px;display:block;line-height:1.25}
+  .msg-row>span:not(.m-state){display:flex;flex-direction:column;align-items:flex-end;min-width:0}
   .m-state{font-size:12px;padding-bottom:2px;white-space:nowrap}
   .m-state.parsing{color:var(--wait)}
   .m-state.error{color:var(--accent);font-weight:800}
@@ -900,6 +904,25 @@ function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&l
 function todayStr(){ const d=new Date(); const p=n=>String(n).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
 function mmdd(d){ return String(d||'').slice(5).replace('-','.'); }
 function hhmm(ts){ const d=new Date(ts); const p=n=>String(n).padStart(2,'0'); return p(d.getHours())+':'+p(d.getMinutes()); }
+/* v6.62: 말풍선 시각 26/09/17 HH:MM */
+function fmtDT(ts){ const d=new Date(ts); const p=n=>String(n).padStart(2,'0'); return String(d.getFullYear()).slice(2)+'/'+p(d.getMonth()+1)+'/'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes()); }
+/* AI 처리 시각 — doneAt(v6.62부터 저장) 없으면 시스템 답장(ref=id, 오류 아님)의 시각으로 대체 */
+let AIAT_MAP=null, AIAT_KEY='';
+function aiDoneAt(id,m){
+  if(m.doneAt) return m.doneAt;
+  if(m.status!=='done') return 0;
+  const key=Object.keys(CHAT).length;
+  if(!AIAT_MAP || AIAT_KEY!==key){
+    AIAT_MAP={}; AIAT_KEY=key;
+    for(const k in CHAT){ const x=CHAT[k]; if(x&&x.sys&&x.ref&&x.kind!=='err'&&!AIAT_MAP[x.ref]) AIAT_MAP[x.ref]=x.ts||0; }
+  }
+  return AIAT_MAP[id]||0;
+}
+function timeHtml(id,m){
+  const t='<span class="m-time">'+fmtDT(m.ts||Date.now())+'</span>';
+  const a=(m&&!m.sys&&!m.deleted)?aiDoneAt(id,m):0;
+  return a ? t+'<span class="m-time" title="AI가 주문으로 반영한 시각">🤖 '+fmtDT(a)+'</span>' : t;
+}
 function shortName(name){ return String(name||'').split(/[\(\-]/)[0].trim(); }
 
 let _clientIndex=null;
@@ -1429,10 +1452,15 @@ function runSearch(){
   const q=(document.getElementById('searchIn').value||'').trim().toLowerCase();
   clearSearchMarks();
   if(!q) return;
+  // v6.62: 부분 일치 — 띄어쓰기 무시, 여러 단어는 모두 포함(AND)
+  const toks=q.split(/\s+/).map(t=>t.replace(/\s+/g,'')).filter(Boolean);
+  const qNoSp=q.replace(/\s+/g,'');
   const ids=Object.keys(CHAT).filter(id=>{
     const m=CHAT[id]; if(!m||m.deleted) return false;
-    const hay=((m.text||'')+' '+(m.name||'')).toLowerCase();
-    return hay.indexOf(q)>=0;
+    const hay=((m.text||'')+' '+(m.name||'')+' '+(m.by||'')).toLowerCase();
+    const hayNoSp=hay.replace(/\s+/g,'');
+    if(hay.indexOf(q)>=0 || hayNoSp.indexOf(qNoSp)>=0) return true;
+    return toks.length>1 && toks.every(t=>hayNoSp.indexOf(t)>=0);
   }).sort((a,b)=>(CHAT[a].ts||0)-(CHAT[b].ts||0));
   SEARCH_HITS=ids;
   ids.forEach(id=>{ const el=document.getElementById('m_'+id); if(el) el.classList.add('hit'); });
@@ -2056,6 +2084,10 @@ function scheduleAutoRetry(id, m){
 }
 
 /* 🔁 미분석 점검 (v6.33) — 주문처럼 생겼는데 분석이 안 된 메시지 찾기 */
+function sysSaysDup(id){   // 시스템 답장이 '중복 건너뜀'이면 이미 등록된 주문 → 재분석 불필요
+  for(const k in CHAT){ const x=CHAT[k]; if(x&&x.sys&&x.ref===id&&/중복/.test(x.text||'')) return true; }
+  return false;
+}
 function unparsedList(){
   const now=Date.now(), lim=48*3600*1000, out=[];
   for(const id in CHAT){
@@ -2065,9 +2097,13 @@ function unparsedList(){
     if(!looksLikeOrder(m.text)) continue;
     const st=m.status||'';
     const stale=(st==='parsing'||st==='retrying') && now-((m.lockAt||m.ts)||0)>5*60*1000;
-    const failed=st==='error' && (m.retries||0)>=3 && now-((m.lockAt||m.ts)||0)>10*60*1000;
+    // v6.62: 실패는 1회라도 10분 지나면 재확인 (자동 재시도가 화면 종료 등으로 끊긴 경우 대비)
+    const failed=st==='error' && now-((m.lockAt||m.ts)||0)>10*60*1000 && !RETRY_SCHED[id];
     const never=!st;                                   // 상태 자체가 없음 (옛 화면·이동된 메시지 등)
-    if(stale||failed||never) out.push(id);
+    // v6.62: done인데 만든 주문이 하나도 없고, 이월(다음 주문시)도 아니면 미처리로 봄
+    const hasOrder=(m.orders||[]).some(x=>ORDERS[x]);
+    const emptyDone=st==='done' && !hasOrder && (m.sweep||0)<2 && !/다음\s*(주문|번)/.test(m.text) && now-((m.doneAt||m.ts)||0)>10*60*1000 && !sysSaysDup(id);
+    if(stale||failed||never||emptyDone) out.push(id);
   }
   return out.sort((a,b)=>(CHAT[a].ts||0)-(CHAT[b].ts||0));
 }
@@ -2093,8 +2129,8 @@ async function sweepUnparsed(manual){
   }finally{ SWEEP_RUNNING=false; renderSideSafe(); }
 }
 function startSweepTimers(){   // ★ 초기화 뒤에 호출 (IS_RUNNER 정의 이후)
-  setInterval(()=>{ if(IS_RUNNER || !runnerAlive()) sweepUnparsed(false); }, (IS_RUNNER?10:15)*60*1000);
-  setTimeout(()=>{ if(IS_RUNNER) sweepUnparsed(false); }, 90*1000);
+  setInterval(()=>{ if(IS_RUNNER || !runnerAlive()) sweepUnparsed(false); }, (IS_RUNNER?3:5)*60*1000);   // v6.62: 주기 단축
+  setTimeout(()=>{ if(IS_RUNNER || !runnerAlive()) sweepUnparsed(false); }, 60*1000);
 }
 
 /* 🔄 강제 재분석 — 상태와 무관하게 되돌린 뒤 다시 분석 (멈춘 분석·재처리용) */
@@ -2135,7 +2171,7 @@ function bubbleHtml(id,m){
       +'<div class="m-name">'+esc(m.name||'')+'</div>'
       +'<div class="bubble" style="opacity:.55" oncontextmenu="event.preventDefault();openMsgMenu(\''+esc(id)+'\')" title="꾹 누르면 복구"><i>'+(m.movedTo?'↪ '+esc(m.movedTo)+' 방으로 이동됨':'🗑 삭제된 메시지')+'</i>'
       +((ME&&(m.uid===ME.uid||IS_ADMIN))?' <span onclick="event.stopPropagation();restoreMsg(\''+esc(id)+'\')" style="cursor:pointer;color:#1f6b3a;font-weight:800;font-style:normal;font-size:12px">♻ 복구</span>':'')+'</div>'
-      +'</div><span><span class="m-time">'+hhmm(m.ts||Date.now())+'</span></span>';
+      +'</div><span>'+timeHtml(id,m)+'</span>';
   }
   let body='';
   if(m.photo && m.photo.id){
@@ -2159,7 +2195,7 @@ function bubbleHtml(id,m){
     +'<div class="bubble" onclick="bubbleTap(\''+esc(id)+'\')" oncontextmenu="event.preventDefault();openMsgMenu(\''+esc(id)+'\')" title="누르면 답장 · 꾹 누르면 메뉴(복사/답장)">'+quote+body+'</div>'
     +'</div>'
     +'<div class="react-col">'+(roomOf(id).parse?orderChips(id):'')+reactHtml(id,m)+'</div>'
-    +'<span>'+stateHtml(id,m)+(m.edited?'<span style="font-size:10px;color:var(--muted)">(수정됨)</span>':'')+(m.movedFrom?'<span style="font-size:10px;color:var(--muted)" title="다른 방에서 옮겨온 메시지">↪ '+esc(m.movedFrom)+' 방에서 옮김'+(m.movedBy?' ('+esc(m.movedBy)+')':'')+'</span>':'')+(m.movedTo&&!m.deleted?'<span style="font-size:10px;color:var(--muted)" title="다른 방에도 사본을 보냄">↪ '+esc(m.movedTo)+' 방에 사본 보냄</span>':'')+'<span class="m-time">'+hhmm(m.ts||Date.now())+'</span></span>'
+    +'<span>'+stateHtml(id,m)+(m.edited?'<span style="font-size:10px;color:var(--muted)">(수정됨)</span>':'')+(m.movedFrom?'<span style="font-size:10px;color:var(--muted)" title="다른 방에서 옮겨온 메시지">↪ '+esc(m.movedFrom)+' 방에서 옮김'+(m.movedBy?' ('+esc(m.movedBy)+')':'')+'</span>':'')+(m.movedTo&&!m.deleted?'<span style="font-size:10px;color:var(--muted)" title="다른 방에도 사본을 보냄">↪ '+esc(m.movedTo)+' 방에 사본 보냄</span>':'')+timeHtml(id,m)+'</span>'
     +'<button class="rbtn" title="이 메시지에 답장 (추가 주문)" onclick="setReply(\''+esc(id)+'\')">↩</button>';
 }
 /* 📊 생산 일지 사진 분석 → 생산일지 시트 (v5.5) */
@@ -2788,7 +2824,7 @@ async function processMessage(msgId, m, tok){
     if(!got && looksLikeOrder(m.text) && !/다음\s*(주문|번)/.test(m.text)){
       throw new Error('주문으로 인식하지 못했습니다 — 자동으로 다시 분석합니다');
     }
-    await mref.update({status:'done', orders:tot.ids.filter(x=>!String(x).startsWith('deferred:'))});
+    await mref.update({status:'done', doneAt:Date.now(), orders:tot.ids.filter(x=>!String(x).startsWith('deferred:'))});
 
     // 결과를 시스템 답장으로
     let lines=[];
@@ -3120,8 +3156,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.61';
-const APP_BUILD=661;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.62';
+const APP_BUILD=662;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
