@@ -11,7 +11,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.62 — 2026-09-18
+  신화미트 주문방 (chat.html) v6.63 — 2026-09-20
+  · v6.63: 전산처리 판정을 '거래처 매출 확인'으로 — 주문 날짜(대조일)에 그 거래처 ERP 매출이 있으면(erpSale, 전산대조 v3.5)
+           품목 매칭과 무관하게 전산처리됨. 품목별 ⚠ 전산 미입력 표시는 참고용으로만 남김(회색). 이월 미처리·미처리 판정 동일 적용.
   · v6.62: ① 검색 — 띄어쓰기 무시·여러 단어(공백 구분) 모두 포함 매칭(부분 일치)
            ② 말풍선 시각 26/09/17 HH:MM 형식 + 그 아래 🤖 AI 처리 시각(doneAt 저장, 옛 메시지는 시스템 답장 시각)
            ③ AI 미처리 재확인 강화 — done인데 주문이 없는 건·실패 1회 이상·상태 없음도 포함, 점검 주기 단축(자동처리 3분·일반 5분)
@@ -3156,8 +3158,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.62';
-const APP_BUILD=662;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.63';
+const APP_BUILD=663;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3229,7 +3231,9 @@ function isPrinted(o){
 function erpVerified(o){ return !!(o && ((o.recon&&o.recon.status==='ok') || (o.items||[]).some(it=>it&&(it.erpKg||it.erpTail)))); }          // 하나라도 (작업보드용)
 function erpVerifiedAll(o){ const its=((o&&o.items)||[]).filter(it=>it&&!it.noMatch); return !!(o && ((o.recon&&o.recon.status==='ok') || (its.length>0 && its.every(it=>it&&(it.erpKg||it.erpTail))))); }   // 전부 (매칭없음 제외)
 const ALLITEM_FROM='2026-09-17';   // 이 날짜 이후 주문만 "품목 전부 확인" 기준
-function processed(o){ return !!(o.confirm || ((o.date||'')>=ALLITEM_FROM ? erpVerifiedAll(o) : erpVerified(o))); }
+/* v6.63: 전산처리 = 확인방 완료(confirm) 또는 대조 일치(recon ok) 또는 거래처 매출 확인(erpSale) — 품목 매칭 불요 */
+function erpSaleOk(o){ return !!(o && o.erpSale && o.erpSale.date && (o.erpSale.date===(o.reconDate||o.date))); }
+function processed(o){ return !!(o.confirm || (o.recon&&o.recon.status==='ok') || erpSaleOk(o) || ((o.date||'')<ALLITEM_FROM && erpVerified(o))); }
 function pendAll(date){ return Object.values(ORDERS).filter(o=>o && o.date===date && (!processed(o) || needOut(o))); }
 /* 메인 목록: 인쇄 안 된 것(인쇄 이후 접수)·택배·사무실·[미처리로] 보낸 것. 출고완료만 체크된 것은 접힘 묶음으로 */
 function pendMain(o){ return (!isPrinted(o) || o.forcePend || KEEP_PEND_VEH.indexOf(normVeh(o.vehicle||''))>=0) && !(o.chk&&o.chk.out&&!o.confirm); }
@@ -3768,8 +3772,8 @@ function buildOrderCard(o){
         +esc(measText(it))+'</span>';
     }
     if(it.noMatch){ meas+=' <span title="ERP 대조 제외 품목" style="font-size:10.5px;color:#8a857a;background:#f0ece1;border-radius:4px;padding:1px 5px">✕ 매칭없음</span>'; }
-    if(!it.noMatch && !(it.erpKg||it.erpTail) && !o.confirm && (o.date||'')>=ALLITEM_FROM && erpVerified(o) && !erpVerifiedAll(o)){
-      meas+=' <span title="같은 주문의 다른 품목은 전산 확인됐는데 이 품목은 ERP에 없음" style="font-size:11px;font-weight:800;color:#8a1c1c;background:#fdecec;border-radius:4px;padding:1px 5px">⚠ 전산 미입력</span>';
+    if(!it.noMatch && !(it.erpKg||it.erpTail) && (o.date||'')>=ALLITEM_FROM && (erpVerified(o)||erpSaleOk(o)) && !erpVerifiedAll(o)){
+      meas+=' <span title="거래처 매출은 확인됐지만 이 품목은 ERP 품명과 짝지어지지 않음 (참고용 — 처리 판정에는 영향 없음)" style="font-size:10.5px;color:#8a857a;background:#f0ece1;border-radius:4px;padding:1px 5px">· 품목 미확인</span>';
     }
     if(it.erpKg || it.erpTail){
       const et=(it.erpRows&&it.erpRows.length>1)
