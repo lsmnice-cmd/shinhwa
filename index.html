@@ -2496,6 +2496,7 @@ function firstDate(){
 function setNoteDate(d){ noteDate=d; renderNote(); }
 function setWorkDate(d){ workDate=d; renderWork(); }
 
+/* [v4.24] 거래처 옆 [✂ 분리] — 합쳐진 주문에서 품목을 골라 새 주문(다른 차량·거래처명)으로 떼어냄 (주문방 v6.64와 동일) */
 /* [v4.23] 이월 미처리 판정을 '거래처 매출 확인'(erpSale)으로 — 품목 매칭 불요 (주문방 v6.63·전산대조 v3.5) */
 /* [v4.22] 편집기에서 날짜를 바꿀 때도 이력 기록 (빠져 있던 경로) */
 /* [v4.21] 날짜 이동 시 이력(dateHist) 기록 — 주문방 '📅 날짜 변경' 목록에 표시 */
@@ -2733,6 +2734,7 @@ function buildNoteTable(wrap, date, workMode){
                 +((snd.name||snd.phone)?'<div style="color:#5a4a1a">보내는 분: '+esc(snd.name||'')+' '+esc(snd.phone||'')+'</div>':'')
                 +ships.map((sh,k)=>'<div style="border-top:1px dashed #e6c98a;margin-top:2px;padding-top:2px">'+(ships.length>1?'<span style="color:#8a5a00;font-weight:800">'+(k+1)+'.</span> ':'')+esc(sh.name||'')+(sh.phone?' '+esc(sh.phone):'')+(sh.addr?'<br>'+esc(sh.addr):'')+(sh.memo?'<br><span style="color:#8a5a00">'+esc(sh.memo)+'</span>':'')
                   +' <button type="button" class="no-print" onclick="event.stopPropagation();copyShip(\''+esc(so.id)+'\',this,'+k+')" style="border:1px solid #d9b96a;background:#fff;border-radius:4px;padding:0 5px;font-size:10px;font-weight:800;cursor:pointer">복사</button></div>').join('')+'</div>'; })()
+          +(function(){ const so=orders.find(o=>(o.items||[]).length>=2); return so?'<div class="no-print"><button type="button" onclick="event.stopPropagation();splitOrderUI(\''+esc(so.id)+'\')" title="품목을 골라 다른 차량·거래처의 새 주문으로 분리" style="margin-top:3px;border:1px solid #b9cdea;background:#eef3fb;border-radius:5px;padding:2px 7px;font-size:10.5px;font-weight:800;cursor:pointer;color:#1a4f9c">✂ 분리</button></div>':''; })()
           +(anyPend?'<div class="no-print"><button type="button" onclick="event.stopPropagation();sendToPend(\''+esc(ids)+'\',this)" title="주문방 미처리 블록에 다시 표시" style="margin-top:3px;border:1px solid var(--line);background:#fff;border-radius:5px;padding:2px 7px;font-size:10.5px;font-weight:800;cursor:pointer;color:#8a1c1c">'+(orders.some(o=>o.forcePend)?'📋 미처리에 있음':'📋 미처리로')+'</button></div>':'')
           +'</td>';
         html+='<td class="items">'+(itemHtml||'<span style="color:#b71c1c;font-size:12px">⚠ 품목 없음 (분석 중단 등으로 손상된 주문) — 거래처명을 클릭해 삭제하세요</span>')+'</td>';
@@ -3061,6 +3063,71 @@ async function copyShip(id, btn, k){
   catch(e){ prompt('길게 눌러 복사하세요', t); }
 }
 /* 📋 주문방 미처리 블록으로 보내기 (인쇄 도장과 무관하게 표시) */
+/* ✂ 주문 분리 (v6.64 / v4.24) — 합쳐진 주문에서 품목을 골라 새 주문(다른 차량·거래처명)으로 떼어냄 */
+const SPLIT_VEHS=['0966','6506','1982','4232','택배','사무실','미지정'];
+function splitOrderUI(id){
+  const o=ORDERS[id]; if(!o){ alert('주문을 찾을 수 없습니다'); return; }
+  const items=o.items||[];
+  if(items.length<2){ alert('품목이 1개뿐이라 분리할 수 없습니다.\n거래처·차량만 바꾸려면 수정을 쓰세요.'); return; }
+  const old=document.getElementById('splitOv'); if(old) old.remove();
+  const curV=normVeh(o.vehicle||'');
+  const defV=curV==='택배'?'미지정':'택배';
+  const ov=document.createElement('div'); ov.id='splitOv';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:12px';
+  const box=document.createElement('div');
+  box.style.cssText='background:#fff;color:#222;border-radius:12px;max-width:520px;width:100%;max-height:92vh;overflow:auto;padding:14px 16px;font-size:13.5px;box-shadow:0 8px 30px rgba(0,0,0,.3)';
+  const hasShip=!!((o.ships&&o.ships.length)||(o.ship&&(o.ship.name||o.ship.phone||o.ship.addr)));
+  box.innerHTML='<div style="font-weight:900;font-size:15px;margin-bottom:4px">✂ 주문 분리 — '+esc(o.client||'(미지정)')+' · '+esc(o.date||'')+' · '+esc(curV)+'</div>'
+    +'<div style="font-size:12px;color:#666;margin-bottom:10px">새 주문으로 떼어낼 품목에 체크하세요. 남는 품목은 원래 주문에 그대로 있습니다.</div>'
+    +'<div id="spItems" style="border:1px solid #ddd;border-radius:8px;padding:6px 8px;margin-bottom:10px">'
+    +items.map((it,i)=>'<label style="display:flex;gap:8px;align-items:center;padding:5px 2px;border-bottom:1px dashed #eee;cursor:pointer"><input type="checkbox" class="spChk" data-i="'+i+'" style="width:18px;height:18px"><span style="flex:1">'+esc(it.text||it.product||'')+(it.product&&it.product!==it.text?' <span style="color:#1a4f9c;font-size:11px">('+esc(it.product)+')</span>':'')+'</span></label>').join('')
+    +'</div>'
+    +'<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><label style="width:84px;font-weight:800">새 거래처명</label><input id="spCli" type="text" value="'+esc(o.client||'')+'" style="flex:1;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:14px"></div>'
+    +'<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap"><label style="width:84px;font-weight:800">새 차량</label>'
+    +SPLIT_VEHS.map(v=>'<button type="button" class="spVeh'+(v===defV?' sel':'')+'" data-v="'+v+'" style="border:1px solid #bbb;background:'+(v===defV?'#1a1a1a':'#fff')+';color:'+(v===defV?'#fff':'#222')+';border-radius:6px;padding:5px 9px;font-weight:800;cursor:pointer">'+v+'</button>').join('')+'</div>'
+    +(hasShip?'<label style="display:flex;gap:8px;align-items:center;margin-bottom:8px;font-size:12.5px"><input id="spShip" type="checkbox" '+(defV==='택배'?'checked':'')+' style="width:16px;height:16px">📦 택배 수취인 정보를 새 주문으로 옮김</label>':'')
+    +'<div style="font-size:11.5px;color:#8a1c1c;margin-bottom:10px">새 주문은 미처리 상태로 만들어집니다(전산·출고 체크 없음). 원래 주문의 전산 확인 상태는 그대로 둡니다.</div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end"><button type="button" id="spCancel" style="border:1px solid #bbb;background:#fff;border-radius:6px;padding:7px 14px;font-weight:800;cursor:pointer">취소</button><button type="button" id="spOk" style="border:none;background:#1a4f9c;color:#fff;border-radius:6px;padding:7px 16px;font-weight:800;cursor:pointer">✂ 분리하기</button></div>';
+  ov.appendChild(box); document.body.appendChild(ov);
+  box.querySelectorAll('.spVeh').forEach(b=>b.onclick=()=>{ box.querySelectorAll('.spVeh').forEach(x=>{ x.classList.remove('sel'); x.style.background='#fff'; x.style.color='#222'; }); b.classList.add('sel'); b.style.background='#1a1a1a'; b.style.color='#fff'; const s=document.getElementById('spShip'); if(s) s.checked=(b.dataset.v==='택배'); });
+  document.getElementById('spCancel').onclick=()=>ov.remove();
+  ov.onclick=e=>{ if(e.target===ov) ov.remove(); };
+  document.getElementById('spOk').onclick=()=>doSplitOrder(id, ov);
+}
+async function doSplitOrder(id, ov){
+  const o=ORDERS[id]; if(!o) return;
+  const items=(o.items||[]).slice();
+  const pick=[...document.querySelectorAll('.spChk')].filter(c=>c.checked).map(c=>parseInt(c.dataset.i,10));
+  if(!pick.length){ alert('떼어낼 품목을 하나 이상 체크하세요'); return; }
+  if(pick.length>=items.length){ alert('전부 옮기면 분리가 아닙니다 — 거래처·차량만 바꾸려면 수정을 쓰세요'); return; }
+  const cli=(document.getElementById('spCli').value||'').trim()||o.client||'';
+  const vb=document.querySelector('.spVeh.sel'); const veh=vb?vb.dataset.v:'미지정';
+  const moveShip=!!(document.getElementById('spShip')&&document.getElementById('spShip').checked);
+  const moved=pick.map(i=>Object.assign({}, items[i]));
+  const rest=items.filter((_,i)=>pick.indexOf(i)<0);
+  // 새 주문에는 전산·출고·확인 상태를 가져가지 않음
+  moved.forEach(it=>{ delete it.erpKg; delete it.erpTail; delete it.erpRows; delete it._erp; });
+  const now=Date.now();
+  const n={client:cli, date:o.date, vehicle:veh, items:moved, note:o.note||'', raw:o.raw||'', by:o.by||'', chatMsg:o.chatMsg||null,
+           done:false, ts:now, printed:false, forcePend:true, splitFrom:id, splitAt:now, splitBy:(typeof MYNAME!=='undefined'&&MYNAME)||''};
+  if(moveShip){ if(o.ships) n.ships=o.ships; if(o.ship) n.ship=o.ship; if(o.shipSender) n.shipSender=o.shipSender; }
+  n.hash=hashOrder(n);
+  const upd={items:rest, hash:null, ts:now, splitTo:null};
+  try{
+    const ref=db.ref('orders').push(); n.id=ref.key;
+    n.sts=firebase.database.ServerValue.TIMESTAMP;
+    await ref.set(n);
+    const o2=Object.assign({}, o, {items:rest}); upd.hash=hashOrder(o2); upd.splitTo=n.id;
+    if(moveShip){ upd.ship=null; upd.ships=null; upd.shipSender=null; }
+    await db.ref('orders/'+id).update(upd);
+    o.items=rest; o.hash=upd.hash; if(moveShip){ delete o.ship; delete o.ships; delete o.shipSender; }
+    ORDERS[n.id]=Object.assign({}, n, {sts:now});
+    ov.remove();
+    if(typeof renderSideSafe==='function') renderSideSafe(); else if(typeof renderAll==='function') renderAll();
+    alert('분리했습니다:\n'+cli+' · '+veh+' · '+moved.length+'품목 (새 주문)\n'+(o.client||'')+' · '+normVeh(o.vehicle||'')+' · '+rest.length+'품목 (원래 주문)');
+  }catch(e){ alert('분리 실패: '+e.message); }
+}
+
 async function sendToPend(idsStr, btn){
   const ids=idsStr.split(',').filter(id=>ORDERS[id]);
   if(!ids.length) return;
