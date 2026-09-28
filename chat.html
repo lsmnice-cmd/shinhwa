@@ -11,7 +11,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.64 — 2026-09-21
+  신화미트 주문방 (chat.html) v6.65 — 2026-09-29
+  · v6.65: 자동 재시도 3회 모두 실패한 메시지는 텔레그램으로 알림(보낸 사람·원문·오류·링크) — 미분석 점검(sweep)에서 잡은 건도 포함
   · v6.64: ① 같은 거래처라도 차량이 다르면(배송 소담 ↔ 택배 소담) 다른 주문으로 — 병합은 같은 날짜·거래처·차량일 때만
            ② 미처리 카드 [✂ 분리] — 합쳐진 주문에서 품목을 골라 새 주문(다른 차량·거래처명)으로 떼어냄 (주문노트 v4.24에도 동일)
            ③ 마스터에 '택배 ○○' 이름이 따로 있으면 그 이름 그대로 인식
@@ -2871,6 +2872,16 @@ async function processMessage(msgId, m, tok){
     }else if(r>=3){
       await db.ref('chat').push().set({sys:1, kind:'err', ref:msgId, ts:Date.now(),
         text:'🚨 자동 재시도 3회 모두 실패했습니다.\n서버 상태를 확인하거나, 메시지의 [⚠ 실패·재시도]를 눌러 수동으로 시도하세요.'}).catch(()=>{});
+      // v6.65: 텔레그램 알림 (같은 메시지는 한 번만)
+      try{
+        const already=(CHAT[msgId]&&CHAT[msgId].tgFail)||false;
+        if(!already){
+          await mref.update({tgFail:Date.now()}).catch(()=>{});
+          const txt=String(m.text||'').slice(0,300);
+          gsCall('tgNotify',{text:'🚨 주문 분석 실패 (자동 재시도 3회)\n보낸 사람: '+(m.name||'')+' · '+fmtDT(m.ts||Date.now())
+            +'\n오류: '+em.slice(0,120)+'\n\n'+txt+'\n\n주문방에서 [⚠ 실패·재시도]를 누르거나 주문노트에 직접 입력하세요.\n'+SITE_URL+'?room=order'}).catch(()=>{});
+        }
+      }catch(e2){}
     }
   }
 }
@@ -3177,8 +3188,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.64';
-const APP_BUILD=664;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.65';
+const APP_BUILD=665;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
