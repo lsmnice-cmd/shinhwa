@@ -11,7 +11,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.65 — 2026-09-29
+  신화미트 주문방 (chat.html) v6.67 — 2026-09-29
+  · v6.67: 🤖 시스템 답글(실패·결과)에 어느 메시지에 대한 것인지 표시 — 보낸 사람·원문 첫 줄 인용, 누르면 그 말풍선으로 이동
+  · v6.66: 재분석 무한 반복 수정 — 미분석 점검(sweep)이 실패 메시지의 재시도 횟수를 0으로 되돌려 '3회 실패' 답글이 반복되던 문제.
+           자동 점검은 메시지당 최대 1회(실패)·2회(멈춤/상태없음)만, '3회 실패' 답글·텔레그램은 메시지당 한 번만. 그 뒤는 수동([⚠ 실패·재시도]).
   · v6.65: 자동 재시도 3회 모두 실패한 메시지는 텔레그램으로 알림(보낸 사람·원문·오류·링크) — 미분석 점검(sweep)에서 잡은 건도 포함
   · v6.64: ① 같은 거래처라도 차량이 다르면(배송 소담 ↔ 택배 소담) 다른 주문으로 — 병합은 같은 날짜·거래처·차량일 때만
            ② 미처리 카드 [✂ 분리] — 합쳐진 주문에서 품목을 골라 새 주문(다른 차량·거래처명)으로 떼어냄 (주문노트 v4.24에도 동일)
@@ -2017,7 +2020,20 @@ function updateMsg(id, m){
     el.innerHTML=bubbleHtml(id,m);
   }
 }
-function sysHtml(m){ return '<span class="tag">🤖</span> '+esc(m.text||'')+(m.by?' <span style="font-size:10px;color:#aaa">· 처리: '+esc(m.by)+'</span>':''); }
+function sysHtml(m){
+  let q='';
+  if(m.ref){
+    const om=CHAT[m.ref];
+    const isErr=(m.kind==='err'||m.kind==='warn');
+    if(om && !om.sys){
+      const prev=String(om.text||'').split(/\n/).map(x=>x.trim()).filter(Boolean).slice(0,3).join(' / ').slice(0,80);
+      q='<div onclick="event.stopPropagation();jumpTo(\''+esc(m.ref)+'\')" title="누르면 원래 메시지로 이동" style="cursor:pointer;margin-bottom:4px;padding:3px 8px;border-left:3px solid '+(isErr?'#b23b32':'#9a9385')+';background:rgba(0,0,0,.04);border-radius:4px;font-size:11.5px;color:#5b564a;text-align:left"><b>'+esc(om.name||'')+'</b> '+esc(fmtDT(om.ts||0))+' — '+esc(prev||(om.photo?'📷 사진':'(내용 없음)'))+(om.deleted?' <i>(삭제됨)</i>':'')+' ↗</div>';
+    }else if(isErr){
+      q='<div style="margin-bottom:4px;font-size:11px;color:#8a1c1c">(원래 메시지를 찾을 수 없음 — 삭제됐거나 2주 지남)</div>';
+    }
+  }
+  return q+'<span class="tag">🤖</span> '+esc(m.text||'')+(m.by?' <span style="font-size:10px;color:#aaa">· 처리: '+esc(m.by)+'</span>':'');
+}
 /* 📋 주문 진행 칩 — 이 메시지가 만든/추가한 주문의 4단계 체크 (v6.29) */
 function ordersOfMsg(id){
   const m=CHAT[id]; if(!m) return [];
@@ -2100,7 +2116,7 @@ function sysSaysDup(id){   // 시스템 답장이 '중복 건너뜀'이면 이�
   for(const k in CHAT){ const x=CHAT[k]; if(x&&x.sys&&x.ref===id&&/중복/.test(x.text||'')) return true; }
   return false;
 }
-function unparsedList(){
+function unparsedList(manualSweep){
   const now=Date.now(), lim=48*3600*1000, out=[];
   for(const id in CHAT){
     const m=CHAT[id]; if(!m||m.sys||m.deleted||!m.text) continue;
@@ -2108,10 +2124,11 @@ function unparsedList(){
     if(now-(m.ts||0)>lim) continue;
     if(!looksLikeOrder(m.text)) continue;
     const st=m.status||'';
-    const stale=(st==='parsing'||st==='retrying') && now-((m.lockAt||m.ts)||0)>5*60*1000;
+    const stale=(st==='parsing'||st==='retrying') && now-((m.lockAt||m.ts)||0)>5*60*1000 && (manualSweep||(m.sweep||0)<2);
     // v6.62: 실패는 1회라도 10분 지나면 재확인 (자동 재시도가 화면 종료 등으로 끊긴 경우 대비)
-    const failed=st==='error' && now-((m.lockAt||m.ts)||0)>10*60*1000 && !RETRY_SCHED[id];
-    const never=!st;                                   // 상태 자체가 없음 (옛 화면·이동된 메시지 등)
+    const sw=(manualSweep?0:(m.sweep||0));            // v6.66: 자동 점검 횟수 상한 (수동 점검은 무시)
+    const failed=st==='error' && now-((m.lockAt||m.ts)||0)>10*60*1000 && !RETRY_SCHED[id] && sw<1;
+    const never=!st && sw<2;                           // 상태 자체가 없음 (옛 화면·이동된 메시지 등)
     // v6.62: done인데 만든 주문이 하나도 없고, 이월(다음 주문시)도 아니면 미처리로 봄
     const hasOrder=(m.orders||[]).some(x=>ORDERS[x]);
     const emptyDone=st==='done' && !hasOrder && (m.sweep||0)<2 && !/다음\s*(주문|번)/.test(m.text) && now-((m.doneAt||m.ts)||0)>10*60*1000 && !sysSaysDup(id);
@@ -2122,7 +2139,7 @@ function unparsedList(){
 let SWEEP_RUNNING=false;
 async function sweepUnparsed(manual){
   if(SWEEP_RUNNING||!db||!fbReady) return;
-  const ids=unparsedList();
+  const ids=unparsedList(!!manual);
   if(!ids.length){ if(manual) alert('분석 안 된 주문 메시지가 없습니다'); return; }
   if(manual && !confirm(ids.length+'건을 다시 분석할까요? (한 번에 최대 5건)')) return;
   SWEEP_RUNNING=true;
@@ -2870,11 +2887,11 @@ async function processMessage(msgId, m, tok){
           ? '⏳ AI 사용량이 잠시 몰렸습니다 — 30초 후 자동으로 다시 분석합니다. 기다리시면 됩니다.'
           : '⚠ 분석 실패: '+em.slice(0,120)+'\n30초 후 자동으로 다시 시도합니다.'}).catch(()=>{});
     }else if(r>=3){
-      await db.ref('chat').push().set({sys:1, kind:'err', ref:msgId, ts:Date.now(),
+      // v6.66: '3회 실패' 답글과 텔레그램은 메시지당 한 번만
+      const already=(CHAT[msgId]&&CHAT[msgId].tgFail)||Object.values(CHAT).some(x=>x&&x.sys&&x.ref===msgId&&/3회 모두 실패/.test(x.text||''));
+      if(!already) await db.ref('chat').push().set({sys:1, kind:'err', ref:msgId, ts:Date.now(),
         text:'🚨 자동 재시도 3회 모두 실패했습니다.\n서버 상태를 확인하거나, 메시지의 [⚠ 실패·재시도]를 눌러 수동으로 시도하세요.'}).catch(()=>{});
-      // v6.65: 텔레그램 알림 (같은 메시지는 한 번만)
       try{
-        const already=(CHAT[msgId]&&CHAT[msgId].tgFail)||false;
         if(!already){
           await mref.update({tgFail:Date.now()}).catch(()=>{});
           const txt=String(m.text||'').slice(0,300);
@@ -3188,8 +3205,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.65';
-const APP_BUILD=665;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.67';
+const APP_BUILD=667;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3691,7 +3708,7 @@ function renderPend(){
     } }
   // ⚠ 이월 미처리 (오늘 보기일 때만 맨 위)
   if(PANEL_DATE===todayStr()){
-    try{ const un=unparsedList().length; if(un){ const b=document.createElement('button'); b.textContent='🔁 분석 안 된 주문 메시지 '+un+'건 다시 분석'; b.style.cssText='width:100%;margin:2px 0 6px;border:1px solid #7a5a00;background:#fff6e6;color:#7a5a00;border-radius:6px;padding:7px;font-size:12px;font-weight:800;cursor:pointer'; b.onclick=()=>sweepUnparsed(true); box.appendChild(b); } }catch(e){}
+    try{ const un=unparsedList(true).length; if(un){ const b=document.createElement('button'); b.textContent='🔁 분석 안 된 주문 메시지 '+un+'건 다시 분석'; b.style.cssText='width:100%;margin:2px 0 6px;border:1px solid #7a5a00;background:#fff6e6;color:#7a5a00;border-radius:6px;padding:7px;font-size:12px;font-weight:800;cursor:pointer'; b.onclick=()=>sweepUnparsed(true); box.appendChild(b); } }catch(e){}
     if(IS_ADMIN){ const lg=legacyOpen().length; if(lg){ const b=document.createElement('button'); b.textContent='🧹 '+CARRY_FROM+' 이전 미처리 '+lg+'건 일괄 종결 (종이 처리분)'; b.style.cssText='width:100%;margin:2px 0 8px;border:1px dashed #b23b32;background:#fff;color:#8a1c1c;border-radius:6px;padding:7px;font-size:12px;font-weight:800;cursor:pointer'; b.onclick=closeLegacy; box.appendChild(b); } }
     const carry=carryList();
     if(carry.length){
