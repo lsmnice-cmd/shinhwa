@@ -11,7 +11,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.67 — 2026-09-29
+  신화미트 주문방 (chat.html) v6.68 — 2026-09-30
+  · v6.68: 🖼 사진 뷰어에 회전(↺ ↻) — 확대·이동은 회전된 방향 기준으로 동작. [💾 방향 저장]을 누르면 그 사진의 말풍선 썸네일도
+           모두에게 그 방향으로 보임(메시지 photo.rot 저장). 뷰어를 열 때 저장된 방향으로 시작.
   · v6.67: 🤖 시스템 답글(실패·결과)에 어느 메시지에 대한 것인지 표시 — 보낸 사람·원문 첫 줄 인용, 누르면 그 말풍선으로 이동
   · v6.66: 재분석 무한 반복 수정 — 미분석 점검(sweep)이 실패 메시지의 재시도 횟수를 0으로 되돌려 '3회 실패' 답글이 반복되던 문제.
            자동 점검은 메시지당 최대 1회(실패)·2회(멈춤/상태없음)만, '3회 실패' 답글·텔레그램은 메시지당 한 번만. 그 뒤는 수동([⚠ 실패·재시도]).
@@ -501,7 +503,11 @@
   #lightbox .lb-top a{color:#ddd;font-size:13px;text-decoration:none;border:1px solid #666;border-radius:6px;padding:6px 10px}
   #lightbox .lb-top button{background:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:800;cursor:pointer}
   #lightbox .lb-body{flex:1;overflow:hidden;display:flex;align-items:center;justify-content:center;touch-action:none;position:relative}
+  #lightbox #lbRot{display:flex;align-items:center;justify-content:center;width:100%;height:100%;transform-origin:center center;flex:none}
   #lightbox img{max-width:100%;max-height:100%;object-fit:contain;transform-origin:0 0;will-change:transform;user-select:none;-webkit-user-drag:none}
+  #lightbox .lb-top .lb-rot{background:#333;color:#fff;border:1px solid #666;font-size:15px;padding:6px 11px}
+  #lightbox .lb-top .lb-save{background:#e8b4b0;color:#1a1a1a;font-size:12px}
+  .bubble .ph-wrap img.ph{position:absolute;left:50%;top:50%;margin:0;transform-origin:center center}
   /* 🏭 생산 작업 보드 */
   .pp-day{font-size:13px;font-weight:800;color:#2e5a1c;margin:8px 0 4px;padding-top:6px;border-top:2px dashed #b9cfa6}
   .pp-day:first-of-type{border-top:none;padding-top:0}
@@ -755,9 +761,14 @@
 <div id="lightbox" onclick="closeLightbox()">
   <div class="lb-top" onclick="event.stopPropagation()">
     <a id="lbOpen" href="#" target="_blank" rel="noopener">↗ 원본 열기</a>
-    <button onclick="closeLightbox()">✕ 닫기</button>
+    <span style="display:flex;gap:6px;align-items:center">
+      <button class="lb-rot" onclick="lbRotate(-90)" title="왼쪽으로 회전">↺</button>
+      <button class="lb-rot" onclick="lbRotate(90)" title="오른쪽으로 회전">↻</button>
+      <button class="lb-save" id="lbSave" onclick="lbSaveRot()" title="이 방향을 저장 — 채팅 썸네일도 이 방향으로" style="display:none">💾 방향 저장</button>
+      <button onclick="closeLightbox()">✕ 닫기</button>
+    </span>
   </div>
-  <div class="lb-body"><img id="lbImg" src="" alt=""></div>
+  <div class="lb-body"><div id="lbRot"><img id="lbImg" src="" alt=""></div></div>
 </div>
 <div id="msgMenuBg" onclick="closeMsgMenu()"><div id="msgMenu" onclick="event.stopPropagation()"></div></div>
 
@@ -2204,9 +2215,13 @@ function bubbleHtml(id,m){
   }
   let body='';
   if(m.photo && m.photo.id){
+    const prot=((m.photo.rot||0)%360+360)%360;
+    if(prot) body+='<span class="ph-wrap" style="display:block;position:relative;overflow:hidden;margin:2px 0;border-radius:6px">';
     body+='<img class="ph" src="https://drive.google.com/thumbnail?id='+esc(m.photo.id)+'&sz=w800" '
-        +'onclick="event.stopPropagation();openLightbox(\''+esc(m.photo.id)+'\')" '
+        +(prot?'data-rot="'+prot+'" onload="phRotFix(this)" style="transform:rotate('+prot+'deg)" ':'')
+        +'onclick="event.stopPropagation();openLightbox(\''+esc(m.photo.id)+'\',\''+esc(id)+'\')" '
         +'onerror="this.replaceWith(Object.assign(document.createElement(\'a\'),{href:\'https://drive.google.com/file/d/'+esc(m.photo.id)+'/view\',target:\'_blank\',textContent:\'📷 사진 열기\'}))">';
+    if(prot) body+='</span>';
   }
   if(m.photo && m.photo.id && roomOf(id).id==='prod' && !m.deleted){
     body+='<div style="margin-top:4px"><button onclick="event.stopPropagation();analyzeLog(\''+esc(id)+'\')" '
@@ -2339,19 +2354,57 @@ async function calAddSave(){
 }
 
 /* 🖼 사진 크게 보기 (앱 안에서) */
-function openLightbox(id){
+/* 저장된 방향으로 썸네일 회전 — 90/270이면 감싸는 상자의 가로세로를 바꿔 잘리지 않게 */
+function phRotFix(img){
+  const r=parseInt(img.dataset.rot||'0',10); const w=img.parentElement; if(!w||!w.classList.contains('ph-wrap')) return;
+  const iw=img.offsetWidth||img.width, ih=img.offsetHeight||img.height; if(!iw||!ih) return;
+  const swap=(r===90||r===270);
+  w.style.width=(swap?ih:iw)+'px'; w.style.height=(swap?iw:ih)+'px';
+  img.style.transform='translate(-50%,-50%) rotate('+r+'deg)';
+}
+function openLightbox(id, msgId){
   const lb=document.getElementById('lightbox'); if(!lb) return;
   const img=document.getElementById('lbImg');
+  LB.msgId=msgId||null; LB.pid=id;
+  LB.r=(msgId&&CHAT[msgId]&&CHAT[msgId].photo&&CHAT[msgId].photo.rot)||0;   // 저장된 방향으로 시작
+  const sv=document.getElementById('lbSave'); if(sv) sv.style.display=msgId?'':'none';
+  lbFrame();
   img.src='https://drive.google.com/thumbnail?id='+encodeURIComponent(id)+'&sz=w4000';
   img.onerror=()=>{ img.onerror=null; img.src='https://lh3.googleusercontent.com/d/'+encodeURIComponent(id)+'=s0'; };
   document.getElementById('lbOpen').href='https://drive.google.com/file/d/'+encodeURIComponent(id)+'/view';
   lb.classList.add('on');
 }
-function closeLightbox(){ const lb=document.getElementById('lightbox'); if(lb){ lb.classList.remove('on'); document.getElementById('lbImg').src=''; lbReset(); } }
-/* 🔍 두 손가락 확대·이동 / 두 번 탭 — 자체 구현 */
-let LB={s:1,x:0,y:0,base:null,lastTap:0,p:{}};
+function closeLightbox(){ const lb=document.getElementById('lightbox'); if(lb){ lb.classList.remove('on'); document.getElementById('lbImg').src=''; lbReset(); LB.r=0; lbFrame(); } }
+/* 🔍 두 손가락 확대·이동 / 두 번 탭 / 회전(v6.68) — 자체 구현 */
+let LB={s:1,x:0,y:0,r:0,base:null,lastTap:0,p:{},msgId:null,pid:null};
 function lbApply(){ const img=document.getElementById('lbImg'); if(img) img.style.transform='translate('+LB.x+'px,'+LB.y+'px) scale('+LB.s+')'; }
 function lbReset(){ LB.s=1; LB.x=0; LB.y=0; LB.base=null; LB.p={}; lbApply(); }
+/* 회전 틀: 90·270도면 틀의 가로세로를 바꿔 사진이 화면에 맞게 */
+function lbFrame(){
+  const body=document.querySelector('#lightbox .lb-body'), fr=document.getElementById('lbRot'); if(!body||!fr) return;
+  const r=((LB.r%360)+360)%360; LB.r=r;
+  const W=body.clientWidth, H=body.clientHeight;
+  if(r===90||r===270){ fr.style.width=H+'px'; fr.style.height=W+'px'; } else { fr.style.width='100%'; fr.style.height='100%'; }
+  fr.style.transform='rotate('+r+'deg)';
+}
+function lbRotate(d){ LB.r=(LB.r+d+360)%360; lbReset(); lbFrame(); }
+async function lbSaveRot(){
+  if(!LB.msgId||!CHAT[LB.msgId]||!CHAT[LB.msgId].photo) return;
+  try{
+    await msgRef(LB.msgId).child('photo/rot').set(LB.r||null);
+    const b=document.getElementById('lbSave'); if(b){ b.textContent='✓ 저장됨'; setTimeout(()=>{ b.textContent='💾 방향 저장'; },1500); }
+  }catch(e){ alert('저장 실패: '+e.message); }
+}
+window.addEventListener('resize',()=>{ const lb=document.getElementById('lightbox'); if(lb&&lb.classList.contains('on')) lbFrame(); });
+/* 화면 좌표 → 회전된 틀 좌표 */
+function lbToFrame(cx, cy){
+  const body=document.querySelector('#lightbox .lb-body'); const rc=body.getBoundingClientRect();
+  const px=cx-rc.left-rc.width/2, py=cy-rc.top-rc.height/2;
+  let fx=px, fy=py;
+  if(LB.r===90){ fx=py; fy=-px; } else if(LB.r===180){ fx=-px; fy=-py; } else if(LB.r===270){ fx=-py; fy=px; }
+  const fw=(LB.r===90||LB.r===270)?rc.height:rc.width, fh=(LB.r===90||LB.r===270)?rc.width:rc.height;
+  return {x:fx+fw/2, y:fy+fh/2};
+}
 (function(){
   const body=document.querySelector('#lightbox .lb-body'); if(!body) return;
   const img=document.getElementById('lbImg');
@@ -2364,15 +2417,16 @@ function lbReset(){ LB.s=1; LB.x=0; LB.y=0; LB.base=null; LB.p={}; lbApply(); }
       const now=Date.now();
       if(now-LB.lastTap<300){        // 두 번 탭: 2.5배 ↔ 원복
         if(LB.s>1){ lbReset(); }
-        else{ const r=body.getBoundingClientRect(); const cx=e.clientX-r.left, cy=e.clientY-r.top; LB.s=2.5; LB.x=cx-(cx-LB.x)*2.5; LB.y=cy-(cy-LB.y)*2.5; lbApply(); }
+        else{ const f=lbToFrame(e.clientX,e.clientY); const cx=f.x, cy=f.y; LB.s=2.5; LB.x=cx-(cx-LB.x)*2.5; LB.y=cy-(cy-LB.y)*2.5; lbApply(); }
         LB.lastTap=0; return;
       }
       LB.lastTap=now;
-      LB.base={mode:'pan', sx:e.clientX, sy:e.clientY, x:LB.x, y:LB.y, moved:false};
+      const f0=lbToFrame(e.clientX,e.clientY);
+      LB.base={mode:'pan', sx:f0.x, sy:f0.y, x:LB.x, y:LB.y, moved:false};
     }else if(arr.length===2){
       const d=Math.hypot(arr[0].x-arr[1].x, arr[0].y-arr[1].y);
-      const r=body.getBoundingClientRect();
-      LB.base={mode:'pinch', d:d, s:LB.s, x:LB.x, y:LB.y, cx:(arr[0].x+arr[1].x)/2-r.left, cy:(arr[0].y+arr[1].y)/2-r.top};
+      const fc=lbToFrame((arr[0].x+arr[1].x)/2,(arr[0].y+arr[1].y)/2);
+      LB.base={mode:'pinch', d:d, s:LB.s, x:LB.x, y:LB.y, cx:fc.x, cy:fc.y};
     }
   });
   body.addEventListener('pointermove',e=>{
@@ -2385,7 +2439,7 @@ function lbReset(){ LB.s=1; LB.x=0; LB.y=0; LB.base=null; LB.p={}; lbApply(); }
       const k=ns/b.s;
       LB.s=ns; LB.x=b.cx-(b.cx-b.x)*k; LB.y=b.cy-(b.cy-b.y)*k; lbApply();
     }else if(b.mode==='pan' && arr.length===1 && LB.s>1){
-      const dx=e.clientX-b.sx, dy=e.clientY-b.sy;
+      const f=lbToFrame(e.clientX,e.clientY); const dx=f.x-b.sx, dy=f.y-b.sy;
       if(Math.abs(dx)>3||Math.abs(dy)>3) b.moved=true;
       LB.x=b.x+dx; LB.y=b.y+dy; lbApply();
     }
@@ -2398,10 +2452,10 @@ function lbReset(){ LB.s=1; LB.x=0; LB.y=0; LB.base=null; LB.p={}; lbApply(); }
       if(b && b.mode==='pan' && !b.moved && LB.s<=1){ setTimeout(()=>{ if(Date.now()-LB.lastTap>=300 && LB.s<=1) closeLightbox(); }, 320); }
       if(LB.s<=1.02) { LB.s=1; LB.x=0; LB.y=0; lbApply(); }
       LB.base=null;
-    }else if(pts().length===1){ const a=pts()[0]; LB.base={mode:'pan', sx:a.x, sy:a.y, x:LB.x, y:LB.y, moved:true}; }
+    }else if(pts().length===1){ const a=pts()[0]; const f=lbToFrame(a.x,a.y); LB.base={mode:'pan', sx:f.x, sy:f.y, x:LB.x, y:LB.y, moved:true}; }
   };
   body.addEventListener('pointerup',up); body.addEventListener('pointercancel',up);
-  body.addEventListener('wheel',e=>{ e.preventDefault(); const r=body.getBoundingClientRect(); const cx=e.clientX-r.left, cy=e.clientY-r.top; const ns=Math.min(6,Math.max(1, LB.s*(e.deltaY<0?1.15:0.87))); const k=ns/LB.s; LB.x=cx-(cx-LB.x)*k; LB.y=cy-(cy-LB.y)*k; LB.s=ns; if(ns===1){LB.x=0;LB.y=0;} lbApply(); },{passive:false});
+  body.addEventListener('wheel',e=>{ e.preventDefault(); const f=lbToFrame(e.clientX,e.clientY); const cx=f.x, cy=f.y; const ns=Math.min(6,Math.max(1, LB.s*(e.deltaY<0?1.15:0.87))); const k=ns/LB.s; LB.x=cx-(cx-LB.x)*k; LB.y=cy-(cy-LB.y)*k; LB.s=ns; if(ns===1){LB.x=0;LB.y=0;} lbApply(); },{passive:false});
   body.addEventListener('click',e=>e.stopPropagation());   // 배경 탭 닫기는 위 up 로직이 담당
 })();
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeLightbox(); });
@@ -3205,8 +3259,8 @@ function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
 const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.67';
-const APP_BUILD=667;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.68';
+const APP_BUILD=668;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
