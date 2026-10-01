@@ -11,7 +11,14 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.68 — 2026-09-30
+  신화미트 주문방 (chat.html) v6.69 — 2026-10-01
+  · v6.69: ⛔ 같은 메시지 반복 분석(토큰 낭비) 차단
+     ① 처리 중엔 20초마다 잠금 갱신 — 분석이 60초를 넘겨도 자동처리 화면이 자기 작업을 '멈춤'으로 오인해 또 분석하지 않음
+     ② 끊긴 쪽은 다른 화면이 이미 처리했으면 '실패'로 덮어쓰지 않음 (→ 재시도 → '중복 N건 건너뜀' 연쇄 차단)
+     ③ 이미 등록된 주문+결과 답글이 있는 메시지는 다시 분석하지 않고 완료로 정리(토큰 0)
+     ④ 재시도·멈춤 구조는 자동처리 화면 한 곳에서만, 실패 종류별 횟수 제한(내용 1회 / 서버·한도 4회, 간격 늘림)
+     ⑤ 실패 안내는 최종 1번만(답글+텔레그램), 중간 실패는 말풍선 상태로 표시. 지난 실패 안내는 해결되면 흐리게
+     ⑥ 서버 요청 120초 제한·오류 문구에 걸린 시간 표시, 다시 분석 중인 메시지엔 AI 처리 시각 숨김
   · v6.68: 🖼 사진 뷰어에 회전(↺ ↻) — 확대·이동은 회전된 방향 기준으로 동작. [💾 방향 저장]을 누르면 그 사진의 말풍선 썸네일도
            모두에게 그 방향으로 보임(메시지 photo.rot 저장). 뷰어를 열 때 저장된 방향으로 시작.
   · v6.67: 🤖 시스템 답글(실패·결과)에 어느 메시지에 대한 것인지 표시 — 보낸 사람·원문 첫 줄 인용, 누르면 그 말풍선으로 이동
@@ -628,6 +635,7 @@
        font-size:12px;line-height:1.6;color:#4a463c;white-space:pre-wrap;word-break:break-word}
   .sys.warn{background:#fff6e6;border-color:#e8c979;color:#7a5a00}
   .sys.err{background:#fdecea;border-color:#e8a9a2;color:#8a1c1c}
+  .sys.resolved{opacity:.55;background:#f4f2ec;border-color:#d8d2c2;color:#6b665a;font-size:11.5px}
   .sys .tag{font-weight:800}
 
   /* 입력 바 */
@@ -867,6 +875,8 @@
    처음인 브라우저도 로그인만 하면 meta/config에서 자동 수신합니다.
    ============================================================ */
 const LS='shinwha_note_cfg';
+/* v6.69: 실패 종류별 자동 재시도 간격(ms) — 내용 문제(parse)는 1번만, 서버(net)·AI한도(quota)는 간격을 늘려 4번 */
+const RETRY_PLAN={ parse:[60000], net:[60000, 180000, 600000, 1200000], quota:[120000, 300000, 900000, 1800000] };
 const DEFAULT_FB={
   fbUrl:'https://shinwha-note-default-rtdb.asia-southeast1.firebasedatabase.app',
   fbKey:'AIzaSyD4rYh_bfHjL5ajCf6_IKbA7gRb0CU3MJU',
@@ -929,8 +939,8 @@ function fmtDT(ts){ const d=new Date(ts); const p=n=>String(n).padStart(2,'0'); 
 /* AI 처리 시각 — doneAt(v6.62부터 저장) 없으면 시스템 답장(ref=id, 오류 아님)의 시각으로 대체 */
 let AIAT_MAP=null, AIAT_KEY='';
 function aiDoneAt(id,m){
+  if(m.status!=='done') return 0;          // v6.69: 다시 분석 중·실패 상태에는 처리 시각을 보이지 않음
   if(m.doneAt) return m.doneAt;
-  if(m.status!=='done') return 0;
   const key=Object.keys(CHAT).length;
   if(!AIAT_MAP || AIAT_KEY!==key){
     AIAT_MAP={}; AIAT_KEY=key;
@@ -1074,14 +1084,27 @@ async function fileUpload(b64, name, mime, label){
   return j;
 }
 
-async function gsCall(action, payload={}){
+/* v6.69: 응답 없는 요청이 영원히 붙잡지 않게 시간 제한(기본 120초) + 연결 오류에 걸린 시간 표시 */
+async function gsCall(action, payload={}, opt){
   const url=cfg.gsUrl||GS_DEFAULT_URL;
   if(!url) throw new Error('연결 설정이 없습니다 — 주문노트에 한 번 로그인하거나, 관리자에게 문의하세요');
   const body=new URLSearchParams({action, token:cfg.token||'', ...payload});
-  const res=await fetch(url,{method:'POST',body});
-  if(!res.ok) throw new Error('서버 오류 '+res.status);
-  const j=await res.json();
-  if(j.error) throw new Error(j.error);
+  const limit=(opt&&opt.timeout)||120000;
+  const ctl=(typeof AbortController!=='undefined')?new AbortController():null;
+  const t0=Date.now();
+  const tm=ctl?setTimeout(()=>{ try{ ctl.abort(); }catch(e){} }, limit):null;
+  let j;
+  try{
+    const res=await fetch(url,{method:'POST',body, signal:ctl?ctl.signal:undefined});
+    if(!res.ok){ const e=new Error('서버 오류 '+res.status); e.net=true; throw e; }
+    j=await res.json();
+  }catch(e){
+    if(e && e.net) throw e;
+    const sec=Math.round((Date.now()-t0)/1000);
+    const ne=new Error((e && e.name==='AbortError') ? ('서버 응답 없음 ('+sec+'초 기다림)') : ('서버 연결 끊김 ('+((e&&e.message)||'fetch')+', '+sec+'초)'));
+    ne.net=true; throw ne;
+  }finally{ if(tm) clearTimeout(tm); }
+  if(j && j.error) throw new Error(j.error);
   return j;
 }
 
@@ -1316,7 +1339,7 @@ async function onSignedIn(u){
     watchUsersTasks();  // 👥 직원 목록 · ✅ 할일
     watchRoomsOn();     // 🧩 방 ON/OFF (세트작업)
     // 🛤 자동처리 화면 생존 신호 구독 (일반 화면) — 살아 있으면 내 폰은 파싱 안 함
-    if(!IS_RUNNER){ db.ref('meta/runnerAlive').on('value', s2=>{ RUNNER_ALIVE=Number(s2.val()||0); }); }
+    if(!IS_RUNNER){ db.ref('meta/runnerAlive').on('value', s2=>{ RUNNER_ALIVE=Number(s2.val()||0); RUNNER_SEEN=true; }); }
     if(IS_RUNNER){
       const beat=()=>db.ref('meta/runnerAlive').set(Date.now()).catch(()=>{});
       beat(); setInterval(beat, 20*1000);
@@ -1324,7 +1347,8 @@ async function onSignedIn(u){
       document.title='🤖 자동처리 중 — 신화미트 주문방';
       // 백그라운드 탭은 타이머가 1분 단위로 느려지므로 30초마다 전체 재점검
       setInterval(()=>{
-        for(const id in CHAT){ const m=CHAT[id]; if(m && m.status==='parsing') rescueIfStale(id, m); }
+        settleAll().catch(()=>{});                  // v6.69: 실제로는 등록된 실패·멈춤 메시지 정리 (분석 없음)
+        for(const id in CHAT){ const m=CHAT[id]; if(m && (m.status==='parsing'||m.status==='retrying')) rescueIfStale(id, m); }
         for(const id in CHAT){ const m=CHAT[id]; if(m && m.status==='error') scheduleAutoRetry(id, m); }
       }, 30*1000);
     }
@@ -1461,7 +1485,7 @@ async function ensureTwoWeeks(){
     arr.sort((a,b)=>(a[1].ts||0)-(b[1].ts||0)).reverse().forEach(([id,m])=>{
       m._room=CUR_ROOM.id; CHAT[id]=m;
       const row=document.createElement('div'); row.id='m_'+id;
-      if(m.sys){ row.className='sys-row'; row.innerHTML='<div class="sys'+(m.kind==='warn'?' warn':m.kind==='err'?' err':'')+'">'+sysHtml(m)+'</div>'; }
+      if(m.sys){ row.className='sys-row'; row.innerHTML='<div class="sys'+sysCls(m)+'">'+sysHtml(m)+'</div>'; }
       else{ row.className='msg-row'+((ME&&m.uid===ME.uid)?' mine':''); row.innerHTML=bubbleHtml(id,m); }
       box.insertBefore(row, box.firstChild);
     });
@@ -1524,7 +1548,7 @@ async function loadOlder(){
       row.id='m_'+id;
       if(m.sys){
         row.className='sys-row';
-        row.innerHTML='<div class="sys'+(m.kind==='warn'?' warn':m.kind==='err'?' err':'')+'">'+sysHtml(m)+'</div>';
+        row.innerHTML='<div class="sys'+sysCls(m)+'">'+sysHtml(m)+'</div>';
       }else{
         row.className='msg-row'+((ME&&m.uid===ME.uid)?' mine':'');
         row.innerHTML=bubbleHtml(id,m);
@@ -2009,7 +2033,7 @@ function appendMsg(id, m){
   if(m.sys){
     el=document.createElement('div'); el.className='sys-row'; el.id='m_'+id;
     const d=document.createElement('div');
-    d.className='sys'+(m.kind==='warn'?' warn':m.kind==='err'?' err':'');
+    d.className='sys'+sysCls(m);
     d.innerHTML=sysHtml(m);
     el.appendChild(d);
   }else{
@@ -2026,11 +2050,20 @@ function updateMsg(id, m){
   if(!el||!m) return;
   if(m.sys){
     const d=el.querySelector('.sys');
-    if(d){ d.className='sys'+(m.kind==='warn'?' warn':m.kind==='err'?' err':''); d.innerHTML=sysHtml(m); }
+    if(d){ d.className='sys'+sysCls(m); d.innerHTML=sysHtml(m); }
   }else{
     el.innerHTML=bubbleHtml(id,m);
+    // v6.69: 이 메시지를 가리키는 안내 답글도 상태에 맞게 다시 그림 (해결되면 흐리게)
+    for(const k in CHAT){ const x=CHAT[k]; if(x&&x.sys&&x.ref===id){ const r0=document.getElementById('m_'+k); const d0=r0&&r0.querySelector('.sys'); if(d0){ d0.className='sys'+sysCls(x); d0.innerHTML=sysHtml(x); } } }
   }
 }
+/* v6.69: 실패 안내였는데 그 메시지가 이후 정상 처리됐으면 흐리게 */
+function sysResolved(m){
+  if(!m||!m.sys||!m.ref) return false;
+  if(!FAIL_RE.test(m.text||'')) return false;
+  const om=CHAT[m.ref]; return !!(om && om.status==='done');
+}
+function sysCls(m){ if(sysResolved(m)) return ' resolved'; return m.kind==='warn'?' warn':m.kind==='err'?' err':''; }
 function sysHtml(m){
   let q='';
   if(m.ref){
@@ -2043,7 +2076,7 @@ function sysHtml(m){
       q='<div style="margin-bottom:4px;font-size:11px;color:#8a1c1c">(원래 메시지를 찾을 수 없음 — 삭제됐거나 2주 지남)</div>';
     }
   }
-  return q+'<span class="tag">🤖</span> '+esc(m.text||'')+(m.by?' <span style="font-size:10px;color:#aaa">· 처리: '+esc(m.by)+'</span>':'');
+  return q+(sysResolved(m)?'<div style="font-size:11px;color:#1f6b3a;font-weight:800;margin-bottom:2px">✓ 이후 정상 처리됨 — 아래는 지난 안내</div>':'')+'<span class="tag">🤖</span> '+esc(m.text||'')+(m.by?' <span style="font-size:10px;color:#aaa">· 처리: '+esc(m.by)+'</span>':'');
 }
 /* 📋 주문 진행 칩 — 이 메시지가 만든/추가한 주문의 4단계 체크 (v6.29) */
 function ordersOfMsg(id){
@@ -2083,31 +2116,105 @@ function stateHtml(id,m){
     if(stale) return '<span class="m-state parsing" style="cursor:pointer;text-decoration:underline" onclick="event.stopPropagation();forceRetry(\''+esc(id)+'\')" title="3분 넘게 멈춤 — 눌러서 다시 분석">⏳ 분석 멈춤 · 다시</span>';
     return '<span class="m-state parsing">분석중…</span>';
   }
-  if(m.status==='error')   return '<span class="m-state error" style="cursor:pointer;text-decoration:underline" '
-    +'onclick="event.stopPropagation();retryMsg(\''+esc(id)+'\')" title="눌러서 다시 분석">⚠ 실패·재시도</span>';
+  if(m.status==='error'){
+    const plan=RETRY_PLAN[m.errKind]||RETRY_PLAN.parse; const r=m.retries||0;
+    const tip=m.errMsg?(m.errMsg+' — '):'';
+    if(r<plan.length && Date.now()-(m.ts||0)<12*3600*1000){
+      const lab=m.errKind==='net'?'서버 연결 재시도':m.errKind==='quota'?'AI 한도 대기':'재분석 대기';
+      return '<span class="m-state error" style="cursor:pointer;text-decoration:underline;color:#7a5a00" onclick="event.stopPropagation();retryMsg(\''+esc(id)+'\')" title="'+esc(tip)+'잠시 뒤 자동으로 다시 시도합니다 · 누르면 지금 바로">⏳ '+lab+' '+(r+1)+'/'+plan.length+'</span>';
+    }
+    return '<span class="m-state error" style="cursor:pointer;text-decoration:underline" onclick="event.stopPropagation();retryMsg(\''+esc(id)+'\')" title="'+esc(tip)+'눌러서 다시 분석">⚠ 실패·재시도</span>';
+  }
   if(m.status==='done')    return '<span class="m-state done">✓</span>';
   return '';
 }
 
-/* 🔁 실패 자동 재시도 — 30초→2분→5분 간격 최대 3회.
-   transaction으로 여러 화면이 동시에 열려 있어도 1번만 실행됩니다.
-   3회 모두 실패하면 수동([⚠ 실패·재시도])으로 넘어갑니다. */
+/* 🔁 실패 자동 재시도 (v6.69) — 실패 종류별 RETRY_PLAN 간격·횟수.
+   자동처리 화면이 살아 있으면 그 한 곳에서만 재시도하고, transaction으로 1번만 실행됩니다.
+   이미 주문이 등록된 메시지는 다시 분석하지 않습니다. 다 실패하면 수동([⚠ 실패·재시도]). */
 const AUTO_RETRY_DELAYS=[30000, 120000, 300000];
 const RETRY_SCHED={};
+/* v6.69 ── 중복 분석·토큰 낭비 방지 도우미 ── */
+function errKindOf(e, em){
+  if(/quota|한도|429|RESOURCE_EXHAUSTED|사용량이 몰려/i.test(em)) return 'quota';
+  if((e&&e.net) || /Failed to fetch|Load failed|NetworkError|서버 연결 끊김|서버 응답 없음|서버 오류 \d/i.test(em)) return 'net';
+  return 'parse';
+}
+function hasSysReply(id){ for(const k in CHAT){ const x=CHAT[k]; if(x&&x.sys&&x.ref===id) return true; } return false; }
+const FAIL_RE=/분석 실패|모두 실패|AI 사용량이 잠시|자동 처리 중단/;
+function hasResultReply(id){ for(const k in CHAT){ const x=CHAT[k]; if(x&&x.sys&&x.ref===id&&x.kind!=='err'&&!FAIL_RE.test(x.text||'')) return true; } return false; }
+function ordersFromMsg(id){
+  const out=[];
+  for(const oid in ORDERS){ const o=ORDERS[oid]; if(!o) continue;
+    if(o.chatMsg===id || (o.items||[]).some(it=>it&&it.src===id)) out.push(oid); }
+  return out;
+}
+/* 주문이 이미 등록됐고 결과 답글도 있는 메시지 → 다시 분석하지 않고 완료로 정리 (토큰 0) */
+async function settleIfAlreadyDone(id){
+  const m=CHAT[id]; if(!m||m.sys||m.deleted) return false;
+  if(m.status==='done' && m.orders && m.orders.length) return false;
+  const ids=ordersFromMsg(id);
+  if(!ids.length || !hasResultReply(id)) return false;
+  try{
+    const o0=ORDERS[ids[0]]||{}; const t0=o0.sts||o0.ts||Date.now();
+    const tr=await msgRef(id).transaction(c=>{
+      if(!c || c.deleted) return;
+      if(c.status==='done' && c.orders && c.orders.length) return;
+      if((c.status==='parsing'||c.status==='retrying') && c.lockAt && Date.now()-c.lockAt<STALE_MS) return;   // 지금 누가 처리 중
+      c.status='done'; c.orders=ids; c.doneAt=c.doneAt||t0; c.lock=null; c.errKind=null; c.errMsg=null; c.settled=Date.now(); return c;
+    });
+    if(tr.committed) console.log('✅ 이미 등록된 주문 확인 — 다시 분석하지 않고 완료 처리', id);
+    return !!tr.committed;
+  }catch(e){ return false; }
+}
+/* 자동처리 화면이 30초마다: 실패·멈춤으로 남았지만 실제로는 등록된 메시지 정리 */
+let SETTLING=false;
+async function settleAll(){
+  if(SETTLING) return; SETTLING=true;
+  try{
+    for(const id in CHAT){
+      const m=CHAT[id]; if(!m||m.sys||m.deleted||!m.text) continue;
+      const st=m.status||'';
+      const cand = st==='error' || ((st==='parsing'||st==='retrying') && Date.now()-((m.lockAt||m.ts)||0)>STALE_MS) || (st==='done' && !(m.orders&&m.orders.length));
+      if(cand) await settleIfAlreadyDone(id);
+    }
+  }finally{ SETTLING=false; }
+}
+/* 최종 실패 안내 — 답글·텔레그램은 메시지당 한 번만 */
+async function notifyGiveUp(msgId, em, kind, n){
+  try{
+    const m=CHAT[msgId]||{};
+    const already=m.tgFail||Object.values(CHAT).some(x=>x&&x.sys&&x.ref===msgId&&/모두 실패|자동 처리 중단/.test(x.text||''));
+    if(already) return;
+    await msgRef(msgId).update({tgFail:Date.now()}).catch(()=>{});
+    const head=kind==='net'?'🚨 서버 연결 실패':kind==='quota'?'🚨 AI 사용 한도 초과':kind==='stall'?'🚨 분석이 반복해서 멈춤':'🚨 주문으로 인식하지 못함';
+    const who=(IS_RUNNER?'🤖 자동처리':MYNAME);
+    const tail=n?(' — 자동 재시도 '+n+'회 모두 실패'):' — 자동 처리 중단';
+    await db.ref('chat').push().set({sys:1, kind:'err', ref:msgId, ts:Date.now(), by:who,
+      text:head+tail+'\n원인: '+String(em||'').slice(0,120)+'\n말풍선의 [⚠ 실패·재시도]를 누르거나 주문노트에 직접 입력하세요.'}).catch(()=>{});
+    gsCall('tgNotify',{text:head+tail+'\n보낸 사람: '+(m.name||'')+' · '+fmtDT(m.ts||Date.now())+'\n처리 화면: '+who+'\n원인: '+String(em||'').slice(0,140)
+      +'\n\n'+String(m.text||'').slice(0,300)+'\n\n주문방에서 [⚠ 실패·재시도]를 누르거나 주문노트에 직접 입력하세요.\n'+SITE_URL+'?room=order'}).catch(()=>{});
+  }catch(e){}
+}
 function scheduleAutoRetry(id, m){
   if(!m || m.sys || !m.text) return;
   if(m.status!=='error'){
     if(RETRY_SCHED[id]){ clearTimeout(RETRY_SCHED[id]); delete RETRY_SCHED[id]; }
     return;
   }
+  if(!IS_RUNNER && runnerAlive()) return;            // 자동처리 화면이 살아 있으면 재시도는 그쪽 한 곳에서만
+  const plan=RETRY_PLAN[m.errKind]||RETRY_PLAN.parse;
   const r=m.retries||0;
-  if(r>=3) return;                                   // 자동은 3회까지
+  if(r>=plan.length) return;                         // 자동 재시도 다 씀 → 수동
   if(Date.now()-(m.ts||0) > 12*3600*1000) return;    // 12시간 지난 건 수동만
   if(RETRY_SCHED[id]) return;
+  const wait=Math.max(5000, plan[r]-(Date.now()-(m.errAt||Date.now())));   // 실패 시각 기준
   RETRY_SCHED[id]=setTimeout(async()=>{
     delete RETRY_SCHED[id];
     const cur=CHAT[id];
     if(!cur || cur.status!=='error') return;
+    if(!IS_RUNNER && runnerAlive()) return;
+    if(await settleIfAlreadyDone(id)) return;        // 이미 등록돼 있으면 다시 분석하지 않음
     try{
       const tok=newTok();
       const tr=await msgRef(id).transaction(c=>{
@@ -2119,7 +2226,7 @@ function scheduleAutoRetry(id, m){
         await processMessage(id, tr.snapshot.val(), tok);
       }
     }catch(e){ console.warn('autoRetry', e); }
-  }, AUTO_RETRY_DELAYS[Math.min(r,2)]);
+  }, wait);
 }
 
 /* 🔁 미분석 점검 (v6.33) — 주문처럼 생겼는데 분석이 안 된 메시지 찾기 */
@@ -2136,13 +2243,13 @@ function unparsedList(manualSweep){
     if(!looksLikeOrder(m.text)) continue;
     const st=m.status||'';
     const stale=(st==='parsing'||st==='retrying') && now-((m.lockAt||m.ts)||0)>5*60*1000 && (manualSweep||(m.sweep||0)<2);
-    // v6.62: 실패는 1회라도 10분 지나면 재확인 (자동 재시도가 화면 종료 등으로 끊긴 경우 대비)
     const sw=(manualSweep?0:(m.sweep||0));            // v6.66: 자동 점검 횟수 상한 (수동 점검은 무시)
-    const failed=st==='error' && now-((m.lockAt||m.ts)||0)>10*60*1000 && !RETRY_SCHED[id] && sw<1;
+    // v6.69: 실패는 자동 재시도를 다 쓴 뒤, 서버·한도 문제일 때만 한 번 더 (내용 문제는 다시 돌려도 같음 → 수동)
+    const plan=RETRY_PLAN[m.errKind]||RETRY_PLAN.parse;
+    const failed=st==='error' && (manualSweep || ((m.errKind==='net'||m.errKind==='quota') && (m.retries||0)>=plan.length && now-((m.errAt||m.lockAt||m.ts)||0)>10*60*1000 && sw<1));
     const never=!st && sw<2;                           // 상태 자체가 없음 (옛 화면·이동된 메시지 등)
-    // v6.62: done인데 만든 주문이 하나도 없고, 이월(다음 주문시)도 아니면 미처리로 봄
-    const hasOrder=(m.orders||[]).some(x=>ORDERS[x]);
-    const emptyDone=st==='done' && !hasOrder && (m.sweep||0)<2 && !/다음\s*(주문|번)/.test(m.text) && now-((m.doneAt||m.ts)||0)>10*60*1000 && !sysSaysDup(id);
+    // v6.69: '완료인데 주문 없음'은 주문 목록이 아예 비었고 결과 답글도 없을 때만 — 일부러 지운 주문을 되살리지 않음
+    const emptyDone=st==='done' && !(m.orders&&m.orders.length) && (m.sweep||0)<1 && !/다음\s*(주문|번)/.test(m.text) && now-((m.doneAt||m.ts)||0)>10*60*1000 && !hasSysReply(id);
     if(stale||failed||never||emptyDone) out.push(id);
   }
   return out.sort((a,b)=>(CHAT[a].ts||0)-(CHAT[b].ts||0));
@@ -2157,10 +2264,11 @@ async function sweepUnparsed(manual){
   try{
     for(const id of ids.slice(0,5)){
       const m=CHAT[id]; const tok=newTok();
+      if(await settleIfAlreadyDone(id)) continue;     // v6.69: 이미 등록된 건 분석 없이 정리
       const tr=await msgRef(id).transaction(c=>{
         if(!c||c.deleted) return;
         if((c.status==='parsing'||c.status==='retrying') && c.lockAt && Date.now()-c.lockAt<5*60*1000) return;   // 진짜 진행 중
-        c.status='parsing'; c.lock=tok; c.lockAt=Date.now(); c.retries=0; c.orders=null; c.sweep=(c.sweep||0)+1; return c;
+        c.status='parsing'; c.lock=tok; c.lockAt=Date.now(); c.retries=0; c.orders=null; c.sweep=(c.sweep||0)+1; c.rescues=null; c.doneAt=null; c.errKind=null; c.errMsg=null; return c;
       });
       if(!tr.committed) continue;
       try{ await processMessage(id, tr.snapshot.val()||m, tok); }catch(e){ console.warn('sweep',e); }
@@ -2182,7 +2290,7 @@ async function forceRetry(id){
   try{
     if(m.status==='done' || (m.orders&&m.orders.length)) await rollbackMsg(id);
     const tok=newTok();
-    await msgRef(id).update({status:'parsing', lock:tok, lockAt:Date.now(), orders:null, retries:0});
+    await msgRef(id).update({status:'parsing', lock:tok, lockAt:Date.now(), orders:null, retries:0, rescues:null, doneAt:null, errKind:null, errMsg:null});
     await processMessage(id, Object.assign({}, m, {status:'parsing'}), tok);
   }catch(e){ alert('재분석 실패: '+e.message); }
 }
@@ -2194,7 +2302,7 @@ async function retryMsg(id){
     const tok=newTok();
     const tr=await msgRef(id).transaction(c=>{
       if(!c || c.status!=='error') return;      // 이미 누가 재시도 중
-      c.status='parsing'; c.lock=tok; c.lockAt=Date.now(); return c;
+      c.status='parsing'; c.lock=tok; c.lockAt=Date.now(); c.rescues=null; return c;
     });
     if(!tr.committed) return;
     await processMessage(id, tr.snapshot.val()||m, tok);
@@ -2890,7 +2998,9 @@ async function processMessage(msgId, m, tok){
       c.lock=tok; c.lockAt=Date.now(); return c;
     });
     if(!tr.committed){ console.log('🔒 완료됐거나 다른 화면이 처리 중 — 건너뜀', msgId); return; }
-  }catch(e){ console.warn('lock',e); }
+  }catch(e){ console.warn('lock',e); return; }   // v6.69: 잠금을 못 잡으면 처리하지 않음 (중복 분석 방지)
+  // v6.69: 처리 중 20초마다 잠금 시각 갱신 — 오래 걸려도 다른 화면(자기 자신 포함)이 '멈춤'으로 오인해 또 분석하지 않게
+  const hb=setInterval(async()=>{ try{ const s0=await mref.child('lock').once('value'); if(s0.val()===tok) await mref.child('lockAt').set(Date.now()); }catch(e){} }, 20000);
   const guard=async()=>{ try{ return (await mref.child('lock').once('value')).val()===tok; }catch(e){ return true; } };
   try{
     // 답장이면 원본 메시지가 만든 주문에서 거래처·날짜를 확정
@@ -2907,7 +3017,7 @@ async function processMessage(msgId, m, tok){
     if(!got && looksLikeOrder(m.text) && !/다음\s*(주문|번)/.test(m.text)){
       throw new Error('주문으로 인식하지 못했습니다 — 자동으로 다시 분석합니다');
     }
-    await mref.update({status:'done', doneAt:Date.now(), orders:tot.ids.filter(x=>!String(x).startsWith('deferred:'))});
+    await mref.update({status:'done', doneAt:Date.now(), orders:tot.ids.filter(x=>!String(x).startsWith('deferred:')), errKind:null, errMsg:null, rescues:null});
 
     // 결과를 시스템 답장으로
     let lines=[];
@@ -2931,30 +3041,20 @@ async function processMessage(msgId, m, tok){
     checkSuspicion(m, tot);
   }catch(e){
     console.error('processMessage',e);
-    await mref.update({status:'error'}).catch(()=>{});
-    const r=(CHAT[msgId]&&CHAT[msgId].retries)||0;
+    // v6.69: 내가 아직 이 메시지 담당일 때만 실패로 기록 — 다른 화면이 이어받았거나 이미 완료됐으면 조용히 물러남
+    //        (예전엔 끊긴 쪽이 '실패'로 덮어써서 → 자동 재시도 → '중복 N건 건너뜀'으로 같은 메시지를 또 분석했음)
+    try{
+      const cur=(await mref.once('value')).val()||{};
+      if(cur.lock!==tok || cur.status==='done' || cur.deleted){ console.log('🔒 실패했지만 다른 화면이 처리함 — 기록 생략', msgId); return; }
+    }catch(e3){}
     const em=String(e.message||e);
-    const isQuota=/quota|한도|429|RESOURCE_EXHAUSTED|사용량이 몰려/i.test(em);
-    if(r===0){
-      await db.ref('chat').push().set({sys:1, kind:isQuota?'warn':'err', ref:msgId, ts:Date.now(),
-        text:isQuota
-          ? '⏳ AI 사용량이 잠시 몰렸습니다 — 30초 후 자동으로 다시 분석합니다. 기다리시면 됩니다.'
-          : '⚠ 분석 실패: '+em.slice(0,120)+'\n30초 후 자동으로 다시 시도합니다.'}).catch(()=>{});
-    }else if(r>=3){
-      // v6.66: '3회 실패' 답글과 텔레그램은 메시지당 한 번만
-      const already=(CHAT[msgId]&&CHAT[msgId].tgFail)||Object.values(CHAT).some(x=>x&&x.sys&&x.ref===msgId&&/3회 모두 실패/.test(x.text||''));
-      if(!already) await db.ref('chat').push().set({sys:1, kind:'err', ref:msgId, ts:Date.now(),
-        text:'🚨 자동 재시도 3회 모두 실패했습니다.\n서버 상태를 확인하거나, 메시지의 [⚠ 실패·재시도]를 눌러 수동으로 시도하세요.'}).catch(()=>{});
-      try{
-        if(!already){
-          await mref.update({tgFail:Date.now()}).catch(()=>{});
-          const txt=String(m.text||'').slice(0,300);
-          gsCall('tgNotify',{text:'🚨 주문 분석 실패 (자동 재시도 3회)\n보낸 사람: '+(m.name||'')+' · '+fmtDT(m.ts||Date.now())
-            +'\n오류: '+em.slice(0,120)+'\n\n'+txt+'\n\n주문방에서 [⚠ 실패·재시도]를 누르거나 주문노트에 직접 입력하세요.\n'+SITE_URL+'?room=order'}).catch(()=>{});
-        }
-      }catch(e2){}
-    }
-  }
+    const kind=errKindOf(e, em);
+    const plan=RETRY_PLAN[kind]||RETRY_PLAN.parse;
+    const r=(CHAT[msgId]&&CHAT[msgId].retries)||0;
+    await mref.update({status:'error', errKind:kind, errMsg:em.slice(0,200), errAt:Date.now(), errBy:(IS_RUNNER?'🤖 자동처리':MYNAME)}).catch(()=>{});
+    // 중간 실패는 답글 없이 말풍선 상태(⏳ 재시도 n/N)로만 — 자동 재시도를 다 쓰면 그때 한 번만 답글+텔레그램
+    if(r>=plan.length) await notifyGiveUp(msgId, em, kind, r);
+  }finally{ clearInterval(hb); }
 }
 
 async function createOrders(text, forced, msgId, senderName, isEdit, guard){
@@ -3257,28 +3357,41 @@ let ROOM_LISTENERS=[], LAST_READ={}, ROOM_LAST={}, ROOM_UNREAD={};
 let ROOMS_ON={};   // 관리자 ON/OFF (meta/roomsOn/{id}) — toggle 방만 해당
 function roomVisible(r){ return !r.toggle || ROOMS_ON[r.id]!==false && (ROOMS_ON[r.id]===true || IS_ADMIN); }
 let RUNNER_ALIVE=0;                                   // 자동처리 화면의 마지막 생존 신호
-function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<60*1000; }
-const STALE_MS=IS_RUNNER ? 60*1000 : 180*1000;  // 자동처리 화면 60초 / 일반 화면 3분 (안전망)
-const APP_VER='6.68';
-const APP_BUILD=668;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+let RUNNER_SEEN=false;                                 // v6.69: 생존 신호를 한 번이라도 받았는지
+function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<130*1000; }   // v6.69: 백그라운드 탭 타이머 지연(최대 1분) 감안
+const STALE_MS=IS_RUNNER ? 150*1000 : 180*1000;  // v6.69: 처리 중엔 20초마다 잠금이 갱신됨 → 이 시간 동안 갱신이 없을 때만 '멈춤'
+const APP_VER='6.69';
+const APP_BUILD=669;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
+const RESCUE_T={};
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
-  if(m.status!=='parsing') return;
+  if(m.status!=='parsing' && m.status!=='retrying') return;     // v6.69: '재시도 중'에 멈춘 것도 구조
+  if(!IS_RUNNER){
+    if(!RUNNER_SEEN){ if(!RESCUE_T[id]) RESCUE_T[id]=setTimeout(()=>{ delete RESCUE_T[id]; const cur=CHAT[id]; if(cur) rescueIfStale(id, cur); }, 6000); return; }
+    if(runnerAlive()) return;                                   // 자동처리 화면이 있으면 그쪽이 담당
+  }
   const left=STALE_MS-(Date.now()-(m.lockAt||m.ts||0));
   if(left>0){
-    setTimeout(()=>{ const cur=CHAT[id]; if(cur) rescueIfStale(id, cur); }, left+Math.floor(Math.random()*4000));
+    if(!RESCUE_T[id]) RESCUE_T[id]=setTimeout(()=>{ delete RESCUE_T[id]; const cur=CHAT[id]; if(cur) rescueIfStale(id, cur); }, left+Math.floor(Math.random()*4000));
     return;
   }
+  if(await settleIfAlreadyDone(id)) return;                     // 이미 등록돼 있으면 다시 분석하지 않음
   try{
     const tok=newTok();
     const tr=await msgRef(id).transaction(c=>{
-      if(!c || c.status!=='parsing') return;
-      if(c.lockAt && Date.now()-c.lockAt<STALE_MS) return;     // 아직 남이 살아서 처리 중
+      if(!c || c.deleted || (c.status!=='parsing' && c.status!=='retrying')) return;
+      if(c.lockAt && Date.now()-c.lockAt<STALE_MS) return;     // 아직 살아서 처리 중 (처리 중이면 20초마다 갱신됨)
+      c.rescues=(c.rescues||0)+1;
+      if(c.rescues>2){                                          // 같은 메시지가 계속 멈추면 더 돌리지 않고 수동으로
+        c.status='error'; c.errKind='net'; c.retries=RETRY_PLAN.net.length; c.errMsg='분석이 반복해서 멈춤 (처리 화면이 중간에 끊김)'; c.errAt=Date.now(); c.lock=null; return c;
+      }
       c.status='retrying'; c.lock=tok; c.lockAt=Date.now(); return c;
     });
     if(!tr.committed) return;
-    await processMessage(id, tr.snapshot.val()||m, tok);
+    const v=tr.snapshot.val()||{};
+    if(v.status==='error'){ await notifyGiveUp(id, v.errMsg, 'stall', 0); return; }
+    await processMessage(id, v.text?v:m, tok);
   }catch(e){ console.warn('rescue',e); }
 }
 
