@@ -11,7 +11,15 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.69 — 2026-10-01
+  신화미트 주문방 (chat.html) v6.72 — 2026-10-05
+  · v6.72: 짝짓기 목록에 채팅 원문을 보여줌 (“생불20kg” · 현재 매칭: 황제늑간(SWIFT,냉동)). 상품명이 '매칭없음'으로 덮인
+     옛 품목은 원문으로 표시하고, 미처리 상단 [🧹 '매칭없음'으로 바뀐 품목명 복구] 버튼(관리자)으로 원래 이름을 되살림.
+  · v6.71: 거래처명 정리 — "안녕하세요 민하면옥입니다." 같은 인사말·어미를 떼고 매칭 (Code v5.3과 동일 규칙).
+     이미 그렇게 저장된 주문은 미처리 카드에 ⚠ 표시 + 한 번에 정리하는 버튼(관리자, 미처리 상단).
+  · v6.70: 🔗 품목 매칭 표시 — 카드(미처리·확인방·완료 기록·차량 패널)의 품목 옆에 매칭된 상품명을 (괄호)로 표시하고,
+     짝짓기·수정으로 새로 바뀐 품목은 노란 표시 '🔗 새 품목' + 이전 품목(취소선)로 표시 (PC에서 마우스를 올리면 누가·언제).
+     짝짓기로 바꾼 매칭은 같은 거래처의 아직 처리 안 된 주문(오늘 이후)에도 바로 반영. '매칭없음' 학습 품목은 상품명을 바꾸지 않고 대조 제외만.
+     대조 완료 기록에서도 '품목 미확인'이 남은 주문은 [🔗 짝짓기]로 연결 가능.
   · v6.69: ⛔ 같은 메시지 반복 분석(토큰 낭비) 차단
      ① 처리 중엔 20초마다 잠금 갱신 — 분석이 60초를 넘겨도 자동처리 화면이 자기 작업을 '멈춤'으로 오인해 또 분석하지 않음
      ② 끊긴 쪽은 다른 화면이 이미 처리했으면 '실패'로 덮어쓰지 않음 (→ 재시도 → '중복 N건 건너뜀' 연쇄 차단)
@@ -686,6 +694,9 @@
   .oc-src{margin-left:auto;font-size:10px;color:#a09a8a;cursor:pointer}
   .oc-items{font-size:12.5px;line-height:1.6;color:#333;margin-bottom:7px}
   .oc-items .price{color:var(--accent);font-weight:700}
+  .prod-tag{font-size:11px;color:#1a4f9c}
+  .prod-chg{font-size:11.5px;font-weight:800;color:#7a4a00;background:#fff3cd;border:1px solid #e0b84a;border-radius:4px;padding:0 5px}
+  .prod-old{font-size:10.5px;color:#9a9385;text-decoration:line-through}
   .oc{overflow:hidden}
   /* 성능: 화면 밖 카드·말풍선은 레이아웃 생략 (키보드 등으로 크기 바뀔 때 부담 감소) */
   .ocard,.ccard,.tk,.sw{content-visibility:auto;contain-intrinsic-size:auto 160px}
@@ -954,6 +965,49 @@ function timeHtml(id,m){
   return a ? t+'<span class="m-time" title="AI가 주문으로 반영한 시각">🤖 '+fmtDT(a)+'</span>' : t;
 }
 function shortName(name){ return String(name||'').split(/[\(\-]/)[0].trim(); }
+/* v6.71: 거래처명에서 인사말·어미 제거 ("안녕하세요 민하면옥입니다." → "민하면옥") — Code v5.3 cleanClient_ 와 동일 */
+function cleanClientName(t){
+  t=String(t||'').trim(); let prev='';
+  while(prev!==t){
+    prev=t;
+    t=t.replace(/^(안녕하세요|안녕하십니까|안녕하세용|안녕|반갑습니다|수고하세요|수고하십니다|수고많으세요|감사합니다|여기)[\s.!~,]*/,'').trim();
+    t=t.replace(/[\s.!~,]*(입니다|이에요|예요|임다|이예요|인데요|입니당|이구요|이고요|이에용|에요)[\s.!~,]*$/,'').trim();
+    t=t.replace(/[\s.!~,:]+$/,'').trim();
+  }
+  return t;
+}
+function clientLooksDirty(c){ const t=String(c||'').trim(); return !!t && cleanClientName(t)!==t && cleanClientName(t).length>=2; }
+/* v6.72: 옛 버그로 상품명이 '매칭없음'이 된 품목 → 원래 이름(wasProduct/원문)으로 되돌림 (대조 제외 표시는 그대로 두지 않음 — 다시 짝지을 수 있게) */
+async function fixNoMatchNames(){
+  const upd={}; let n=0, cnt=0;
+  Object.values(ORDERS).forEach(o=>{
+    if(!o||!o.items) return; let ch=false;
+    const items=o.items.map(it=>{
+      if(!it||String(it.product||'').trim()!=='매칭없음') return it;
+      const back=String(it.wasProduct||'').trim()||String(it.text||'').trim(); if(!back) return it;
+      ch=true; n++;
+      const x=Object.assign({}, it, {product:back, via:'복구', chg:{from:'매칭없음', to:back, by:MYNAME, at:Date.now(), via:'복구'}}); delete x.noMatch; return x;
+    });
+    if(ch){ upd['orders/'+o.id+'/items']=items; o.items=items; cnt++; }
+  });
+  if(!n){ alert('복구할 품목이 없습니다'); return; }
+  if(!confirm(cnt+'건 주문의 '+n+'품목 상품명을 원래 이름으로 되돌릴까요?\n(학습사전의 "매칭없음" 등록은 그대로 — 확인방에서 다시 짝지으면 덮어씁니다)')) return;
+  try{ await db.ref().update(upd); renderSide(); toast('🧹 '+n+'품목 복구'); }catch(e){ alert('실패: '+e.message); }
+}
+/* 이미 저장된 '안녕하세요 ○○입니다' 거래처명을 한 번에 정리 (관리자) */
+async function fixDirtyClients(){
+  const list=Object.values(ORDERS).filter(o=>o && clientLooksDirty(o.client));
+  if(!list.length){ alert('정리할 거래처명이 없습니다'); return; }
+  const prev=list.slice(0,8).map(o=>'· '+o.client+' → '+cleanClientName(o.client)).join('\n')+(list.length>8?'\n…외 '+(list.length-8)+'건':'');
+  if(!confirm(list.length+'건의 거래처명을 정리할까요?\n'+prev)) return;
+  const upd={};
+  list.forEach(o=>{
+    const nm=cleanClientName(o.client); const sk=matchClient(nm)||nm;
+    upd['orders/'+o.id+'/client']=sk; o.client=sk;
+    if(MASTER[sk]===undefined){ upd['orders/'+o.id+'/needClient']=true; o.needClient=true; }
+  });
+  try{ await db.ref().update(upd); renderSide(); alert(list.length+'건 정리했습니다'); }catch(e){ alert('실패: '+e.message); }
+}
 
 let _clientIndex=null;
 function buildClientIndex(){
@@ -975,6 +1029,7 @@ function cliNorm(n){
 }
 function matchClient(raw){
   if(!_clientIndex) buildClientIndex();
+  raw=cleanClientName(raw)||String(raw||'').trim();   // v6.71: 인사말·어미 제거 후 매칭
   const rawT=String(raw||'').trim();
   if(rawT && ALIASES[rawT]) return ALIASES[rawT];
   // v6.64: "택배 소담"처럼 마스터에 그 이름이 따로 있으면(택배 전용 거래처) 그대로 — 접두어를 떼지 않음
@@ -1046,6 +1101,72 @@ function dedupKey(date,client,itemText){
   return date+'|'+cliNorm(client)+'|'+String(itemText||'').replace(/\s+/g,'');
 }
 function itemText(it){ return it.text||it.product||''; }
+/* v6.70: 매칭된 정식 상품명 표시 — 원문과 다르면 (상품명), 새로 바뀐 것은 🔗 강조 + 이전 품목(취소선) */
+function prodNorm(s){ return String(s||'').replace(/[\s\d\.\,\(\)\[\]×\*\/\-]+/g,'').toLowerCase(); }
+const CHG_VIA=['짝짓기','대조학습','수동수정','편집기','소급'];
+function prodChange(it){   // 이 품목의 매칭이 바뀐 기록 {to, from, by, at, via} — 없으면 null
+  if(!it) return null;
+  const p=String(it.product||'').trim(); if(!p) return null;
+  const g=it.chg;
+  if(g && g.to===p) return g;
+  const w=String(it.wasProduct||'').trim();
+  if(w && w!==p && CHG_VIA.indexOf(it.via)>=0) return {to:p, from:w, via:it.via};
+  return null;
+}
+function prodTag(it, onlyChanged){
+  if(!it || it.noMatch) return '';
+  const p=String(it.product||'').trim(); if(!p) return '';
+  const txt=String(it.text||'').trim();
+  const tn=prodNorm(txt), pn=prodNorm(p);
+  const g=prodChange(it);
+  if(g){
+    const ico=(g.via==='수동수정'||g.via==='편집기')?'✏':(g.via==='대조학습'?'🤖':'🔗');
+    const tip='품목 매칭이 바뀜'+(g.via?' ('+g.via+')':'')+(g.from?' — 이전: '+g.from:'')+(g.by?' · '+g.by:'')+(g.at?' · '+fmtDT(g.at):'');
+    const fn=prodNorm(g.from||'');
+    const showOld=!!(g.from && g.from!==p && fn && fn!==pn && tn.indexOf(fn)<0);   // 이전에 다른 품목으로 매칭돼 있던 경우만
+    return ' <span class="prod-chg" title="'+esc(tip)+'">'+ico+' '+((txt===p)?'바뀜':esc(p))+'</span>'
+      +(showOld?' <span class="prod-old" title="이전 품목">'+esc(g.from)+'</span>':'');
+  }
+  if(onlyChanged) return '';
+  if(!pn || tn===pn || tn.indexOf(pn)>=0) return '';
+  return ' <span class="prod-tag" title="매칭된 상품명'+(it.via?' ('+esc(it.via)+')':'')+'">('+esc(p)+')</span>';
+}
+/* 잠깐 떴다 사라지는 안내 */
+function toast(msg, ms){
+  let el=document.getElementById('toastBox');
+  if(!el){ el=document.createElement('div'); el.id='toastBox';
+    el.style.cssText='position:fixed;left:50%;bottom:90px;transform:translateX(-50%);z-index:9998;background:#1a1a1a;color:#fff;padding:9px 14px;border-radius:10px;font-size:13px;font-weight:700;box-shadow:0 4px 16px rgba(0,0,0,.3);max-width:88vw;text-align:center;pointer-events:none;transition:opacity .3s';
+    document.body.appendChild(el); }
+  el.textContent=msg; el.style.display='block'; el.style.opacity='1';
+  clearTimeout(el._t); el._t=setTimeout(()=>{ el.style.opacity='0'; setTimeout(()=>{ el.style.display='none'; }, 320); }, ms||3500);
+}
+/* 새로 매칭한 품목을 같은 거래처의 아직 처리 안 된 주문(오늘 이후)에도 반영 — 전산 확인된 품목·완료된 주문은 그대로 */
+async function spreadLearn(client, srcs, newProd, exceptId, via){
+  try{
+    const keys=new Set((srcs||[]).map(x=>learnKey(x)).filter(k=>k && k.length>=2));
+    if(!keys.size || !newProd || !client) return 0;
+    const t=todayStr(), now=Date.now(), upd={}; let n=0;
+    for(const oid in ORDERS){
+      const o=ORDERS[oid]; if(!o || oid===exceptId || !o.items || !o.items.length) continue;
+      if(o.needClient || cliNorm(o.client)!==cliNorm(client)) continue;
+      if((o.date||'')<t || o.confirm==='done') continue;
+      let ch=false;
+      const items=o.items.map(it=>{
+        if(!it || it.noMatch || it.erpKg || it.erpTail) return it;
+        const oldP=String(it.product||'').trim();
+        if(oldP===newProd) return it;
+        const ks=[it.wasProduct, it.product, it.text].map(x=>learnKey(x||'')).filter(Boolean);
+        if(!ks.some(k=>keys.has(k))) return it;
+        ch=true; n++;
+        return Object.assign({}, it, {wasProduct:it.wasProduct||oldP||'', product:newProd, fixed:1, via:via||'짝짓기',
+          chg:{from:oldP, to:newProd, by:MYNAME, at:now, via:via||'짝짓기', spread:1}});
+      });
+      if(ch){ upd['orders/'+oid+'/items']=items; o.items=items; }
+    }
+    if(n) await db.ref().update(upd);
+    return n;
+  }catch(e){ console.warn('spreadLearn',e); return 0; }
+}
 
 /* ---------- Apps Script 호출 ---------- */
 /* [v3.4] 서버 주소 기본값 — 미승인 신규 직원의 접속 신청(requestAccess)용.
@@ -1828,7 +1949,7 @@ function renderVehPanel(){
     const c=o.chk||{};
     const st=(c.ord?'✔주문 ':'')+(c.prod?'✔생산 ':'')+(c.erp?'✔전산':'');
     const items=(o.items||[]).map(it=>{
-      let x=esc(itemText(it));
+      let x=esc(itemText(it))+prodTag(it);
       if(it.prodKg||it.prodTail||it.boxN) x+=' <span style="color:#1a4f9c;font-weight:800;font-size:11px">⚖'+esc(measText(it))+'</span>';
       return x;
     }).join('<br>');
@@ -3164,6 +3285,7 @@ async function createOrders(text, forced, msgId, senderName, isEdit, guard){
           const kw=(it.product||'').trim();
           if(kw && kw.length>=2) tot.pending.push({client:sk, katok:kw, text:(it.text||'').slice(0,60)});
         }
+        if(c && c.item==='매칭없음'){ if(c.via==='거래처'||c.via==='공통') it.noMatch=1; return true; }   // v6.70
         if(c && c.item!==it.product){
           it.wasProduct=it.product||'';
           it.product=c.item; it.fixed=1; it.via=c.via;
@@ -3360,8 +3482,8 @@ let RUNNER_ALIVE=0;                                   // 자동처리 화면의 
 let RUNNER_SEEN=false;                                 // v6.69: 생존 신호를 한 번이라도 받았는지
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<130*1000; }   // v6.69: 백그라운드 탭 타이머 지연(최대 1분) 감안
 const STALE_MS=IS_RUNNER ? 150*1000 : 180*1000;  // v6.69: 처리 중엔 20초마다 잠금이 갱신됨 → 이 시간 동안 갱신이 없을 때만 '멈춤'
-const APP_VER='6.69';
-const APP_BUILD=669;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.72';
+const APP_BUILD=672;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 const RESCUE_T={};
 async function rescueIfStale(id, m){
@@ -3876,6 +3998,8 @@ function renderPend(){
   // ⚠ 이월 미처리 (오늘 보기일 때만 맨 위)
   if(PANEL_DATE===todayStr()){
     try{ const un=unparsedList(true).length; if(un){ const b=document.createElement('button'); b.textContent='🔁 분석 안 된 주문 메시지 '+un+'건 다시 분석'; b.style.cssText='width:100%;margin:2px 0 6px;border:1px solid #7a5a00;background:#fff6e6;color:#7a5a00;border-radius:6px;padding:7px;font-size:12px;font-weight:800;cursor:pointer'; b.onclick=()=>sweepUnparsed(true); box.appendChild(b); } }catch(e){}
+    if(IS_ADMIN){ const bad=Object.values(ORDERS).filter(o=>o&&(o.items||[]).some(it=>it&&String(it.product||'').trim()==='매칭없음')).length; if(bad){ const b=document.createElement('button'); b.textContent='🧹 \'매칭없음\'으로 바뀐 품목명 복구 '+bad+'건'; b.style.cssText='width:100%;margin:2px 0 8px;border:1px dashed #7a5a00;background:#fff;color:#7a5a00;border-radius:6px;padding:7px;font-size:12px;font-weight:800;cursor:pointer'; b.onclick=fixNoMatchNames; box.appendChild(b); } }
+    if(IS_ADMIN){ const dn=Object.values(ORDERS).filter(o=>o&&clientLooksDirty(o.client)).length; if(dn){ const b=document.createElement('button'); b.textContent='🧹 인사말 붙은 거래처명 '+dn+'건 정리'; b.style.cssText='width:100%;margin:2px 0 8px;border:1px dashed #8a1c1c;background:#fff;color:#8a1c1c;border-radius:6px;padding:7px;font-size:12px;font-weight:800;cursor:pointer'; b.onclick=fixDirtyClients; box.appendChild(b); } }
     if(IS_ADMIN){ const lg=legacyOpen().length; if(lg){ const b=document.createElement('button'); b.textContent='🧹 '+CARRY_FROM+' 이전 미처리 '+lg+'건 일괄 종결 (종이 처리분)'; b.style.cssText='width:100%;margin:2px 0 8px;border:1px dashed #b23b32;background:#fff;color:#8a1c1c;border-radius:6px;padding:7px;font-size:12px;font-weight:800;cursor:pointer'; b.onclick=closeLegacy; box.appendChild(b); } }
     const carry=carryList();
     if(carry.length){
@@ -3923,6 +4047,7 @@ function buildOrderCard(o){
   const isLate=pAt && (o.ts||0)>pAt;
   head.innerHTML='<span class="oc-cli'+(o.needClient?' warn':'')+'" style="cursor:pointer;text-decoration:underline dotted" '
     +'onclick="openCliEdit(\''+esc(o.id)+'\')" title="누르면 거래처 수정 (잘못 잡힌 이름은 학습됩니다)">'+esc(o.client||'(거래처 미확인)')+'</span>'
+    +(clientLooksDirty(o.client)?'<span title="인사말이 붙은 거래처명 — 눌러서 정리" onclick="fixDirtyClients()" style="cursor:pointer;font-size:10.5px;font-weight:800;color:#8a1c1c;background:#fdecec;border-radius:8px;padding:1px 6px">⚠ 이름 정리</span>':'')
     +'<span title="접수 시각" style="font-size:10px;color:var(--muted)">'+(o.sts||o.ts?new Date(o.sts||o.ts).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})+' 접수':'')+'</span>'
     +'<span onclick="editDate(\''+esc(o.id)+'\')" title="누르면 배송 날짜 수정" '
     +'style="cursor:pointer;font-size:11px;font-weight:800;color:#5a5045;background:#f0ece1;border-radius:8px;padding:2px 7px">📅'+esc(mmdd(o.date||''))+'</span>'
@@ -3975,7 +4100,7 @@ function buildOrderCard(o){
     card.appendChild(w);
   }
   items.innerHTML=(o.items||[]).map((it,idx)=>{
-    let t=esc(itemText(it));
+    let t=esc(itemText(it))+prodTag(it);
     if(it.price) t+=' <span class="price">'+esc(it.price)+'</span>';
     const isNewItem=pAt && it.at && it.at>pAt;
     const tools=' <span onclick="editItem(\''+esc(o.id)+'\','+idx+')" title="품목 수정 (학습 가능)" style="cursor:pointer;font-size:11px;opacity:.65">✏</span>'
@@ -4345,7 +4470,7 @@ async function fixClient(id, name, btn){
     // 품목을 이 거래처의 학습사전으로 재교정
     const items=(o.items||[]).map(it=>{
       const c=correctProduct(sk, it.product||it.text||'', it.text||'');
-      if(c && c.item && c.item!=='삭제'){
+      if(c && c.item && c.item!=='삭제' && c.item!=='매칭없음'){
         return Object.assign({}, it, {wasProduct:it.product||it.text, product:c.item, fixed:1});
       }
       return it;
@@ -4369,7 +4494,7 @@ async function editItem(id, idx){
   const nv=v.trim();
   if(!nv || nv===cur) return;
   const items=o.items.slice();
-  items[idx]=Object.assign({}, it, {wasProduct:it.wasProduct||it.product||it.text, product:nv, text:nv, fixed:1, via:'수동수정'});
+  items[idx]=Object.assign({}, it, {wasProduct:it.wasProduct||it.product||it.text, product:nv, text:nv, fixed:1, via:'수동수정', chg:{from:cur, to:nv, by:MYNAME, at:Date.now(), via:'수동수정'}});
   try{
     // 📚 학습 여부: 원래 표현 → 새 이름 (그 거래처 전용)
     const orig=String(it.wasProduct||it.product||it.text||'').trim();
@@ -4576,52 +4701,13 @@ function renderConf(conf){
         +'<button class="undo" onclick="undoConfirm(\''+esc(o.id)+'\')">↩ 되돌리기</button>';
       card.appendChild(head);
       const items=document.createElement('div'); items.className='oc-items'; items.style.marginBottom='0';
-      items.innerHTML=(o.items||[]).map(it=>'· '+esc(itemText(it))).join('<br>');
+      items.innerHTML=(o.items||[]).map(it=>'· '+esc(itemText(it))+prodTag(it)).join('<br>');
       card.appendChild(items);
       // ⚠ 매칭 실패 처리 UI
       if(o.recon && o.recon.status==='ng'){
         const hasPair = o.recon.missItems && o.recon.missItems.length && o.recon.erpItems && o.recon.erpItems.length;
         // ① 품목 짝짓기 — 채팅 표현 ↔ 그날 ERP 매출 품목 (학습되어 다음부터 실시간 자동)
-        if(hasPair){
-          const pw=document.createElement('div');
-          pw.style.cssText='margin-top:7px;padding:8px 9px;background:#fbf7ec;border:1px solid #e2d3a8;border-radius:6px';
-          const t=document.createElement('div');
-          t.style.cssText='font-size:11.5px;color:#7a5a00;font-weight:800;margin-bottom:6px';
-          t.textContent='🔗 품목 짝짓기 — 채팅 표현을 ERP 품목과 연결하면 학습되어 다음부터 자동 반영됩니다';
-          pw.appendChild(t);
-          if(!PAIR_SEL[o.id]) PAIR_SEL[o.id]={};
-          const psel=PAIR_SEL[o.id];
-          // 💾 일괄 저장 버튼 (맨 위)
-          const saveAll=document.createElement('button');
-          saveAll.textContent='💾 선택한 짝 모두 저장 (학습·적용)';
-          saveAll.style.cssText='display:block;width:100%;border:none;background:#1f6b3a;color:#fff;border-radius:6px;padding:8px;font-weight:800;font-size:13px;cursor:pointer;margin-bottom:7px';
-          saveAll.onclick=()=>pairLearnAll(o.id, saveAll);
-          pw.appendChild(saveAll);
-          o.recon.missItems.forEach(mi=>{
-            const row=document.createElement('div');
-            row.style.cssText='display:flex;gap:6px;align-items:center;margin-bottom:5px;flex-wrap:wrap';
-            const nm=document.createElement('span');
-            nm.style.cssText='font-weight:800;font-size:12.5px;min-width:70px';
-            nm.textContent='“'+mi.name+'”';
-            const sel=document.createElement('select');
-            sel.style.cssText='flex:1;min-width:130px;padding:6px;border:1px solid var(--line);border-radius:5px;font-size:12.5px;font-family:var(--sans)';
-            const o0=document.createElement('option'); o0.value=''; o0.textContent='→ ERP 품목 선택'; sel.appendChild(o0);
-            const oN=document.createElement('option'); oN.value='__none__'; oN.textContent='✕ 매칭없음 (ERP에 없는 품목 — 대조 제외)'; sel.appendChild(oN);
-            [...new Set(o.recon.erpItems)].forEach(e=>{
-              const op=document.createElement('option'); op.value=e; op.textContent=e; sel.appendChild(op);
-            });
-            if(psel[mi.i]) sel.value=psel[mi.i];                    // 화면이 다시 그려져도 선택 유지
-            sel.onchange=()=>{ psel[mi.i]=sel.value; };
-            row.append(nm,sel);
-            pw.appendChild(row);
-          });
-          const pass=document.createElement('button');
-          pass.textContent='✔ 짝짓기 없이 이대로 통과';
-          pass.style.cssText='border:1px solid #bcd8c5;background:var(--ok-soft);color:var(--ok);border-radius:5px;padding:5px 10px;font-weight:800;font-size:11.5px;cursor:pointer';
-          pass.onclick=()=>passRecon(o.id);
-          pw.appendChild(pass);
-          card.appendChild(pw);
-        }
+        if(hasPair){ card.appendChild(buildPairBox(o, true)); }
         // ② 코드 문제(못 찾음 / 해당일 매출 없음)일 때만 코드 입력칸
         if(!hasPair){
           const fix=document.createElement('div');
@@ -4687,7 +4773,16 @@ function renderConfDone(box){
         +(when?'<span class="oc-meta">'+new Date(when).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+'</span>':'')
         +(ck.erp?'<span class="oc-meta">전산 '+esc(ck.erp.by||'')+'</span>':'')
         +'<button class="undo" onclick="undoConfirm(\''+esc(o.id)+'\')" title="다시 미처리로">↩</button></div>'
-        +'<div class="oc-items" style="margin:2px 0 0;font-size:12px;color:#555">'+(o.items||[]).map(it=>esc(itemText(it))).join(' · ')+(kg?'<div style="color:#1f6b3a;font-size:11px">'+kg+'</div>':'')+'</div>';
+        +'<div class="oc-items" style="margin:2px 0 0;font-size:12px;color:#555">'+(o.items||[]).map(it=>esc(itemText(it))+prodTag(it,true)).join(' · ')+(kg?'<div style="color:#1f6b3a;font-size:11px">'+kg+'</div>':'')+'</div>';
+      // v6.70: 거래처 매출로 통과했지만 품목 미확인이 남은 주문 → 여기서 짝짓기(학습) 가능
+      if(r.missItems && r.missItems.length && r.erpItems && r.erpItems.length){
+        const pb=document.createElement('button');
+        pb.textContent=(PAIR_OPEN[o.id]?'▾':'▸')+' 🔗 품목 미확인 '+r.missItems.length+'개 · 짝짓기';
+        pb.style.cssText='margin-top:5px;border:1px solid #e2d3a8;background:#fbf7ec;color:#7a5a00;border-radius:5px;padding:4px 9px;font-size:11.5px;font-weight:800;cursor:pointer';
+        pb.onclick=()=>{ PAIR_OPEN[o.id]=!PAIR_OPEN[o.id]; renderSide(); };
+        row.appendChild(pb);
+        if(PAIR_OPEN[o.id]) row.appendChild(buildPairBox(o, false));
+      }
       box.appendChild(row);
     });
   });
@@ -4733,6 +4828,56 @@ async function mapErpCode(id, code, btn){
 
 /* 🔗 품목 짝짓기 — 선택값 저장소 (화면이 다시 그려져도 선택 유지) */
 const PAIR_SEL={};   // orderId -> {missIdx: erpItem}
+const PAIR_OPEN={};  // 완료 기록에서 짝짓기 상자를 펼친 주문
+/* 🔗 품목 짝짓기 상자 (v6.70: 대기 목록·완료 기록에서 함께 사용) */
+function buildPairBox(o, withPass){
+  const pw=document.createElement('div');
+  pw.style.cssText='margin-top:7px;padding:8px 9px;background:#fbf7ec;border:1px solid #e2d3a8;border-radius:6px';
+  const t=document.createElement('div');
+  t.style.cssText='font-size:11.5px;color:#7a5a00;font-weight:800;margin-bottom:6px';
+  t.textContent='🔗 품목 짝짓기 — 채팅 표현을 ERP 품목과 연결하면 학습되어 다음부터 자동 반영됩니다';
+  pw.appendChild(t);
+  if(!PAIR_SEL[o.id]) PAIR_SEL[o.id]={};
+  const psel=PAIR_SEL[o.id];
+  // 💾 일괄 저장 버튼 (맨 위)
+  const saveAll=document.createElement('button');
+  saveAll.textContent='💾 선택한 짝 모두 저장 (학습·적용)';
+  saveAll.style.cssText='display:block;width:100%;border:none;background:#1f6b3a;color:#fff;border-radius:6px;padding:8px;font-weight:800;font-size:13px;cursor:pointer;margin-bottom:7px';
+  saveAll.onclick=()=>pairLearnAll(o.id, saveAll);
+  pw.appendChild(saveAll);
+  o.recon.missItems.forEach(mi=>{
+    const row=document.createElement('div');
+    row.style.cssText='display:flex;gap:6px;align-items:center;margin-bottom:5px;flex-wrap:wrap';
+    const nm=document.createElement('span');
+    nm.style.cssText='font-weight:800;font-size:12.5px;min-width:70px;display:flex;flex-direction:column;line-height:1.25';
+    // v6.72: 채팅 원문을 앞에, 현재 매칭된 상품명은 작게 — '매칭없음'으로 덮인 이름은 원문으로
+    const it=(o.items||[])[mi.i]||{};
+    const raw=String(it.text||it.wasProduct||'').trim() || (mi.name!=='매칭없음'?mi.name:'');
+    let cur=String(it.product||'').trim(); if(cur==='매칭없음') cur=String(it.wasProduct||'').trim();
+    if(!cur || cur===raw) cur=(mi.prod&&mi.prod!=='매칭없음')?mi.prod:'';
+    nm.innerHTML='<span>“'+esc(raw||mi.name)+'”</span>'+(cur&&cur!==raw?'<span style="font-size:10.5px;color:#1a4f9c;font-weight:400">현재 매칭: '+esc(cur)+'</span>':'');
+    const sel=document.createElement('select');
+    sel.style.cssText='flex:1;min-width:130px;padding:6px;border:1px solid var(--line);border-radius:5px;font-size:12.5px;font-family:var(--sans)';
+    const o0=document.createElement('option'); o0.value=''; o0.textContent='→ ERP 품목 선택'; sel.appendChild(o0);
+    const oN=document.createElement('option'); oN.value='__none__'; oN.textContent='✕ 매칭없음 (ERP에 없는 품목 — 대조 제외)'; sel.appendChild(oN);
+    [...new Set(o.recon.erpItems)].forEach(e=>{
+      const op=document.createElement('option'); op.value=e; op.textContent=e; sel.appendChild(op);
+    });
+    if(psel[mi.i]) sel.value=psel[mi.i];                    // 화면이 다시 그려져도 선택 유지
+    sel.onchange=()=>{ psel[mi.i]=sel.value; };
+    row.append(nm,sel);
+    pw.appendChild(row);
+  });
+  if(withPass){
+    const pass=document.createElement('button');
+    pass.textContent='✔ 짝짓기 없이 이대로 통과';
+    pass.style.cssText='border:1px solid #bcd8c5;background:var(--ok-soft);color:var(--ok);border-radius:5px;padding:5px 10px;font-weight:800;font-size:11.5px;cursor:pointer';
+    pass.onclick=()=>passRecon(o.id);
+    pw.appendChild(pass);
+  }
+  return pw;
+}
+
 
 /* 💾 선택한 짝 전부 일괄 저장:
    ① 각각 학습사전 등록 (거래처별) → 다음 입력부터 실시간 자동 교정
@@ -4747,6 +4892,7 @@ async function pairLearnAll(id, btn){
   if(btn){ btn.disabled=true; btn.textContent='저장 중…'; }
   try{
     const items=(o.items||[]).slice();
+    const spread=[]; let nPair=0, nNone=0;
     for(const m of chosen){
       const erp=psel[m.i];
       const it0=items[m.i]||{};
@@ -4757,14 +4903,18 @@ async function pairLearnAll(id, btn){
         if(!LEARNED.perCustomer[o.client]) LEARNED.perCustomer[o.client]={};
         srcs.forEach(src=>{ LEARNED.perCustomer[o.client][src]='매칭없음'; LEARNED.perCustomer[o.client][learnKey(src)]='매칭없음'; });
         if(items[m.i]) items[m.i]=Object.assign({}, items[m.i], {noMatch:1, via:'매칭없음'});
+        nNone++;
         continue;
       }
       for(const src of srcs){ await gsCall('addLearned',{client:o.client, katok:src, item:erp}); }
       if(!LEARNED.perCustomer[o.client]) LEARNED.perCustomer[o.client]={};
       srcs.forEach(src=>{ LEARNED.perCustomer[o.client][src]=erp; LEARNED.perCustomer[o.client][learnKey(src)]=erp; });
       if(items[m.i]){
-        items[m.i]=Object.assign({}, items[m.i], {wasProduct:items[m.i].product||m.name, product:erp, fixed:1, via:'짝짓기'});
+        const oldP=String(items[m.i].product||'').trim();
+        items[m.i]=Object.assign({}, items[m.i], {wasProduct:items[m.i].wasProduct||oldP||m.name, product:erp, fixed:1, via:'짝짓기',
+          chg:{from:oldP||m.name, to:erp, by:MYNAME, at:Date.now(), via:'짝짓기'}});   // v6.70: 바뀐 품목 표시용
       }
+      spread.push({srcs, erp}); nPair++;
     }
     const remain=miss.filter(m=>!psel[m.i]);
     const upd={items:items};
@@ -4779,14 +4929,23 @@ async function pairLearnAll(id, btn){
       upd['confirm']='done';
       upd['reconAt']=Date.now();
     }
+    if(o.recon && typeof o.recon.weight==='string' && /품목 미확인/.test(o.recon.weight)){   // 완료 기록의 '품목 미확인: …' 문구 갱신
+      const base=o.recon.weight.replace(/\s*·\s*품목 미확인:.*$/,'');
+      upd['recon/weight']=remain.length ? base+' · 품목 미확인: '+remain.map(m=>m.name).slice(0,3).join(', ')+(remain.length>3?' 외 '+(remain.length-3):'') : base;
+      o.recon.weight=upd['recon/weight'];
+    }
     await db.ref('orders/'+id).update(upd);
     o.items=items;
     if(!o.recon) o.recon={};
     if(remain.length){ o.recon.missItems=remain; }
     else { o.recon.missItems=null; o.recon.status='ok'; o.confirm='done'; }
-    delete PAIR_SEL[id];
+    delete PAIR_SEL[id]; delete PAIR_OPEN[id];
+    // v6.70: 같은 거래처의 아직 처리 안 된 주문에도 새 매칭 반영
+    let nSpread=0;
+    for(const sp of spread){ nSpread+=await spreadLearn(o.client, sp.srcs, sp.erp, id, '짝짓기'); }
     bumpMasterVer();
     renderSide();
+    if(nPair||nNone) toast((nPair?'🔗 '+nPair+'품목 매칭 저장':'')+(nNone?(nPair?' · ':'')+'✕ '+nNone+'품목 매칭없음 처리':'')+(nSpread?' · 같은 거래처의 다른 주문 '+nSpread+'품목에도 반영':''));
   }catch(e){ alert('저장 실패: '+e.message); }
   finally{ if(btn){ btn.disabled=false; btn.textContent='💾 선택한 짝 모두 저장 (학습·적용)'; } }
 }
@@ -4805,7 +4964,9 @@ async function pairLearn(id, idx, katok, erpItem, btn){
     // ② 이 주문의 품목명 교체
     const items=(o.items||[]).slice();
     if(items[idx]){
-      items[idx]=Object.assign({}, items[idx], {wasProduct:items[idx].product||katok, product:erpItem, fixed:1, via:'짝짓기'});
+      const oldP=String(items[idx].product||'').trim();
+      items[idx]=Object.assign({}, items[idx], {wasProduct:items[idx].wasProduct||oldP||katok, product:erpItem, fixed:1, via:'짝짓기',
+        chg:{from:oldP||katok, to:erpItem, by:MYNAME, at:Date.now(), via:'짝짓기'}});
     }
     // ③ 미매칭 목록에서 제거 — 비면 통과
     const miss=((o.recon&&o.recon.missItems)||[]).filter(m=>m.i!==idx);
