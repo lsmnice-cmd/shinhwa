@@ -11,7 +11,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.73 — 2026-10-05
+  신화미트 주문방 (chat.html) v6.75 — 2026-10-08
+  · v6.75: 확인방 맨 위에 '🔗 품목 미확인 N건' 묶음 — 대조 완료 기록을 펼치지 않아도 바로 보이고 짝짓기 가능. 확인방 배지에 합산.
+  · v6.74: 짝짓기 상자에 '품목 미확인' 원인 표시 — ERP에 짝 없는 줄(품명·kg)이 남아 있으면 '이름만 다름 → 고르면 학습',
+     남은 줄이 없으면 '⚠ ERP에 이 품목 줄이 없음 — 입력 누락/합쳐 입력 확인'. 미확인 1개·남은 줄 1개면 자동 선택. (전산대조 v4.0)
   · v6.73: 확인방 '대조 대기' 카드에도 [✔ 수동 통과] 버튼 — 지난 날짜라 자동대조가 안 돈 건을 사람이 바로 종결.
      지난 날짜 대기 건에는 '지난 날짜 — 다음 대조 때 처리(전산대조 v3.9)' 안내.
   · v6.72: 짝짓기 목록에 채팅 원문을 보여줌 (“생불20kg” · 현재 매칭: 황제늑간(SWIFT,냉동)). 상품명이 '매칭없음'으로 덮인
@@ -3484,8 +3487,8 @@ let RUNNER_ALIVE=0;                                   // 자동처리 화면의 
 let RUNNER_SEEN=false;                                 // v6.69: 생존 신호를 한 번이라도 받았는지
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<130*1000; }   // v6.69: 백그라운드 탭 타이머 지연(최대 1분) 감안
 const STALE_MS=IS_RUNNER ? 150*1000 : 180*1000;  // v6.69: 처리 중엔 20초마다 잠금이 갱신됨 → 이 시간 동안 갱신이 없을 때만 '멈춤'
-const APP_VER='6.73';
-const APP_BUILD=673;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.75';
+const APP_BUILD=675;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 const RESCUE_T={};
 async function rescueIfStale(id, m){
@@ -3889,7 +3892,8 @@ function renderSideCore(){
   mb.style.display=nToday?'':'none'; mb.textContent=nToday;
   const conf=Object.values(ORDERS).filter(o=>o && o.confirm==='wait');
   const cb=document.getElementById('confBadge');
-  cb.style.display=conf.length?'':'none'; cb.textContent=conf.length;
+  let cbN=conf.length; try{ cbN+=missPendingList().length; }catch(e){}   // v6.75: 품목 미확인 합산
+  cb.style.display=cbN?'':'none'; cb.textContent=cbN;
 
   try{ const tb=document.getElementById('taskBadge'); const n=myOpenTasks().length; tb.style.display=n?'':'none'; tb.textContent=n; }catch(e){}
   try{ document.getElementById('segMap').style.display=IS_ADMIN?'':'none'; }catch(e){}
@@ -4670,12 +4674,36 @@ async function toggleChk(id, key, on){
 }
 
 /* ---------- 확인방 ---------- */
+function missPendingList(){   // v6.75: 처리됐지만 품목 미확인이 남은 주문 (최근 14일)
+  const lim=new Date(Date.now()-14*86400000); const loS=lim.getFullYear()+'-'+String(lim.getMonth()+1).padStart(2,'0')+'-'+String(lim.getDate()).padStart(2,'0');
+  return Object.values(ORDERS).filter(o=>o && o.confirm==='done' && (o.date||'')>=loS && o.recon && o.recon.missItems && o.recon.missItems.length && o.recon.erpItems && o.recon.erpItems.length)
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||'')||String(a.client||'').localeCompare(String(b.client||''),'ko'));
+}
+let MISS_OPEN=true;
+function renderMissPending(box){
+  const list=missPendingList(); if(!list.length) return;
+  const h=document.createElement('div'); h.className='veh-h'; h.style.cssText='cursor:pointer;margin-top:4px';
+  h.innerHTML='<span class="v" style="background:#fbf7ec;border-color:#e2d3a8;color:#7a5a00">'+(MISS_OPEN?'▾':'▸')+' 🔗 품목 미확인</span><span class="n" style="color:#7a5a00">'+list.length+'건 — 거래처 매출은 확인됐지만 품목이 ERP 품명과 안 맞음 · 짝지으면 학습</span>';
+  h.onclick=()=>{ MISS_OPEN=!MISS_OPEN; renderSide(); };
+  box.appendChild(h);
+  if(!MISS_OPEN) return;
+  list.forEach(o=>{
+    const r=o.recon||{};
+    const row=document.createElement('div'); row.className='ccard'; row.style.cssText='padding:7px 10px;margin-bottom:6px';
+    row.innerHTML='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b>'+esc(o.client||'')+'</b><span class="oc-meta">'+esc(mmdd(o.date||''))+' · '+esc(normVeh(o.vehicle||''))+' · '+(o.items||[]).length+'품목</span>'
+      +'<span class="st ok" style="font-size:10.5px">✅ '+esc(r.via||'자동대조')+(r.weight?' · '+esc(String(r.weight).replace(/\s*·\s*품목 미확인:.*$/,'')):'')+'</span></div>'
+      +'<div class="oc-items" style="margin:2px 0 0;font-size:12px;color:#555">'+(o.items||[]).map(it=>esc(itemText(it))+prodTag(it,true)).join(' · ')+'</div>';
+    row.appendChild(buildPairBox(o, false));
+    box.appendChild(row);
+  });
+}
 function renderConf(conf){
   const box=document.getElementById('sideScroll');
   box.innerHTML='';
   const sum=document.createElement('div'); sum.className='side-sum';
   sum.textContent='전산처리된 주문입니다. 대조 프로그램이 ERP와 맞으면 자동으로 사라지고, 매칭 실패 건만 남습니다 — ERP 거래처 코드를 입력하면 학습되어 다음부터 자동 통과합니다.';
   box.appendChild(sum);
+  renderMissPending(box);
   if(!conf.length){
     const e=document.createElement('div'); e.className='empty';
     e.innerHTML='확인방이 비어 있습니다 ✅<br><span style="font-size:11px">전산처리 체크된 주문이 여기로 오고, ERP 대조를 통과하면 아래 "대조 완료 기록"으로 내려갑니다</span>';
@@ -4848,6 +4876,24 @@ function buildPairBox(o, withPass){
   pw.appendChild(t);
   if(!PAIR_SEL[o.id]) PAIR_SEL[o.id]={};
   const psel=PAIR_SEL[o.id];
+  // v6.74: 원인 안내 — ERP에 짝 없는 줄이 남아 있는지
+  const extra=(o.recon&&o.recon.erpExtra)||[];
+  const missN=(o.recon.missItems||[]).length;
+  const hint=document.createElement('div');
+  hint.style.cssText='font-size:11.5px;margin-bottom:7px;padding:6px 8px;border-radius:5px;line-height:1.45';
+  if(extra.length){
+    hint.style.cssText+='background:#eef3fb;border:1px solid #b9cdea;color:#1a4f9c';
+    hint.innerHTML='<b>ERP에 짝 없는 줄 '+extra.length+'개</b> — 품명만 달라서 못 맞춘 것일 가능성이 큽니다. 아래에서 고르면 학습되어 다음부터 자동.<br>'
+      +extra.map(x=>'· '+esc(x.name||'')+(x.kg?' <b>'+String(x.kg).replace(/\.0+$/,'')+'kg</b>':'')).join('<br>');
+    if(missN===1 && extra.length===1){ const mi0=o.recon.missItems[0]; if(!psel[mi0.i] && extra[0].name) psel[mi0.i]=extra[0].name; }
+  }else if(o.recon && o.recon.erpExtra!==undefined){
+    hint.style.cssText+='background:#fdecec;border:1px solid #e8a9a4;color:#8a1c1c';
+    hint.innerHTML='<b>⚠ ERP에 남은 줄이 없습니다</b> — 이 품목이 전산에 입력되지 않았거나 다른 품목에 합쳐 입력된 것입니다. ERP를 확인하세요. (서비스·포함분이면 "매칭없음")';
+  }else{
+    hint.style.cssText+='background:#f4f2ec;border:1px solid #d8d2c2;color:#6b665a';
+    hint.textContent='채팅 표현이 ERP 품명과 연결되지 않았습니다. 아래에서 고르면 학습됩니다.';
+  }
+  pw.appendChild(hint);
   // 💾 일괄 저장 버튼 (맨 위)
   const saveAll=document.createElement('button');
   saveAll.textContent='💾 선택한 짝 모두 저장 (학습·적용)';
