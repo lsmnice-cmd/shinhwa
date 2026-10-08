@@ -11,7 +11,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.78 — 2026-10-08
+  신화미트 주문방 (chat.html) v6.79 — 2026-10-08
+  · v6.79: 짝짓기 상자에 '대조된 ERP 거래처 코드' 표시 + [🏢 거래처 코드가 틀림 → 바꾸기] — 품목이 하나도 안 맞으면 거래처를 잘못 찾은 것.
+     코드를 바꾸면 그 주문은 확인방 대기로 돌아가 다음 대조 때 새 코드로 다시 대조(지난 날짜도 v3.9가 처리).
   · v6.78: 짝짓기 드롭다운에 '⏭ 다음에 다시 매칭' — 학습하지 않고 이번 건만 넘김. 같은 표현이 다음 주문에 오면 다시 품목 미확인으로 올라옴.
   · v6.77: 확인방 '코드 학습됨 ✓(코드)'를 누르면 ERP 거래처 코드를 바꾸거나 학습을 풀 수 있음 (풀면 그 주문은 다시 대조 대기).
   · v6.76: 짝짓기 저장을 서버 호출 1번(addLearnedMany, Code v5.4)으로 — 건마다 부르다 '잠금 시간초과'로 실패하던 문제.
@@ -3491,8 +3493,8 @@ let RUNNER_ALIVE=0;                                   // 자동처리 화면의 
 let RUNNER_SEEN=false;                                 // v6.69: 생존 신호를 한 번이라도 받았는지
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<130*1000; }   // v6.69: 백그라운드 탭 타이머 지연(최대 1분) 감안
 const STALE_MS=IS_RUNNER ? 150*1000 : 180*1000;  // v6.69: 처리 중엔 20초마다 잠금이 갱신됨 → 이 시간 동안 갱신이 없을 때만 '멈춤'
-const APP_VER='6.78';
-const APP_BUILD=678;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.79';
+const APP_BUILD=679;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 const RESCUE_T={};
 async function rescueIfStale(id, m){
@@ -4876,8 +4878,8 @@ async function mapErpCode(id, code, btn){
 /* v6.77: 학습된 ERP 거래처 코드 변경·해제 */
 async function editErpCode(id){
   const o=ORDERS[id]; if(!o) return;
-  const k=cliNorm(o.client); const cur=(ERPMAP[k]||{}).code||'';
-  const v=prompt(o.client+' 의 ERP 거래처 코드\n(바꾸려면 새 코드 입력 · 비우고 확인하면 학습 해제 → 다음 대조 때 이름으로 다시 찾음)', cur);
+  const k=cliNorm(o.client); const cur=(ERPMAP[k]||{}).code||(o.recon&&o.recon.code)||'';
+  const v=prompt(o.client+' 의 ERP 거래처 코드 (지금: '+(cur||'없음')+(o.recon&&o.recon.db?' · '+o.recon.db:'')+')\n새 코드를 입력하면 그 코드로 학습하고 이 주문을 다시 대조합니다.\n비우고 확인하면 학습 해제 → 다음 대조 때 이름으로 다시 찾음', cur);
   if(v===null) return;
   const nv=v.trim();
   try{
@@ -4887,8 +4889,10 @@ async function editErpCode(id){
     }else{
       await db.ref('erpmap/'+k).set({code:nv, client:o.client, by:MYNAME, at:Date.now()}); ERPMAP[k]={code:nv, client:o.client};
     }
-    o.recon=null; await db.ref('orders/'+id).update({recon:null, reconReq:Date.now()});
-    renderSide(); toast(nv?('코드 '+nv+'로 변경 — 다음 대조 때 적용'):'코드 학습 해제 — 다음 대조 때 이름으로 다시 찾음');
+    // 다시 대조: 확인방 대기로 (지난 날짜도 전산대조 v3.9가 그 날짜 ERP로 대조)
+    o.recon=null; o.confirm='wait'; o.erpSale=null; delete PAIR_SEL[id];
+    await db.ref('orders/'+id).update({recon:null, confirm:'wait', erpSale:null, reconReq:Date.now()});
+    renderSide(); toast(nv?('코드 '+nv+'로 변경 — 확인방 대기로 돌려 다음 대조 때 다시 맞춥니다'):'코드 학습 해제 — 다음 대조 때 이름으로 다시 찾음');
   }catch(e){ alert('실패: '+e.message); }
 }
 /* 🔗 품목 짝짓기 — 선택값 저장소 (화면이 다시 그려져도 선택 유지) */
@@ -4922,6 +4926,13 @@ function buildPairBox(o, withPass){
     hint.textContent='채팅 표현이 ERP 품명과 연결되지 않았습니다. 아래에서 고르면 학습됩니다.';
   }
   pw.appendChild(hint);
+  // v6.79: 대조에 쓰인 ERP 거래처 코드 + 틀렸을 때 바꾸는 버튼
+  { const cw=document.createElement('div'); cw.style.cssText='display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:7px;font-size:11.5px;color:#5b564a';
+    const code=(o.recon&&o.recon.code)||(ERPMAP[cliNorm(o.client)]||{}).code||'';
+    cw.innerHTML='<span>🏢 대조된 ERP 거래처 코드: <b>'+esc(code||'?')+'</b>'+(o.recon&&o.recon.db?' ('+esc(o.recon.db)+')':'')+(o.recon&&o.recon.via?' · '+esc(o.recon.via):'')+'</span>';
+    const cb=document.createElement('button'); cb.textContent='거래처 코드가 틀림 → 바꾸기'; cb.title='품목이 하나도 안 맞으면 다른 거래처의 매출을 잡은 것입니다. 맞는 ERP 코드를 넣으면 학습하고 다시 대조합니다';
+    cb.style.cssText='border:1px solid #e8a9a4;background:#fdecec;color:#8a1c1c;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:800;cursor:pointer';
+    cb.onclick=()=>editErpCode(o.id); cw.appendChild(cb); pw.appendChild(cw); }
   // 💾 일괄 저장 버튼 (맨 위)
   const saveAll=document.createElement('button');
   saveAll.textContent='💾 선택한 짝 모두 저장 (학습·적용)';
