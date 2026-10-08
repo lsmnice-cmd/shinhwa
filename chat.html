@@ -11,7 +11,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.75 — 2026-10-08
+  신화미트 주문방 (chat.html) v6.76 — 2026-10-08
+  · v6.76: 짝짓기 저장을 서버 호출 1번(addLearnedMany, Code v5.4)으로 — 건마다 부르다 '잠금 시간초과'로 실패하던 문제.
+     품목 미확인 묶음 맨 위 [💾 고른 것 전부 저장] — 여러 주문의 선택을 한 번에 저장. 실패해도 선택은 유지.
   · v6.75: 확인방 맨 위에 '🔗 품목 미확인 N건' 묶음 — 대조 완료 기록을 펼치지 않아도 바로 보이고 짝짓기 가능. 확인방 배지에 합산.
   · v6.74: 짝짓기 상자에 '품목 미확인' 원인 표시 — ERP에 짝 없는 줄(품명·kg)이 남아 있으면 '이름만 다름 → 고르면 학습',
      남은 줄이 없으면 '⚠ ERP에 이 품목 줄이 없음 — 입력 누락/합쳐 입력 확인'. 미확인 1개·남은 줄 1개면 자동 선택. (전산대조 v4.0)
@@ -3487,8 +3489,8 @@ let RUNNER_ALIVE=0;                                   // 자동처리 화면의 
 let RUNNER_SEEN=false;                                 // v6.69: 생존 신호를 한 번이라도 받았는지
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<130*1000; }   // v6.69: 백그라운드 탭 타이머 지연(최대 1분) 감안
 const STALE_MS=IS_RUNNER ? 150*1000 : 180*1000;  // v6.69: 처리 중엔 20초마다 잠금이 갱신됨 → 이 시간 동안 갱신이 없을 때만 '멈춤'
-const APP_VER='6.75';
-const APP_BUILD=675;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.76';
+const APP_BUILD=676;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 const RESCUE_T={};
 async function rescueIfStale(id, m){
@@ -4687,6 +4689,11 @@ function renderMissPending(box){
   h.onclick=()=>{ MISS_OPEN=!MISS_OPEN; renderSide(); };
   box.appendChild(h);
   if(!MISS_OPEN) return;
+  const sa=document.createElement('button'); sa.textContent='💾 고른 것 전부 저장';
+  sa.style.cssText='display:block;width:100%;margin:2px 0 8px;border:none;background:#1f6b3a;color:#fff;border-radius:6px;padding:9px;font-weight:800;font-size:13px;cursor:pointer';
+  sa.title='아래 모든 주문에서 드롭다운으로 고른 짝을 한 번에 저장 (학습·적용)';
+  sa.onclick=()=>saveAllPairs(sa);
+  box.appendChild(sa);
   list.forEach(o=>{
     const r=o.recon||{};
     const row=document.createElement('div'); row.className='ccard'; row.style.cssText='padding:7px 10px;margin-bottom:6px';
@@ -4947,21 +4954,21 @@ async function pairLearnAll(id, btn){
   if(btn){ btn.disabled=true; btn.textContent='저장 중…'; }
   try{
     const items=(o.items||[]).slice();
-    const spread=[]; let nPair=0, nNone=0;
+    const spread=[]; let nPair=0, nNone=0; const learnRows=[];
     for(const m of chosen){
       const erp=psel[m.i];
       const it0=items[m.i]||{};
       const srcs=[...new Set([m.name, it0.text, it0.product, it0.wasProduct].map(x=>String(x||'').trim()).filter(x=>x && learnKey(x)))];
       if(erp==='__none__'){
         // ✕ 매칭없음: 대조 제외 + 학습('매칭없음')
-        for(const src of srcs){ await gsCall('addLearned',{client:o.client, katok:src, item:'매칭없음'}); }
+        srcs.forEach(src=>learnRows.push({client:o.client, katok:src, item:'매칭없음'}));
         if(!LEARNED.perCustomer[o.client]) LEARNED.perCustomer[o.client]={};
         srcs.forEach(src=>{ LEARNED.perCustomer[o.client][src]='매칭없음'; LEARNED.perCustomer[o.client][learnKey(src)]='매칭없음'; });
         if(items[m.i]) items[m.i]=Object.assign({}, items[m.i], {noMatch:1, via:'매칭없음'});
         nNone++;
         continue;
       }
-      for(const src of srcs){ await gsCall('addLearned',{client:o.client, katok:src, item:erp}); }
+      srcs.forEach(src=>learnRows.push({client:o.client, katok:src, item:erp}));
       if(!LEARNED.perCustomer[o.client]) LEARNED.perCustomer[o.client]={};
       srcs.forEach(src=>{ LEARNED.perCustomer[o.client][src]=erp; LEARNED.perCustomer[o.client][learnKey(src)]=erp; });
       if(items[m.i]){
@@ -4971,6 +4978,7 @@ async function pairLearnAll(id, btn){
       }
       spread.push({srcs, erp}); nPair++;
     }
+    await learnMany(learnRows);   // v6.76: 서버 호출 1번 (실패하면 여기서 중단 — 선택은 유지)
     const remain=miss.filter(m=>!psel[m.i]);
     const upd={items:items};
     if(remain.length){
@@ -5001,10 +5009,40 @@ async function pairLearnAll(id, btn){
     bumpMasterVer();
     renderSide();
     if(nPair||nNone) toast((nPair?'🔗 '+nPair+'품목 매칭 저장':'')+(nNone?(nPair?' · ':'')+'✕ '+nNone+'품목 매칭없음 처리':'')+(nSpread?' · 같은 거래처의 다른 주문 '+nSpread+'품목에도 반영':''));
-  }catch(e){ alert('저장 실패: '+e.message); }
+  }catch(e){ if(btn) alert('저장 실패: '+e.message+'\n(고른 것은 그대로 남아 있습니다 — 잠시 후 다시 저장)'); else throw e; }
   finally{ if(btn){ btn.disabled=false; btn.textContent='💾 선택한 짝 모두 저장 (학습·적용)'; } }
 }
 
+/* v6.76: 학습 일괄 등록 — 서버 1회. 옛 서버(addLearnedMany 없음)면 건마다 호출로 대체 */
+async function learnMany(rows){
+  rows=(rows||[]).filter(r=>r&&r.katok&&r.item); if(!rows.length) return;
+  try{
+    const r=await gsCall('addLearnedMany',{rows:JSON.stringify(rows)});
+    if(r && r.ok!==false) return;
+    throw new Error((r&&r.error)||'저장 실패');
+  }catch(e){
+    const em=String(e.message||e);
+    if(/알 수 없는 action|unknown action|action/i.test(em) && !/잠금/.test(em)){
+      for(const q of rows){ await gsCall('addLearned',{client:q.client, katok:q.katok, item:q.item}); }
+      return;
+    }
+    throw e;
+  }
+}
+/* v6.76: 품목 미확인 묶음 전체 — 고른 것 전부 한 번에 저장 */
+async function saveAllPairs(btn){
+  const ids=missPendingList().map(o=>o.id).filter(id=>{ const ps=PAIR_SEL[id]||{}; return Object.keys(ps).some(k=>ps[k]); });
+  if(!ids.length){ alert('고른 짝이 없습니다. 각 줄의 드롭다운에서 ERP 품목을 먼저 고르세요.'); return; }
+  if(btn){ btn.disabled=true; btn.textContent='저장 중… (0/'+ids.length+')'; }
+  let ok=0, fail=0;
+  for(const id of ids){
+    try{ await pairLearnAll(id, null); ok++; }catch(e){ fail++; }
+    if(btn) btn.textContent='저장 중… ('+(ok+fail)+'/'+ids.length+')';
+  }
+  if(btn){ btn.disabled=false; btn.textContent='💾 고른 것 전부 저장'; }
+  toast('💾 '+ok+'건 저장'+(fail?' · '+fail+'건 실패(선택 유지됨 — 다시 저장)':''));
+  renderSide();
+}
 /* (구버전 호환) 한 줄 짝짓기 */
 async function pairLearn(id, idx, katok, erpItem, btn){
   const o=ORDERS[id]; if(!o) return;
