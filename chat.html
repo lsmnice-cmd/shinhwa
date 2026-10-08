@@ -11,7 +11,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.76 — 2026-10-08
+  신화미트 주문방 (chat.html) v6.78 — 2026-10-08
+  · v6.78: 짝짓기 드롭다운에 '⏭ 다음에 다시 매칭' — 학습하지 않고 이번 건만 넘김. 같은 표현이 다음 주문에 오면 다시 품목 미확인으로 올라옴.
+  · v6.77: 확인방 '코드 학습됨 ✓(코드)'를 누르면 ERP 거래처 코드를 바꾸거나 학습을 풀 수 있음 (풀면 그 주문은 다시 대조 대기).
   · v6.76: 짝짓기 저장을 서버 호출 1번(addLearnedMany, Code v5.4)으로 — 건마다 부르다 '잠금 시간초과'로 실패하던 문제.
      품목 미확인 묶음 맨 위 [💾 고른 것 전부 저장] — 여러 주문의 선택을 한 번에 저장. 실패해도 선택은 유지.
   · v6.75: 확인방 맨 위에 '🔗 품목 미확인 N건' 묶음 — 대조 완료 기록을 펼치지 않아도 바로 보이고 짝짓기 가능. 확인방 배지에 합산.
@@ -3489,8 +3491,8 @@ let RUNNER_ALIVE=0;                                   // 자동처리 화면의 
 let RUNNER_SEEN=false;                                 // v6.69: 생존 신호를 한 번이라도 받았는지
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<130*1000; }   // v6.69: 백그라운드 탭 타이머 지연(최대 1분) 감안
 const STALE_MS=IS_RUNNER ? 150*1000 : 180*1000;  // v6.69: 처리 중엔 20초마다 잠금이 갱신됨 → 이 시간 동안 갱신이 없을 때만 '멈춤'
-const APP_VER='6.76';
-const APP_BUILD=676;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.78';
+const APP_BUILD=678;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 const RESCUE_T={};
 async function rescueIfStale(id, m){
@@ -4120,6 +4122,7 @@ function buildOrderCard(o){
         +esc(measText(it))+'</span>';
     }
     if(it.noMatch){ meas+=' <span title="ERP 대조 제외 품목" style="font-size:10.5px;color:#8a857a;background:#f0ece1;border-radius:4px;padding:1px 5px">✕ 매칭없음</span>'; }
+    if(it.later){ meas+=' <span title="이번 건은 넘김 — 다음 주문에서 다시 매칭" style="font-size:10.5px;color:#7a5a00;background:#fff6e6;border-radius:4px;padding:1px 5px">⏭ 다음에</span>'; }
     if(!it.noMatch && !(it.erpKg||it.erpTail) && (o.date||'')>=ALLITEM_FROM && (erpVerified(o)||erpSaleOk(o)) && !erpVerifiedAll(o)){
       meas+=' <span title="거래처 매출은 확인됐지만 이 품목은 ERP 품명과 짝지어지지 않음 (참고용 — 처리 판정에는 영향 없음)" style="font-size:10.5px;color:#8a857a;background:#f0ece1;border-radius:4px;padding:1px 5px">· 품목 미확인</span>';
     }
@@ -4734,7 +4737,7 @@ function renderConf(conf){
       const rd=o.reconDate&&o.reconDate!==o.date?o.reconDate:'';
       head.innerHTML='<b>'+esc(o.client||'')+'</b> <span class="oc-meta">'+esc(normVeh(o.vehicle))+' · '+(o.items||[]).length+'품목</span> '+st
         +'<span onclick="editReconDate(\''+esc(o.id)+'\')" title="전산을 다른 날 쳤으면 대조일을 바꾸세요" style="cursor:pointer;font-size:11px;font-weight:800;color:'+(rd?'#1a4f9c':'#5a5045')+';background:'+(rd?'#e4edf9':'#f0ece1')+';border-radius:8px;padding:2px 7px">📅 대조일 '+esc(mmdd(rd||o.date||''))+'</span>'
-        +(ERPMAP_HAS(o.client)?'<span title="ERP 거래처 코드가 학습되어 있음 — 다음부터 자동" style="font-size:10px;color:#1f6b3a">코드 학습됨 ✓</span>':'')
+        +(ERPMAP_HAS(o.client)?'<span onclick="editErpCode(\''+esc(o.id)+'\')" title="ERP 거래처 코드 '+esc((ERPMAP[cliNorm(o.client)]||{}).code||'')+' — 누르면 바꾸거나 학습 해제" style="font-size:10px;color:#1f6b3a;cursor:pointer;text-decoration:underline dotted">코드 학습됨 ✓ '+esc((ERPMAP[cliNorm(o.client)]||{}).code||'')+'</span>':'')
         +'<button class="undo" onclick="undoConfirm(\''+esc(o.id)+'\')">↩ 되돌리기</button>';
       card.appendChild(head);
       const items=document.createElement('div'); items.className='oc-items'; items.style.marginBottom='0';
@@ -4870,6 +4873,24 @@ async function mapErpCode(id, code, btn){
   finally{ if(btn){ btn.disabled=false; btn.textContent='매칭'; } }
 }
 
+/* v6.77: 학습된 ERP 거래처 코드 변경·해제 */
+async function editErpCode(id){
+  const o=ORDERS[id]; if(!o) return;
+  const k=cliNorm(o.client); const cur=(ERPMAP[k]||{}).code||'';
+  const v=prompt(o.client+' 의 ERP 거래처 코드\n(바꾸려면 새 코드 입력 · 비우고 확인하면 학습 해제 → 다음 대조 때 이름으로 다시 찾음)', cur);
+  if(v===null) return;
+  const nv=v.trim();
+  try{
+    if(!nv){
+      if(!confirm('코드 학습을 해제할까요? 이 거래처의 이전 대조 결과는 그대로 두고, 이 주문만 다시 대조 대기로 돌립니다.')) return;
+      await db.ref('erpmap/'+k).remove(); delete ERPMAP[k];
+    }else{
+      await db.ref('erpmap/'+k).set({code:nv, client:o.client, by:MYNAME, at:Date.now()}); ERPMAP[k]={code:nv, client:o.client};
+    }
+    o.recon=null; await db.ref('orders/'+id).update({recon:null, reconReq:Date.now()});
+    renderSide(); toast(nv?('코드 '+nv+'로 변경 — 다음 대조 때 적용'):'코드 학습 해제 — 다음 대조 때 이름으로 다시 찾음');
+  }catch(e){ alert('실패: '+e.message); }
+}
 /* 🔗 품목 짝짓기 — 선택값 저장소 (화면이 다시 그려져도 선택 유지) */
 const PAIR_SEL={};   // orderId -> {missIdx: erpItem}
 const PAIR_OPEN={};  // 완료 기록에서 짝짓기 상자를 펼친 주문
@@ -4922,6 +4943,7 @@ function buildPairBox(o, withPass){
     sel.style.cssText='flex:1;min-width:130px;padding:6px;border:1px solid var(--line);border-radius:5px;font-size:12.5px;font-family:var(--sans)';
     const o0=document.createElement('option'); o0.value=''; o0.textContent='→ ERP 품목 선택'; sel.appendChild(o0);
     const oN=document.createElement('option'); oN.value='__none__'; oN.textContent='✕ 매칭없음 (ERP에 없는 품목 — 대조 제외)'; sel.appendChild(oN);
+    const oL=document.createElement('option'); oL.value='__later__'; oL.textContent='⏭ 다음에 다시 매칭 (학습 안 함 — 이번만 넘김)'; sel.appendChild(oL);
     [...new Set(o.recon.erpItems)].forEach(e=>{
       const op=document.createElement('option'); op.value=e; op.textContent=e; sel.appendChild(op);
     });
@@ -4954,11 +4976,17 @@ async function pairLearnAll(id, btn){
   if(btn){ btn.disabled=true; btn.textContent='저장 중…'; }
   try{
     const items=(o.items||[]).slice();
-    const spread=[]; let nPair=0, nNone=0; const learnRows=[];
+    const spread=[]; let nPair=0, nNone=0, nLater=0; const learnRows=[];
     for(const m of chosen){
       const erp=psel[m.i];
       const it0=items[m.i]||{};
       const srcs=[...new Set([m.name, it0.text, it0.product, it0.wasProduct].map(x=>String(x||'').trim()).filter(x=>x && learnKey(x)))];
+      if(erp==='__later__'){
+        // ⏭ 다음에 다시: 학습 없이 이번 건만 미확인에서 내림 — 다음 주문의 같은 표현은 다시 올라옴
+        if(items[m.i]) items[m.i]=Object.assign({}, items[m.i], {later:{by:MYNAME, at:Date.now()}});
+        nLater++;
+        continue;
+      }
       if(erp==='__none__'){
         // ✕ 매칭없음: 대조 제외 + 학습('매칭없음')
         srcs.forEach(src=>learnRows.push({client:o.client, katok:src, item:'매칭없음'}));
@@ -5008,7 +5036,7 @@ async function pairLearnAll(id, btn){
     for(const sp of spread){ nSpread+=await spreadLearn(o.client, sp.srcs, sp.erp, id, '짝짓기'); }
     bumpMasterVer();
     renderSide();
-    if(nPair||nNone) toast((nPair?'🔗 '+nPair+'품목 매칭 저장':'')+(nNone?(nPair?' · ':'')+'✕ '+nNone+'품목 매칭없음 처리':'')+(nSpread?' · 같은 거래처의 다른 주문 '+nSpread+'품목에도 반영':''));
+    if(nPair||nNone||nLater) toast([nPair?'🔗 '+nPair+'품목 매칭 저장':'', nNone?'✕ '+nNone+'품목 매칭없음':'', nLater?'⏭ '+nLater+'품목 다음에':'', nSpread?'같은 거래처 다른 주문 '+nSpread+'품목에도 반영':''].filter(Boolean).join(' · '));
   }catch(e){ if(btn) alert('저장 실패: '+e.message+'\n(고른 것은 그대로 남아 있습니다 — 잠시 후 다시 저장)'); else throw e; }
   finally{ if(btn){ btn.disabled=false; btn.textContent='💾 선택한 짝 모두 저장 (학습·적용)'; } }
 }
