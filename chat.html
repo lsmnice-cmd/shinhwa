@@ -11,7 +11,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.79 — 2026-10-08
+  신화미트 주문방 (chat.html) v6.81 — 2026-10-16
+  · v6.81: 🛡 관리자 권한 위임 — 대표(ADMIN_UID)가 조직관리에서 직원에게 🛡 관리자를 지정/해제(users/{uid}/admin).
+     지정된 사람은 관리자와 같은 권한(직원 편집·공지·일괄 정리·방 ON/OFF·회사일정·메시지 삭제 등). 관리자 지정/해제 자체는 대표만.
+  · v6.80: 품목 미확인 건이 확인방 어디서든 눈에 띄게 — 맨 위 묶음은 항상 펼친 채 노란 배경, 대조 완료 기록 안에서도 미확인 건을 날짜별 맨 위로 올리고 노란 배경.
   · v6.79: 짝짓기 상자에 '대조된 ERP 거래처 코드' 표시 + [🏢 거래처 코드가 틀림 → 바꾸기] — 품목이 하나도 안 맞으면 거래처를 잘못 찾은 것.
      코드를 바꾸면 그 주문은 확인방 대기로 돌아가 다음 대조 때 새 코드로 다시 대조(지난 날짜도 v3.9가 처리).
   · v6.78: 짝짓기 드롭다운에 '⏭ 다음에 다시 매칭' — 학습하지 않고 이번 건만 넘김. 같은 표현이 다음 주문에 오면 다시 품목 미확인으로 올라옴.
@@ -908,7 +911,7 @@ let cfg={};
 try{ cfg=JSON.parse(localStorage.getItem(LS)||'{}')||{}; }catch(e){ cfg={}; }
 // 빠진 항목마다 내장 기본값으로 보충 (일부만 저장된 설정이어도 접속되게)
 ['fbUrl','fbKey','fbProj'].forEach(k=>{ if(!cfg[k]) cfg[k]=DEFAULT_FB[k]; });
-let db=null, auth=null, ME=null, fbReady=false, IS_ADMIN=false, ALLOWED=false;
+let db=null, auth=null, ME=null, fbReady=false, IS_ADMIN=false, ALLOWED=false, IS_OWNER=false;   // v6.81: IS_OWNER=대표(ADMIN_UID), IS_ADMIN=대표 또는 위임 관리자
 let MYNAME='';
 
 let ORDERS={}, MASTER={}, LEARNED={perCustomer:{},global:{}}, ALIASES={}, RECENT={}, PRODBYCODE={};
@@ -1462,7 +1465,8 @@ async function onSignedIn(u){
     try{
       const j=await gsCall('getAccess');
       const access=j.access||{};
-      IS_ADMIN = !!(access.adminUid && u.uid===access.adminUid);
+      IS_OWNER = !!(access.adminUid && u.uid===access.adminUid);
+      IS_ADMIN = IS_OWNER || !!(USERS[u.uid] && USERS[u.uid].admin);
       ALLOWED = IS_ADMIN || ((access.emails||[]).indexOf((u.email||'').toLowerCase())>=0);
     }catch(e){ console.warn('getAccess',e); }
     loadMaster();
@@ -3493,8 +3497,8 @@ let RUNNER_ALIVE=0;                                   // 자동처리 화면의 
 let RUNNER_SEEN=false;                                 // v6.69: 생존 신호를 한 번이라도 받았는지
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<130*1000; }   // v6.69: 백그라운드 탭 타이머 지연(최대 1분) 감안
 const STALE_MS=IS_RUNNER ? 150*1000 : 180*1000;  // v6.69: 처리 중엔 20초마다 잠금이 갱신됨 → 이 시간 동안 갱신이 없을 때만 '멈춤'
-const APP_VER='6.79';
-const APP_BUILD=679;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.81';
+const APP_BUILD=681;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 const RESCUE_T={};
 async function rescueIfStale(id, m){
@@ -3610,7 +3614,10 @@ function toggleShowAll(){ SHOW_ALL=!SHOW_ALL; renderSide(); }
 let USERS={}, TASKS={}, DEFERRED={}, TRASH={};
 function watchUsersTasks(){
   if(!db) return;
-  db.ref('users').on('value', s=>{ USERS=s.val()||{}; if(document.getElementById('peopleBg').classList.contains('on')) renderPeople(); }, ()=>{});
+  db.ref('users').on('value', s=>{ USERS=s.val()||{};
+    // v6.81: 위임 관리자 권한은 users/{uid}/admin 에서 — 바뀌면 즉시 반영
+    try{ if(ME){ const was=IS_ADMIN; IS_ADMIN=IS_OWNER || !!(USERS[ME.uid]&&USERS[ME.uid].admin); if(was!==IS_ADMIN){ renderSideSafe(); try{ renderRoomTabs&&renderRoomTabs(); }catch(e){} } } }catch(e){}
+    if(document.getElementById('peopleBg').classList.contains('on')) renderPeople(); }, ()=>{});
   db.ref('tasks').on('value', s=>{ TASKS=s.val()||{}; renderSide(); checkTaskPopup(); }, ()=>{});
   db.ref('meta/deferred').on('value', s=>{ DEFERRED=s.val()||{}; renderSideSafe(); }, ()=>{});
   db.ref('trash').limitToLast(400).on('value', s=>{ TRASH=s.val()||{}; renderSideSafe(); }, ()=>{});
@@ -3623,7 +3630,7 @@ function renderPeople(){
   const box=document.getElementById('peopleBox');
   const online=new Set(Object.keys(PRESENCE||{}));
   const list=Object.keys(USERS).filter(uid=>USERS[uid]&&(USERS[uid].email||USERS[uid].nick||USERS[uid].name))
-    .map(uid=>({uid, name:userName(uid), on:online.has(uid), last:USERS[uid].lastSeen||0, team:USERS[uid].team||'', lead:!!USERS[uid].lead, email:USERS[uid].email||''}));
+    .map(uid=>({uid, name:userName(uid), on:online.has(uid), last:USERS[uid].lastSeen||0, team:USERS[uid].team||'', lead:!!USERS[uid].lead, admin:!!USERS[uid].admin, email:USERS[uid].email||''}));
   const teams=[...new Set(list.map(p=>p.team).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ko'));
   const canBroad=IS_ADMIN||isLead();
   let h='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b>👥 직원 '+list.length+'명 · 접속 '+list.filter(x=>x.on).length+'명</b><button onclick="closePeople()" style="border:none;background:none;font-size:18px;cursor:pointer">✕</button></div>';
@@ -3633,7 +3640,7 @@ function renderPeople(){
       +teams.map(t=>'<button onclick="addTask(\'team:'+esc(t)+'\')" style="border:1px solid var(--accent);background:#fff;color:var(--accent);border-radius:6px;padding:7px 11px;font-weight:800;font-size:12px;cursor:pointer">📢 '+esc(t)+'팀</button>').join('')
       +'</div>';
   }
-  if(IS_ADMIN) h+='<div style="font-size:11px;color:var(--muted);margin-bottom:4px">관리자: 이름·팀 칸을 고치고 벗어나면 저장 · ★ 누르면 팀장 지정/해제</div>';
+  if(IS_ADMIN) h+='<div style="font-size:11px;color:var(--muted);margin-bottom:4px">관리자: 이름·팀 칸을 고치고 벗어나면 저장 · ★ 누르면 팀장 지정/해제'+(IS_OWNER?' · 🛡 누르면 관리자 권한 지정/해제(대표만)':'')+'</div>';
   [...teams, ''].forEach(t=>{
     const ppl=list.filter(p=>p.team===t).sort((a,b)=>(b.lead-a.lead)||(b.on-a.on)||a.name.localeCompare(b.name,'ko'));
     if(!ppl.length) return;
@@ -3645,10 +3652,11 @@ function renderPeople(){
         h+='<span class="pp-name" style="display:flex;flex-direction:column;gap:2px">'
           +'<span style="display:flex;gap:4px;align-items:center"><input value="'+esc(p.name)+'" onchange="userSet(\''+esc(p.uid)+'\',\'nick\',this.value)" style="width:110px;padding:4px 6px;border:1px solid var(--line);border-radius:5px;font-weight:700;font-size:13px">'
           +'<input value="'+esc(p.team)+'" placeholder="팀" list="teamList" onchange="userSet(\''+esc(p.uid)+'\',\'team\',this.value)" style="width:70px;padding:4px 6px;border:1px solid var(--line);border-radius:5px;font-size:12px">'
+          +(IS_OWNER?'<span onclick="userSet(\''+esc(p.uid)+'\',\'admin\','+(p.admin?'false':'true')+')" title="관리자 권한 지정/해제 (대표만)" style="cursor:pointer;font-size:15px;color:'+(p.admin?'#1a4f9c':'#ccc')+'">🛡</span>':(p.admin?'<span title="관리자" style="font-size:13px;color:#1a4f9c">🛡</span>':''))
           +'<span onclick="userSet(\''+esc(p.uid)+'\',\'lead\','+(p.lead?'false':'true')+')" title="팀장 지정/해제" style="cursor:pointer;font-size:16px;color:'+(p.lead?'#e0a800':'#ccc')+'">★</span></span>'
           +'<span class="pp-sub">'+esc(p.email)+' · '+(p.on?'접속 중':(p.last?'마지막 '+new Date(p.last).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'기록 없음'))+'</span></span>';
       }else{
-        h+='<span class="pp-name">'+esc(p.name)+(p.lead?' <span style="color:#e0a800">★팀장</span>':'')+(me?' <span style="font-weight:400;color:var(--muted)">(나)</span>':'')
+        h+='<span class="pp-name">'+esc(p.name)+(p.admin?' <span style="color:#1a4f9c">🛡관리자</span>':'')+(p.lead?' <span style="color:#e0a800">★팀장</span>':'')+(me?' <span style="font-weight:400;color:var(--muted)">(나)</span>':'')
           +'<div class="pp-sub">'+(p.on?'접속 중':(p.last?'마지막 접속 '+new Date(p.last).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'접속 기록 없음'))+'</div></span>';
       }
       h+='<button onclick="addTask(\''+esc(p.uid)+'\')">+ 요청</button></div>';
@@ -3659,6 +3667,13 @@ function renderPeople(){
 }
 async function userSet(uid, field, val){
   if(!IS_ADMIN) return;
+  if(field==='admin'){   // v6.81: 관리자 권한은 대표만 지정/해제
+    if(!IS_OWNER){ alert('관리자 권한 지정은 대표만 할 수 있습니다.'); return; }
+    const on=(val===true||val==='true');
+    if(!confirm((userName(uid)||uid)+' 님에게 관리자 권한을 '+(on?'부여':'해제')+'할까요?\n(직원 편집·공지·일괄 정리·방 ON/OFF·회사일정·메시지 삭제 등 관리자와 같은 권한)')) return;
+    try{ await db.ref('users/'+uid+'/admin').set(on?true:null); renderPeople(); toast('🛡 '+(userName(uid)||'')+' 관리자 '+(on?'지정':'해제')); }catch(e){ alert('실패: '+e.message); }
+    return;
+  }
   if(field==='nick'||field==='team') val=String(val||'').trim().slice(0,20);
   try{
     const upd={}; upd[field]=(field==='lead')?(val===true||val==='true'?true:null):(val||null);
@@ -4692,6 +4707,7 @@ function renderMissPending(box){
   const h=document.createElement('div'); h.className='veh-h'; h.style.cssText='cursor:pointer;margin-top:4px';
   h.innerHTML='<span class="v" style="background:#fbf7ec;border-color:#e2d3a8;color:#7a5a00">'+(MISS_OPEN?'▾':'▸')+' 🔗 품목 미확인</span><span class="n" style="color:#7a5a00">'+list.length+'건 — 거래처 매출은 확인됐지만 품목이 ERP 품명과 안 맞음 · 짝지으면 학습</span>';
   h.onclick=()=>{ MISS_OPEN=!MISS_OPEN; renderSide(); };
+  h.style.background='#fffbea'; h.style.borderRadius='6px'; h.style.padding='6px 8px';
   box.appendChild(h);
   if(!MISS_OPEN) return;
   const sa=document.createElement('button'); sa.textContent='💾 고른 것 전부 저장';
@@ -4701,7 +4717,7 @@ function renderMissPending(box){
   box.appendChild(sa);
   list.forEach(o=>{
     const r=o.recon||{};
-    const row=document.createElement('div'); row.className='ccard'; row.style.cssText='padding:7px 10px;margin-bottom:6px';
+    const row=document.createElement('div'); row.className='ccard'; row.style.cssText='padding:7px 10px;margin-bottom:6px;background:#fffbea;border-color:#e0b84a';
     row.innerHTML='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b>'+esc(o.client||'')+'</b><span class="oc-meta">'+esc(mmdd(o.date||''))+' · '+esc(normVeh(o.vehicle||''))+' · '+(o.items||[]).length+'품목</span>'
       +'<span class="st ok" style="font-size:10.5px">✅ '+esc(r.via||'자동대조')+(r.weight?' · '+esc(String(r.weight).replace(/\s*·\s*품목 미확인:.*$/,'')):'')+'</span></div>'
       +'<div class="oc-items" style="margin:2px 0 0;font-size:12px;color:#555">'+(o.items||[]).map(it=>esc(itemText(it))+prodTag(it,true)).join(' · ')+'</div>';
@@ -4812,11 +4828,12 @@ function renderConfDone(box){
   Object.keys(byDate).sort().reverse().forEach(d=>{
     const dh=document.createElement('div'); dh.className='date-h'; dh.style.cssText='font-size:12px;margin:10px 2px 4px;border-bottom-color:#9cc9aa;color:#1f6b3a'; dh.textContent=d.replace(/-/g,'.')+' · '+byDate[d].length+'건';
     box.appendChild(dh);
-    byDate[d].sort((a,b)=>(b.reconAt||b.confirmAt||0)-(a.reconAt||a.confirmAt||0)).forEach(o=>{
+    const hasMiss=o=>!!(o.recon&&o.recon.missItems&&o.recon.missItems.length&&o.recon.erpItems&&o.recon.erpItems.length);
+    byDate[d].sort((a,b)=>(hasMiss(b)-hasMiss(a))||((b.reconAt||b.confirmAt||0)-(a.reconAt||a.confirmAt||0))).forEach(o=>{
       const r=o.recon||{}; const ck=o.chk||{};
       const via=r.via||'자동대조'; const when=o.reconAt||r.at||o.confirmAt;
       const kg=(o.items||[]).map(it=>it&&it.erpKg?String(it.erpKg).replace(/\.0+$/,'')+'kg'+(it.erpTail?'('+it.erpTail+')':''):'').filter(Boolean).join(' · ');
-      const row=document.createElement('div'); row.className='ccard'; row.style.cssText='padding:7px 10px;margin-bottom:5px;opacity:.9';
+      const row=document.createElement('div'); row.className='ccard'; row.style.cssText='padding:7px 10px;margin-bottom:5px;opacity:.9'+(hasMiss(o)?';background:#fffbea;border-color:#e0b84a':'');
       row.innerHTML='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b>'+esc(o.client||'')+'</b><span class="oc-meta">'+esc(normVeh(o.vehicle||''))+' · '+(o.items||[]).length+'품목</span>'
         +'<span class="st ok" style="font-size:10.5px">✅ '+esc(via)+(r.weight?' · '+esc(r.weight):'')+'</span>'
         +(when?'<span class="oc-meta">'+new Date(when).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+'</span>':'')
