@@ -11,7 +11,14 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.84 — 2026-10-21
+  신화미트 주문방 (chat.html) v6.86 — 2026-10-22
+  · v6.86: 거래처 코드 수정 창 — 코드 + 회사(미트/푸드/자동) + 대조일을 한 번에. 코드가 날짜 모양이라 미트·푸드 양쪽에 같은 코드가 있어
+           엉뚱한 회사 매출을 잡거나 못 찾던 문제 → 회사를 고정(erpmap.db)하면 전산대조 v4.5가 그 회사 그 코드만 봄.
+           '코드 학습됨 ✓' 표시에 회사도 함께.
+  · v6.85: 확인방 [↩ 되돌리기] 수정 — 전산처리 체크만 풀고 대조 결과(recon)·거래처 매출 확인(erpSale)은 남겨 두어
+           '처리됨'으로 판정돼 미처리에도 확인방에도 안 보이던 문제. 되돌리면 대조 결과·매출 확인도 지우고
+           봇 PC 소급 대조가 다시 자동 처리하지 않게 표시(noRetro) → 미처리 탭 그 날짜(지난 날짜면 ⚠ 이월 미처리)로 돌아감.
+           다시 전산처리 체크하면 표시 해제.
   · v6.84: ERP 상품코드 변경 대응 — 짝짓기 [🌐 모든 거래처 공통] 체크 시 서버(Code v5.8 replaceProduct)가 거래처 마스터 시트·학습사전의
            옛 상품명을 전부 새 이름으로 바꿈(AI 분석이 옛 이름을 계속 고르던 원인). 모든 거래처의 아직 안 나간 주문에도 즉시 반영.
   · v6.83: 학습 반영 — 학습사전을 정규화 키(공백·숫자·단위 제거)로도 찾음("우삼겹 16팩"으로 배운 것이 "우삼겹 12팩"에도 적용).
@@ -3575,7 +3582,7 @@ let RUNNER_ALIVE=0;                                   // 자동처리 화면의 
 let RUNNER_SEEN=false;                                 // v6.69: 생존 신호를 한 번이라도 받았는지
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<130*1000; }   // v6.69: 백그라운드 탭 타이머 지연(최대 1분) 감안
 const STALE_MS=IS_RUNNER ? 150*1000 : 180*1000;  // v6.69: 처리 중엔 20초마다 잠금이 갱신됨 → 이 시간 동안 갱신이 없을 때만 '멈춤'
-const APP_VER='6.84';
+const APP_VER='6.86';
 const APP_BUILD=682;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 const RESCUE_T={};
@@ -4763,8 +4770,8 @@ async function toggleChk(id, key, on){
       const el=document.getElementById('oc_'+id);
       if(el) el.classList.add('gone');
       setTimeout(async()=>{
-        o.confirm='wait'; o.confirmAt=Date.now(); o.erpAt=o.confirmAt;
-        await db.ref('orders/'+id).update({confirm:'wait', confirmAt:o.confirmAt, erpAt:o.erpAt}).catch(()=>{});
+        o.confirm='wait'; o.confirmAt=Date.now(); o.erpAt=o.confirmAt; delete o.noRetro;
+        await db.ref('orders/'+id).update({confirm:'wait', confirmAt:o.confirmAt, erpAt:o.erpAt, noRetro:null}).catch(()=>{});
         renderSide();
       },330);
       return;
@@ -4842,7 +4849,7 @@ function renderConf(conf){
       const rd=o.reconDate&&o.reconDate!==o.date?o.reconDate:'';
       head.innerHTML='<b>'+esc(o.client||'')+'</b> <span class="oc-meta">'+esc(normVeh(o.vehicle))+' · '+(o.items||[]).length+'품목</span> '+st
         +'<span onclick="editReconDate(\''+esc(o.id)+'\')" title="전산을 다른 날 쳤으면 대조일을 바꾸세요" style="cursor:pointer;font-size:11px;font-weight:800;color:'+(rd?'#1a4f9c':'#5a5045')+';background:'+(rd?'#e4edf9':'#f0ece1')+';border-radius:8px;padding:2px 7px">📅 대조일 '+esc(mmdd(rd||o.date||''))+'</span>'
-        +(ERPMAP_HAS(o.client)?'<span onclick="editErpCode(\''+esc(o.id)+'\')" title="ERP 거래처 코드 '+esc((ERPMAP[cliNorm(o.client)]||{}).code||'')+' — 누르면 바꾸거나 학습 해제" style="font-size:10px;color:#1f6b3a;cursor:pointer;text-decoration:underline dotted">코드 학습됨 ✓ '+esc((ERPMAP[cliNorm(o.client)]||{}).code||'')+'</span>':'')
+        +(ERPMAP_HAS(o.client)?'<span onclick="editErpCode(\''+esc(o.id)+'\')" title="ERP 거래처 코드 '+esc((ERPMAP[cliNorm(o.client)]||{}).code||'')+' — 누르면 바꾸거나 학습 해제" style="font-size:10px;color:#1f6b3a;cursor:pointer;text-decoration:underline dotted">코드 학습됨 ✓ '+esc((ERPMAP[cliNorm(o.client)]||{}).code||'')+((ERPMAP[cliNorm(o.client)]||{}).db?' '+esc((ERPMAP[cliNorm(o.client)]||{}).db):'')+'</span>':'')
         +'<button class="undo" onclick="undoConfirm(\''+esc(o.id)+'\')">↩ 되돌리기</button>';
       card.appendChild(head);
       const items=document.createElement('div'); items.className='oc-items'; items.style.marginBottom='0';
@@ -4984,22 +4991,50 @@ async function mapErpCode(id, code, btn){
 /* v6.77: 학습된 ERP 거래처 코드 변경·해제 */
 async function editErpCode(id){
   const o=ORDERS[id]; if(!o) return;
-  const k=cliNorm(o.client); const cur=(ERPMAP[k]||{}).code||(o.recon&&o.recon.code)||'';
-  const v=prompt(o.client+' 의 ERP 거래처 코드 (지금: '+(cur||'없음')+(o.recon&&o.recon.db?' · '+o.recon.db:'')+')\n새 코드를 입력하면 그 코드로 학습하고 이 주문을 다시 대조합니다.\n비우고 확인하면 학습 해제 → 다음 대조 때 이름으로 다시 찾음', cur);
-  if(v===null) return;
-  const nv=v.trim();
-  try{
-    if(!nv){
-      if(!confirm('코드 학습을 해제할까요? 이 거래처의 이전 대조 결과는 그대로 두고, 이 주문만 다시 대조 대기로 돌립니다.')) return;
-      await db.ref('erpmap/'+k).remove(); delete ERPMAP[k];
-    }else{
-      await db.ref('erpmap/'+k).set({code:nv, client:o.client, by:MYNAME, at:Date.now()}); ERPMAP[k]={code:nv, client:o.client};
-    }
-    // 다시 대조: 확인방 대기로 (지난 날짜도 전산대조 v3.9가 그 날짜 ERP로 대조)
-    o.recon=null; o.confirm='wait'; o.erpSale=null; delete PAIR_SEL[id];
-    await db.ref('orders/'+id).update({recon:null, confirm:'wait', erpSale:null, reconReq:Date.now()});
-    renderSide(); toast(nv?('코드 '+nv+'로 변경 — 확인방 대기로 돌려 다음 대조 때 다시 맞춥니다'):'코드 학습 해제 — 다음 대조 때 이름으로 다시 찾음');
-  }catch(e){ alert('실패: '+e.message); }
+  const k=cliNorm(o.client); const em=ERPMAP[k]||{};
+  const cur=em.code||(o.recon&&o.recon.code)||'';
+  const curDb=em.db||'';
+  const curDate=(o.reconDate||o.date||'');
+  // v6.86: 코드 + 회사(미트/푸드/자동) + 대조일을 한 창에서
+  const ov=document.createElement('div'); ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  const bx=document.createElement('div'); bx.style.cssText='background:#fff;border-radius:10px;padding:14px 16px;width:min(420px,100%);font-size:13px;box-shadow:0 8px 30px rgba(0,0,0,.25)';
+  const rad=['','미트','푸드'].map(v=>'<label style="margin-right:12px;cursor:pointer"><input type="radio" name="ecDb" value="'+v+'"'+(curDb===v?' checked':'')+'> '+(v||'자동 (양쪽에서 찾음)')+'</label>').join('');
+  bx.innerHTML='<div style="font-weight:800;font-size:14px;margin-bottom:8px">🏢 '+esc(o.client)+' — ERP 거래처 코드</div>'
+    +'<div style="color:#6b665a;font-size:11.5px;line-height:1.45;margin-bottom:10px">코드가 날짜 모양이면 미트·푸드 양쪽에 같은 코드가 있을 수 있습니다. <b>회사를 고정</b>하면 봇이 그 회사의 그 코드만 봅니다. 저장하면 이 거래처에 학습되고, 이 주문은 확인 대기로 돌아가 다시 대조됩니다.</div>'
+    +'<div style="margin-bottom:8px"><div style="font-size:11.5px;color:#5b564a;margin-bottom:3px">거래처 코드 <span style="color:#999">(비우면 학습 해제 → 이름으로 다시 찾음)</span></div><input id="ecCode" value="'+esc(cur)+'" style="width:100%;padding:7px;border:1px solid #ccc;border-radius:6px;font-size:14px"></div>'
+    +'<div style="margin-bottom:8px"><div style="font-size:11.5px;color:#5b564a;margin-bottom:3px">회사</div>'+rad+'</div>'
+    +'<div style="margin-bottom:12px"><div style="font-size:11.5px;color:#5b564a;margin-bottom:3px">📅 대조일 <span style="color:#999">(ERP에 매출을 친 날짜 · 배송일 '+esc(mmdd(o.date||''))+')</span></div><input id="ecDate" value="'+esc(curDate)+'" placeholder="2026-10-21 또는 1021" style="width:100%;padding:7px;border:1px solid #ccc;border-radius:6px;font-size:14px"></div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end"><button id="ecCancel" style="border:1px solid #ccc;background:#f4f2ec;border-radius:6px;padding:7px 14px;cursor:pointer">취소</button><button id="ecOk" style="border:none;background:#1f6b3a;color:#fff;border-radius:6px;padding:7px 16px;font-weight:800;cursor:pointer">저장하고 다시 대조</button></div>';
+  ov.appendChild(bx); document.body.appendChild(ov);
+  const close=()=>{ try{ document.body.removeChild(ov); }catch(e){} };
+  ov.onclick=e=>{ if(e.target===ov) close(); };
+  bx.querySelector('#ecCancel').onclick=close;
+  bx.querySelector('#ecOk').onclick=async()=>{
+    const nv=bx.querySelector('#ecCode').value.trim();
+    const ndb=(bx.querySelector('input[name=ecDb]:checked')||{}).value||'';
+    const dv=bx.querySelector('#ecDate').value.trim().replace(/[.\/\s]/g,'');
+    let nd=null;
+    if(!dv) nd=null;
+    else if(/^\d{4}$/.test(dv)) nd=new Date().getFullYear()+'-'+dv.slice(0,2)+'-'+dv.slice(2);
+    else if(/^\d{8}$/.test(dv)) nd=dv.slice(0,4)+'-'+dv.slice(4,6)+'-'+dv.slice(6);
+    else if(/^\d{4}-\d{2}-\d{2}$/.test(bx.querySelector('#ecDate').value.trim())) nd=bx.querySelector('#ecDate').value.trim();
+    else { alert('대조일 형식을 인식하지 못했습니다 (예: 1021 또는 2026-10-21)'); return; }
+    if(nd===(o.date||'')) nd=null;   // 배송일과 같으면 따로 저장 안 함
+    try{
+      if(!nv){
+        if(!confirm('코드 학습을 해제할까요? 이 주문만 다시 대조 대기로 돌립니다.')) return;
+        await db.ref('erpmap/'+k).remove(); delete ERPMAP[k];
+      }else{
+        const rec={code:nv, client:o.client, by:MYNAME, at:Date.now()}; if(ndb) rec.db=ndb;
+        await db.ref('erpmap/'+k).set(rec); ERPMAP[k]=rec;
+      }
+      o.recon=null; o.confirm='wait'; o.erpSale=null; o.reconDate=nd; delete PAIR_SEL[id]; delete o.noRetro;
+      await db.ref('orders/'+id).update({recon:null, confirm:'wait', erpSale:null, reconDate:nd, reconReq:Date.now(), noRetro:null});
+      close(); renderSide();
+      toast(nv?('코드 '+nv+(ndb?' ('+ndb+')':'')+(nd?' · 대조일 '+mmdd(nd):'')+' — 확인 대기로 돌려 다음 대조 때 다시 맞춥니다'):'코드 학습 해제 — 다음 대조 때 이름으로 다시 찾음');
+    }catch(e){ alert('실패: '+e.message); }
+  };
+  setTimeout(()=>{ try{ bx.querySelector('#ecCode').focus(); }catch(e){} },50);
 }
 /* 🔗 품목 짝짓기 — 선택값 저장소 (화면이 다시 그려져도 선택 유지) */
 const PAIR_SEL={};   // orderId -> {missIdx: erpItem}
@@ -5035,8 +5070,8 @@ function buildPairBox(o, withPass){
   // v6.79: 대조에 쓰인 ERP 거래처 코드 + 틀렸을 때 바꾸는 버튼
   { const cw=document.createElement('div'); cw.style.cssText='display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:7px;font-size:11.5px;color:#5b564a';
     const code=(o.recon&&o.recon.code)||(ERPMAP[cliNorm(o.client)]||{}).code||'';
-    cw.innerHTML='<span>🏢 대조된 ERP 거래처 코드: <b>'+esc(code||'?')+'</b>'+(o.recon&&o.recon.db?' ('+esc(o.recon.db)+')':'')+(o.recon&&o.recon.via?' · '+esc(o.recon.via):'')+'</span>';
-    const cb=document.createElement('button'); cb.textContent='거래처 코드가 틀림 → 바꾸기'; cb.title='품목이 하나도 안 맞으면 다른 거래처의 매출을 잡은 것입니다. 맞는 ERP 코드를 넣으면 학습하고 다시 대조합니다';
+    cw.innerHTML='<span>🏢 대조된 ERP 거래처 코드: <b>'+esc(code||'?')+'</b>'+(o.recon&&o.recon.db?' ('+esc(o.recon.db)+')':'')+(o.recon&&o.recon.via?' · '+esc(o.recon.via):'')+((ERPMAP[cliNorm(o.client)]||{}).db?' · 고정: '+esc(ERPMAP[cliNorm(o.client)].db):'')+'</span>';
+    const cb=document.createElement('button'); cb.textContent='거래처 코드·회사·대조일 바꾸기'; cb.title='품목이 하나도 안 맞으면 다른 거래처(또는 다른 회사)의 매출을 잡은 것입니다. 코드·미트/푸드·대조일을 고치면 학습하고 다시 대조합니다';
     cb.style.cssText='border:1px solid #e8a9a4;background:#fdecec;color:#8a1c1c;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:800;cursor:pointer';
     cb.onclick=()=>editErpCode(o.id); cw.appendChild(cb);
     // v6.83: 📅 대조일 — 완료 건도 날짜를 바꾸면 확인 대기로 돌려 봇이 그 날짜 ERP로 다시 대조
@@ -5273,9 +5308,11 @@ async function undoConfirm(id){
   const o=ORDERS[id]; if(!o) return;
   if(!confirm(o.client+' 주문을 미처리로 되돌릴까요? (전산처리 체크가 해제됩니다)')) return;
   o.confirm=null; if(o.chk) delete o.chk.erp;
-  await db.ref('orders/'+id).update({confirm:null, confirmAt:null, 'chk/erp':null}).catch(e=>alert('실패: '+e.message));
+  o.recon=null; o.erpSale=null; o.noRetro=Date.now();   // v6.85: 대조 결과·매출 확인도 지워야 '미처리'로 돌아감 + 봇 소급 자동처리 막음
+  await db.ref('orders/'+id).update({confirm:null, confirmAt:null, 'chk/erp':null, recon:null, erpSale:null, reconAt:null, noRetro:o.noRetro}).catch(e=>alert('실패: '+e.message));
   PANEL_DATE=o.date;
   setSide('pend');
+  toast('↩ '+o.client+' → 미처리 '+mmdd(o.date||'')+(((o.date||'')<todayStr())?' (오늘 보기에서는 ⚠ 이월 미처리 묶음)':''));
 }
 
 /* ============================================================
