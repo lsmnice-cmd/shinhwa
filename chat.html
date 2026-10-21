@@ -11,7 +11,14 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.81 — 2026-10-16
+  신화미트 주문방 (chat.html) v6.84 — 2026-10-21
+  · v6.84: ERP 상품코드 변경 대응 — 짝짓기 [🌐 모든 거래처 공통] 체크 시 서버(Code v5.8 replaceProduct)가 거래처 마스터 시트·학습사전의
+           옛 상품명을 전부 새 이름으로 바꿈(AI 분석이 옛 이름을 계속 고르던 원인). 모든 거래처의 아직 안 나간 주문에도 즉시 반영.
+  · v6.83: 학습 반영 — 학습사전을 정규화 키(공백·숫자·단위 제거)로도 찾음("우삼겹 16팩"으로 배운 것이 "우삼겹 12팩"에도 적용).
+           짝짓기에 [🌐 모든 거래처 공통] 체크 — 기존 품목 단종·재고 소진으로 새 품목으로 바꿀 때 (옛 ERP 품명 → 새 품명을 공통 학습).
+           품목 미확인 묶음에 [⏭ 전부 다음에] — 고르지 않은 줄을 한 번에 내림(학습 없음). 짝짓기 카드에 📅 대조일 버튼(완료 건도 날짜 바꾸면 재대조).
+  · v6.82: 검색 범위 — [📜 전체 기간] 버튼: 그 방의 옛 대화를 끝까지(최대 6개월·8,000건) 자동으로 이어 불러온 뒤 검색. 진행 표시·중간 중단 가능.
+     검색 결과 표시에 '로드된 범위: ~ 날짜' 안내.
   · v6.81: 🛡 관리자 권한 위임 — 대표(ADMIN_UID)가 조직관리에서 직원에게 🛡 관리자를 지정/해제(users/{uid}/admin).
      지정된 사람은 관리자와 같은 권한(직원 편집·공지·일괄 정리·방 ON/OFF·회사일정·메시지 삭제 등). 관리자 지정/해제 자체는 대표만.
   · v6.80: 품목 미확인 건이 확인방 어디서든 눈에 띄게 — 맨 위 묶음은 항상 펼친 채 노란 배경, 대조 완료 기록 안에서도 미확인 건을 날짜별 맨 위로 올리고 노란 배경.
@@ -849,7 +856,8 @@
       <span class="cnt" id="searchCnt"></span>
       <button onclick="searchNav(-1)" title="이전">▲</button>
       <button onclick="searchNav(1)" title="다음">▼</button>
-      <button onclick="loadOlder()" title="최근 200건 이전의 옛 대화를 불러옵니다">옛 대화 더</button>
+      <button onclick="loadOlder()" title="최근 200건 이전의 옛 대화를 300건씩 불러옵니다">옛 대화 더</button>
+      <button id="loadAllBtn" onclick="loadAllOlder()" title="이 방의 옛 대화를 끝까지 불러온 뒤 검색 (최대 6개월)">📜 전체 기간</button>
       <button onclick="toggleSearch(false)">✕</button>
     </div>
     <div id="chatScroll"></div>
@@ -1071,6 +1079,14 @@ function matchClient(raw){
 function learnKey(s){
   return String(s||'').replace(/[\s\d\.\,]+/g,'').replace(/(키로|킬로|kg|KG|Kg|박스|팩|봉지|개|장|줄|판|리|두|마리|덩이|짝)+$/,'').toLowerCase();
 }
+/* v6.83: 학습사전에 정규화 키도 추가 — 옛 서버(Code v5.6 이하)가 원문 키만 줄 때도 "우삼겹 12팩"에 "우삼겹 16팩" 학습이 적용되게 */
+function normLearned(L){
+  const addN=dic=>{ const n={}; for(const k in dic){ const nk=learnKey(k); if(nk && nk.length>=2 && dic[nk]===undefined) n[nk]=dic[k]; } Object.assign(dic,n); return dic; };
+  L=L||{}; L.perCustomer=L.perCustomer||{}; L.global=L.global||{};
+  for(const c in L.perCustomer) addN(L.perCustomer[c]);
+  addN(L.global);
+  return L;
+}
 function correctProduct(client, product, text){
   const key=learnKey(product);
   if(!key && !learnKey(text)) return null;
@@ -1180,6 +1196,29 @@ async function spreadLearn(client, srcs, newProd, exceptId, via){
     if(n) await db.ref().update(upd);
     return n;
   }catch(e){ console.warn('spreadLearn',e); return 0; }
+}
+
+/* v6.84: 모든 거래처의 아직 안 나간 주문(오늘 이후·미처리)에서 옛 상품명 → 새 상품명 교체 */
+async function replaceProductOrders(oldP, newP, exceptId){
+  try{
+    if(!oldP||!newP||oldP===newP) return 0;
+    const t=todayStr(), now=Date.now(), upd={}; let n=0;
+    for(const oid in ORDERS){
+      const o=ORDERS[oid]; if(!o || oid===exceptId || !o.items || !o.items.length) continue;
+      if((o.date||'')<t || o.confirm==='done') continue;
+      let ch=false;
+      const items=o.items.map(it=>{
+        if(!it || it.noMatch || it.erpKg || it.erpTail) return it;
+        if(String(it.product||'').trim()!==oldP) return it;
+        ch=true; n++;
+        return Object.assign({}, it, {wasProduct:it.wasProduct||oldP, product:newP, fixed:1, via:'품목교체',
+          chg:{from:oldP, to:newP, by:MYNAME, at:now, via:'품목교체', spread:1}});
+      });
+      if(ch){ upd['orders/'+oid+'/items']=items; o.items=items; }
+    }
+    if(n) await db.ref().update(upd);
+    return n;
+  }catch(e){ console.warn('replaceProductOrders',e); return 0; }
 }
 
 /* ---------- Apps Script 호출 ---------- */
@@ -1550,7 +1589,7 @@ async function loadMaster(){
   try{
     const j=await gsCall('getMaster');
     MASTER=j.master||{};
-    LEARNED=j.learned||{perCustomer:{},global:{}};
+    LEARNED=normLearned(j.learned||{perCustomer:{},global:{}});   // v6.83
     ALIASES=j.aliases||{};
     _clientIndex=null;
     PRODBYCODE={};
@@ -1650,7 +1689,8 @@ function runSearch(){
   }).sort((a,b)=>(CHAT[a].ts||0)-(CHAT[b].ts||0));
   SEARCH_HITS=ids;
   ids.forEach(id=>{ const el=document.getElementById('m_'+id); if(el) el.classList.add('hit'); });
-  document.getElementById('searchCnt').textContent=ids.length?ids.length+'건':'없음';
+  { const oldest=Math.min(...Object.values(CHAT).map(m=>m&&m.ts||Infinity)); const rng=isFinite(oldest)?' · '+fmtDT(oldest).slice(0,8)+'~':'';
+    document.getElementById('searchCnt').textContent=(ids.length?ids.length+'건':'없음')+rng; }
   if(ids.length){ SEARCH_CUR=ids.length-1; focusHit(); }
 }
 function searchNav(d){
@@ -1663,6 +1703,44 @@ function focusHit(){
   const id=SEARCH_HITS[SEARCH_CUR]; const el=document.getElementById('m_'+id);
   if(el){ el.classList.add('hit-cur'); el.scrollIntoView({block:'center', behavior:'smooth'}); }
   document.getElementById('searchCnt').textContent=(SEARCH_CUR+1)+' / '+SEARCH_HITS.length+'건';
+}
+/* v6.82: 옛 대화를 끝까지 이어 불러오기 (검색 범위 확장) — 최대 6개월·8,000건, 버튼 다시 누르면 중단 */
+let LOADALL_RUN=false;
+async function loadAllOlder(){
+  const btn=document.getElementById('loadAllBtn');
+  if(LOADALL_RUN){ LOADALL_RUN=false; if(btn) btn.textContent='중단 중…'; return; }
+  if(!db) return;
+  LOADALL_RUN=true;
+  const limitTs=Date.now()-180*86400000; const maxN=8000; let got=0;
+  if(btn){ btn.disabled=false; btn.textContent='불러오는 중… (누르면 중단)'; }
+  try{
+    while(LOADALL_RUN){
+      const oldest=Math.min(...Object.values(CHAT).map(m=>m&&m.ts||Infinity));
+      if(!isFinite(oldest) || oldest<=limitTs || Object.keys(CHAT).length>=maxN) break;
+      const ss=await roomRef().orderByChild('ts').endAt(oldest-1).limitToLast(500).once('value');
+      const arr=[]; ss.forEach(c=>{ if(!CHAT[c.key]) arr.push([c.key,c.val()]); });
+      if(!arr.length) break;
+      const box=document.getElementById('chatScroll'); const keepH=box.scrollHeight, keepTop=box.scrollTop;
+      const frag=document.createDocumentFragment();
+      arr.sort((a,b)=>(a[1].ts||0)-(b[1].ts||0)).forEach(([id,m])=>{
+        m._room=CUR_ROOM.id; CHAT[id]=m;
+        const row=document.createElement('div'); row.id='m_'+id;
+        if(m.sys){ row.className='sys-row'; row.innerHTML='<div class="sys'+sysCls(m)+'">'+sysHtml(m)+'</div>'; }
+        else{ row.className='msg-row'+((ME&&m.uid===ME.uid)?' mine':''); row.innerHTML=bubbleHtml(id,m); }
+        frag.appendChild(row);
+      });
+      box.insertBefore(frag, box.firstChild);
+      box.scrollTop=keepTop+(box.scrollHeight-keepH);
+      got+=arr.length; OLDER_LOADED+=arr.length;
+      const o2=Math.min(...Object.values(CHAT).map(m=>m&&m.ts||Infinity));
+      if(btn) btn.textContent='불러오는 중… '+fmtDT(o2).slice(0,8)+'까지 (+'+got+') · 누르면 중단';
+      await new Promise(r=>setTimeout(r,60));
+    }
+  }catch(e){ alert('불러오기 실패: '+e.message); }
+  LOADALL_RUN=false;
+  const oldest=Math.min(...Object.values(CHAT).map(m=>m&&m.ts||Infinity));
+  if(btn) btn.textContent='📜 '+(isFinite(oldest)?fmtDT(oldest).slice(0,8)+'부터 로드됨':'전체 기간');
+  runSearch();
 }
 /* 최근 200건 이전의 옛 대화를 300건씩 추가 로드 */
 async function loadOlder(){
@@ -3497,8 +3575,8 @@ let RUNNER_ALIVE=0;                                   // 자동처리 화면의 
 let RUNNER_SEEN=false;                                 // v6.69: 생존 신호를 한 번이라도 받았는지
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<130*1000; }   // v6.69: 백그라운드 탭 타이머 지연(최대 1분) 감안
 const STALE_MS=IS_RUNNER ? 150*1000 : 180*1000;  // v6.69: 처리 중엔 20초마다 잠금이 갱신됨 → 이 시간 동안 갱신이 없을 때만 '멈춤'
-const APP_VER='6.81';
-const APP_BUILD=681;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.84';
+const APP_BUILD=682;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 const RESCUE_T={};
 async function rescueIfStale(id, m){
@@ -4702,6 +4780,7 @@ function missPendingList(){   // v6.75: 처리됐지만 품목 미확인이 남�
     .sort((a,b)=>(b.date||'').localeCompare(a.date||'')||String(a.client||'').localeCompare(String(b.client||''),'ko'));
 }
 let MISS_OPEN=true;
+const PAIR_GLOBAL={};   // v6.83: 주문id → 🌐 공통 학습 체크
 function renderMissPending(box){
   const list=missPendingList(); if(!list.length) return;
   const h=document.createElement('div'); h.className='veh-h'; h.style.cssText='cursor:pointer;margin-top:4px';
@@ -4715,6 +4794,14 @@ function renderMissPending(box){
   sa.title='아래 모든 주문에서 드롭다운으로 고른 짝을 한 번에 저장 (학습·적용)';
   sa.onclick=()=>saveAllPairs(sa);
   box.appendChild(sa);
+  // v6.83: ⏭ 전부 다음에 — 고르지 않은 줄을 전부 '다음에 다시'로 내림 (학습 없음, 다음 주문에 같은 표현이 오면 다시 올라옴)
+  const la=document.createElement('button'); la.textContent='⏭ 고르지 않은 것 전부 다음에 (목록 비우기)';
+  la.style.cssText='display:block;width:100%;margin:-4px 0 8px;border:1px solid #d8d2c2;background:#f4f2ec;color:#6b665a;border-radius:6px;padding:7px;font-weight:700;font-size:12px;cursor:pointer';
+  la.title='지금 짝짓기하지 않을 줄을 한 번에 내립니다 — 학습은 안 하므로 다음 주문에서 같은 표현이 오면 다시 품목 미확인으로 올라옵니다';
+  la.onclick=()=>{ if(!confirm('고르지 않은 품목 미확인 줄을 전부 "다음에 다시"로 내릴까요?\n(학습하지 않음 — 같은 표현이 다음 주문에 오면 다시 올라옵니다)')) return;
+    for(const o of list){ const ps=PAIR_SEL[o.id]||(PAIR_SEL[o.id]={}); for(const m of (o.recon.missItems||[])){ if(!ps[m.i]) ps[m.i]='__later__'; } }
+    saveAllPairs(la); };
+  box.appendChild(la);
   list.forEach(o=>{
     const r=o.recon||{};
     const row=document.createElement('div'); row.className='ccard'; row.style.cssText='padding:7px 10px;margin-bottom:6px;background:#fffbea;border-color:#e0b84a';
@@ -4870,8 +4957,10 @@ async function editReconDate(id){
   else if(/^\d{4}-\d{2}-\d{2}$/.test(v.trim())) nd=v.trim();
   else { alert('날짜 형식을 인식하지 못했습니다'); return; }
   try{
-    await db.ref('orders/'+id).update({reconDate:nd, recon:null, reconReq:Date.now()});
-    o.reconDate=nd; o.recon=null; renderSide();
+    const upd={reconDate:nd, recon:null, reconReq:Date.now()};
+    if(o.confirm==='done'){ upd.confirm='wait'; upd.erpSale=null; }   // v6.83: 완료 건도 날짜가 바뀌면 다시 대조
+    await db.ref('orders/'+id).update(upd);
+    o.reconDate=nd; o.recon=null; if(upd.confirm){ o.confirm='wait'; o.erpSale=null; } renderSide();
   }catch(e){ alert('저장 실패: '+e.message); }
 }
 
@@ -4949,7 +5038,19 @@ function buildPairBox(o, withPass){
     cw.innerHTML='<span>🏢 대조된 ERP 거래처 코드: <b>'+esc(code||'?')+'</b>'+(o.recon&&o.recon.db?' ('+esc(o.recon.db)+')':'')+(o.recon&&o.recon.via?' · '+esc(o.recon.via):'')+'</span>';
     const cb=document.createElement('button'); cb.textContent='거래처 코드가 틀림 → 바꾸기'; cb.title='품목이 하나도 안 맞으면 다른 거래처의 매출을 잡은 것입니다. 맞는 ERP 코드를 넣으면 학습하고 다시 대조합니다';
     cb.style.cssText='border:1px solid #e8a9a4;background:#fdecec;color:#8a1c1c;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:800;cursor:pointer';
-    cb.onclick=()=>editErpCode(o.id); cw.appendChild(cb); pw.appendChild(cw); }
+    cb.onclick=()=>editErpCode(o.id); cw.appendChild(cb);
+    // v6.83: 📅 대조일 — 완료 건도 날짜를 바꾸면 확인 대기로 돌려 봇이 그 날짜 ERP로 다시 대조
+    const dbtn=document.createElement('button'); dbtn.textContent='📅 대조일 '+mmdd(o.reconDate||o.date||'');
+    dbtn.title='ERP에 다른 날짜로 입력했으면 그 날짜로 바꿉니다 — 확인 대기로 돌아가 봇 PC가 다시 대조';
+    dbtn.style.cssText='border:1px solid #b9cdea;background:#eef3fb;color:#1a4f9c;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:800;cursor:pointer';
+    dbtn.onclick=()=>editReconDate(o.id); cw.appendChild(dbtn);
+    pw.appendChild(cw); }
+  // v6.83: 🌐 모든 거래처 공통 — 기존 품목이 단종·재고 소진돼 새 품목으로 바꿀 때
+  { const gw=document.createElement('label'); gw.style.cssText='display:flex;gap:6px;align-items:flex-start;font-size:11.5px;color:#5b564a;margin-bottom:7px;cursor:pointer;line-height:1.4';
+    const g=document.createElement('input'); g.type='checkbox'; g.checked=!!PAIR_GLOBAL[o.id]; g.style.marginTop='2px';
+    g.onchange=()=>{ PAIR_GLOBAL[o.id]=g.checked; };
+    const gt=document.createElement('span'); gt.innerHTML='<b>🌐 모든 거래처 공통으로 바꾸기 (ERP 상품코드 변경·단종)</b> — 옛 상품명이 <u>거래처 마스터·학습사전 어디에 있든 전부 새 이름으로 교체</u>하고, 모든 거래처의 아직 안 나간 주문에도 바로 반영. 체크 안 하면 이 거래처에만 학습';
+    gw.append(g,gt); pw.appendChild(gw); }
   // 💾 일괄 저장 버튼 (맨 위)
   const saveAll=document.createElement('button');
   saveAll.textContent='💾 선택한 짝 모두 저장 (학습·적용)';
@@ -5004,7 +5105,7 @@ async function pairLearnAll(id, btn){
   if(btn){ btn.disabled=true; btn.textContent='저장 중…'; }
   try{
     const items=(o.items||[]).slice();
-    const spread=[]; let nPair=0, nNone=0, nLater=0; const learnRows=[];
+    const spread=[]; let nPair=0, nNone=0, nLater=0, nGlobal=0; const learnRows=[]; const globalRepl=[];
     for(const m of chosen){
       const erp=psel[m.i];
       const it0=items[m.i]||{};
@@ -5027,6 +5128,11 @@ async function pairLearnAll(id, btn){
       srcs.forEach(src=>learnRows.push({client:o.client, katok:src, item:erp}));
       if(!LEARNED.perCustomer[o.client]) LEARNED.perCustomer[o.client]={};
       srcs.forEach(src=>{ LEARNED.perCustomer[o.client][src]=erp; LEARNED.perCustomer[o.client][learnKey(src)]=erp; });
+      if(PAIR_GLOBAL[id]){   // v6.83: 🌐 공통 — 옛 ERP 품명(현재 매칭·이전 매칭)만 공통 사전에 (채팅 원문은 거래처마다 뜻이 달라 넣지 않음)
+        const olds=[...new Set([it0.product, it0.wasProduct, m.prod].map(x=>String(x||'').trim()).filter(x=>x && x!=='매칭없음' && x!==erp && learnKey(x)))];
+        olds.forEach(src=>{ learnRows.push({client:'', katok:src, item:erp}); LEARNED.global[src]=erp; LEARNED.global[learnKey(src)]=erp; globalRepl.push({from:src,to:erp}); });
+        nGlobal+=olds.length;
+      }
       if(items[m.i]){
         const oldP=String(items[m.i].product||'').trim();
         items[m.i]=Object.assign({}, items[m.i], {wasProduct:items[m.i].wasProduct||oldP||m.name, product:erp, fixed:1, via:'짝짓기',
@@ -5035,6 +5141,15 @@ async function pairLearnAll(id, btn){
       spread.push({srcs, erp}); nPair++;
     }
     await learnMany(learnRows);   // v6.76: 서버 호출 1번 (실패하면 여기서 중단 — 선택은 유지)
+    // v6.84: 🌐 옛 상품명을 마스터·학습사전에서 전부 새 이름으로 교체 (서버) + 모든 거래처 미처리 주문 교체
+    let nRepl=0;
+    for(const g of globalRepl){
+      try{ const r=await gsCall('replaceProduct',{from:g.from,to:g.to}); if(r&&r.ok) nRepl+=(r.master||0)+(r.learned||0); }
+      catch(e){ console.warn('replaceProduct',e); }
+      for(const c in MASTER) (MASTER[c].specs||[]).forEach(sp=>{ if(sp.product===g.from) sp.product=g.to; });
+      for(const c in LEARNED.perCustomer){ const d=LEARNED.perCustomer[c]; for(const k in d) if(d[k]===g.from) d[k]=g.to; }
+      for(const k in LEARNED.global) if(LEARNED.global[k]===g.from) LEARNED.global[k]=g.to;
+    }
     const remain=miss.filter(m=>!psel[m.i]);
     const upd={items:items};
     if(remain.length){
@@ -5058,13 +5173,14 @@ async function pairLearnAll(id, btn){
     if(!o.recon) o.recon={};
     if(remain.length){ o.recon.missItems=remain; }
     else { o.recon.missItems=null; o.recon.status='ok'; o.confirm='done'; }
-    delete PAIR_SEL[id]; delete PAIR_OPEN[id];
+    delete PAIR_SEL[id]; delete PAIR_OPEN[id]; delete PAIR_GLOBAL[id];
     // v6.70: 같은 거래처의 아직 처리 안 된 주문에도 새 매칭 반영
     let nSpread=0;
     for(const sp of spread){ nSpread+=await spreadLearn(o.client, sp.srcs, sp.erp, id, '짝짓기'); }
+    for(const g of globalRepl){ nSpread+=await replaceProductOrders(g.from, g.to, id); }   // v6.84
     bumpMasterVer();
     renderSide();
-    if(nPair||nNone||nLater) toast([nPair?'🔗 '+nPair+'품목 매칭 저장':'', nNone?'✕ '+nNone+'품목 매칭없음':'', nLater?'⏭ '+nLater+'품목 다음에':'', nSpread?'같은 거래처 다른 주문 '+nSpread+'품목에도 반영':''].filter(Boolean).join(' · '));
+    if(nPair||nNone||nLater) toast([nPair?'🔗 '+nPair+'품목 매칭 저장':'', nGlobal?'🌐 공통 '+nGlobal+'건'+(nRepl?' · 마스터/사전 '+nRepl+'곳 교체':''):'', nNone?'✕ '+nNone+'품목 매칭없음':'', nLater?'⏭ '+nLater+'품목 다음에':'', nSpread?'같은 거래처 다른 주문 '+nSpread+'품목에도 반영':''].filter(Boolean).join(' · '));
   }catch(e){ if(btn) alert('저장 실패: '+e.message+'\n(고른 것은 그대로 남아 있습니다 — 잠시 후 다시 저장)'); else throw e; }
   finally{ if(btn){ btn.disabled=false; btn.textContent='💾 선택한 짝 모두 저장 (학습·적용)'; } }
 }
