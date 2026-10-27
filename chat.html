@@ -11,7 +11,11 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.86 — 2026-10-22
+  신화미트 주문방 (chat.html) v6.87 — 2026-10-27
+  · v6.87: 주문 중복 등록 방지 2중 —
+           ① 같은 내용 메시지가 10분 안에 또 올라오면(문자 앱 재전송·두 번 보냄) 분석하지 않고 "중복 메시지" 처리.
+           ② 새 주문을 만들기 전 Firebase 인덱스(oidx/날짜/거래처_차량)를 트랜잭션으로 선점 — 두 기기(봇 PC·휴대폰)가
+              같은 순간 분석해 같은 거래처 주문을 2개 만들던 경쟁 상태 차단. 이미 있으면 그 주문을 받아와 품목 병합.
   · v6.86: 거래처 코드 수정 창 — 코드 + 회사(미트/푸드/자동) + 대조일을 한 번에. 코드가 날짜 모양이라 미트·푸드 양쪽에 같은 코드가 있어
            엉뚱한 회사 매출을 잡거나 못 찾던 문제 → 회사를 고정(erpmap.db)하면 전산대조 v4.5가 그 회사 그 코드만 봄.
            '코드 학습됨 ✓' 표시에 회사도 함께.
@@ -3206,6 +3210,26 @@ function askVehicleTg(tot, msgId){
     gsCall('tgNotify',{text:'🚚 차량 확인 요청\n'+lines.join('\n')+'\n\n미처리 카드에서 차량을 지정하면 그 거래처에 학습됩니다.\n'+SITE_URL+'?room=order'}).catch(()=>{});
   }catch(e){}
 }
+/* v6.87 ①: 같은 방·같은 내용(공백 무시)·10분 이내·더 먼저 올라온 메시지가 있으면 그 id */
+function findDupMessage(msgId, m){
+  try{
+    const norm=t=>String(t||'').replace(/\s+/g,'').trim();
+    const k=norm(m.text); if(!k || k.length<6) return null;
+    const room=m._room||CUR_ROOM.id; const ts=m.ts||0;
+    let best=null;
+    for(const id in CHAT){
+      if(id===msgId) continue;
+      const x=CHAT[id]; if(!x || x.sys || !x.text) continue;
+      if((x._room||CUR_ROOM.id)!==room) continue;
+      if(!(x.ts<ts || (x.ts===ts && id<msgId))) continue;      // 더 먼저 올라온 것만
+      if(ts-x.ts>10*60*1000) continue;
+      if(x.deleted) continue;
+      if(norm(x.text)!==k) continue;
+      if(!best || x.ts>CHAT[best].ts) best=id;
+    }
+    return best;
+  }catch(e){ return null; }
+}
 async function processMessage(msgId, m, tok){
   if(!m.text){ return; }
   const mref=msgRef(msgId);
@@ -3224,6 +3248,13 @@ async function processMessage(msgId, m, tok){
   const hb=setInterval(async()=>{ try{ const s0=await mref.child('lock').once('value'); if(s0.val()===tok) await mref.child('lockAt').set(Date.now()); }catch(e){} }, 20000);
   const guard=async()=>{ try{ return (await mref.child('lock').once('value')).val()===tok; }catch(e){ return true; } };
   try{
+    // v6.87 ①: 같은 내용 메시지가 10분 안에 이미 있으면(재전송·두 번 보냄) 분석하지 않음
+    { const dupOf=findDupMessage(msgId, m);
+      if(dupOf){
+        await mref.update({status:'done', doneAt:Date.now(), dupOf, orders:null, errKind:null, errMsg:null, rescues:null});
+        await db.ref('chat').push().set({sys:1, kind:'', ref:msgId, ts:Date.now(), text:'🔁 같은 내용의 메시지가 '+fmtDT(CHAT[dupOf].ts)+'에 이미 올라와 있어 건너뜀 (중복 등록 방지)\n다른 주문이면 내용을 조금 바꿔(예: 줄 추가) 다시 올려 주세요', by:(IS_RUNNER?'🤖 자동처리':MYNAME)});
+        return;
+      } }
     // 답장이면 원본 메시지가 만든 주문에서 거래처·날짜를 확정
     let forced=null;
     if(m.replyTo && CHAT[m.replyTo] && CHAT[m.replyTo].orders && CHAT[m.replyTo].orders.length){
@@ -3470,12 +3501,34 @@ async function createOrders(text, forced, msgId, senderName, isEdit, guard){
     o.hash=hashOrder(o);
     if(seenHashes.has(o.hash)){ tot.dup+=(o.items||[]).length; continue; }
 
+    // v6.87 ②: 새 주문 만들기 전 인덱스 선점 — 다른 기기가 같은 순간 같은 거래처 주문을 만들었으면 그 주문에 병합
+    let newId=db.ref('orders').push().key;
+    if(sk && !o.needClient){
+      const other=await claimOrderSlot(o, sk, newId);
+      if(other){
+        ORDERS[other.id]=other;
+        // 이미 만들어진 주문에 품목 병합 (텍스트 기준 중복 제외)
+        const have=new Set((other.items||[]).map(it=>dedupKey(o.date,sk,it.text)));
+        const toAdd=(o.items||[]).filter(it=>{ const k=dedupKey(o.date,sk,it.text); if(have.has(k)){ tot.dup++; return false; } have.add(k); return true; });
+        if(toAdd.length){
+          toAdd.forEach(it=>{ it.at=Date.now(); it.src=msgId; });
+          other.items=(other.items||[]).concat(toAdd); other.hash=hashOrder(other); other.ts=Date.now();
+          await db.ref('orders/'+other.id).update({items:other.items, hash:other.hash, gapDone:false, ts:other.ts, sts:firebase.database.ServerValue.TIMESTAMP, printed:false});
+          tot.lines.push('➕ '+sk+' ('+mmdd(o.date)+')에 '+toAdd.length+'품목 추가 (다른 기기가 먼저 만든 주문)');
+        }else{
+          tot.lines.push('🔁 '+sk+' ('+mmdd(o.date)+') — 다른 기기가 이미 등록함 (중복 방지)');
+        }
+        tot.ids.push(other.id);
+        continue;
+      }
+    }
+
     o.done=false; o.ts=Date.now(); o.chatMsg=msgId; o.by=senderName;
     { const add=[]; if(pullDeferred(sk, o, add, tot, msgId)) o.items=(o.items||[]).concat(add); }
     (o.items||[]).forEach(it=>{ if(it && !it.src) it.src=msgId; });
     if(o.note) tot.lines.push('📝 메모: '+o.note);
-    const ref=db.ref('orders').push();
-    o.id=ref.key;
+    const ref=db.ref('orders/'+newId);
+    o.id=newId;
     await ref.set(Object.assign({}, o, {sts:firebase.database.ServerValue.TIMESTAMP, printed:false}));
     ORDERS[o.id]=o;
     seenHashes.add(o.hash);
@@ -3490,6 +3543,26 @@ async function createOrders(text, forced, msgId, senderName, isEdit, guard){
     if(o.vehicle==='미지정' && !o.needClient) tot.noVeh=(tot.noVeh||0)+1;
   }
   return tot;
+}
+
+/* v6.87 ②: 주문 슬롯 선점 — oidx/{날짜}/{거래처_차량} 을 트랜잭션으로 잡음.
+   내가 잡으면 null(새로 만들어도 됨). 남이 먼저 잡았고 그 주문이 살아 있으면 그 주문 객체를 돌려줌. */
+function oidxKey(sk, veh){
+  return (cliNorm(sk)+'_'+normVeh(veh||'')).replace(/[.#$\[\]\/\s]+/g,'_').slice(0,120);
+}
+async function claimOrderSlot(o, sk, newId){
+  try{
+    const ref=db.ref('oidx/'+o.date+'/'+oidxKey(sk, o.vehicle));
+    const r=await ref.transaction(c=>c||newId);
+    const cur=r.snapshot?r.snapshot.val():null;
+    if(!cur || cur===newId) return null;
+    const s=await db.ref('orders/'+cur).once('value');
+    const ex=s.val();
+    if(!ex || ex.deleted || ex.date!==o.date || cliNorm(ex.client||'')!==cliNorm(sk) || normVeh(ex.vehicle||'')!==normVeh(o.vehicle||'')){
+      await ref.set(newId); return null;          // 지워졌거나 바뀐 주문 — 인덱스를 새 주문으로 교체
+    }
+    ex.id=cur; return ex;
+  }catch(e){ console.warn('claimOrderSlot', e); return null; }
 }
 
 /* ⏳ 대기함에서 이 거래처의 이월분을 꺼내 toAdd에 넣고 대기함에서 삭제 (v6.40) */
@@ -3582,7 +3655,7 @@ let RUNNER_ALIVE=0;                                   // 자동처리 화면의 
 let RUNNER_SEEN=false;                                 // v6.69: 생존 신호를 한 번이라도 받았는지
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<130*1000; }   // v6.69: 백그라운드 탭 타이머 지연(최대 1분) 감안
 const STALE_MS=IS_RUNNER ? 150*1000 : 180*1000;  // v6.69: 처리 중엔 20초마다 잠금이 갱신됨 → 이 시간 동안 갱신이 없을 때만 '멈춤'
-const APP_VER='6.86';
+const APP_VER='6.87';
 const APP_BUILD=682;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 const RESCUE_T={};
