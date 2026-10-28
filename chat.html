@@ -11,7 +11,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.87 — 2026-10-27
+  신화미트 주문방 (chat.html) v6.88 — 2026-10-28
+  · v6.88: 코드 매칭 실패 카드 — 이 거래처에 학습된 코드가 있는지(있으면 코드·회사·언제·누가) 바로 표시하고 입력칸에 미리 채움.
+           학습이 있는데도 "코드 못 찾음"이면 봇 PC가 옛 버전이거나 아직 안 돈 것이라고 안내.
+           [매칭] 버튼도 회사·대조일을 함께 묻는 창으로 통일. 창에서 코드를 비워도 학습을 지우지 않음 — 해제는 [학습 해제] 버튼으로만.
   · v6.87: 주문 중복 등록 방지 2중 —
            ① 같은 내용 메시지가 10분 안에 또 올라오면(문자 앱 재전송·두 번 보냄) 분석하지 않고 "중복 메시지" 처리.
            ② 새 주문을 만들기 전 Firebase 인덱스(oidx/날짜/거래처_차량)를 트랜잭션으로 선점 — 두 기기(봇 PC·휴대폰)가
@@ -3655,7 +3658,7 @@ let RUNNER_ALIVE=0;                                   // 자동처리 화면의 
 let RUNNER_SEEN=false;                                 // v6.69: 생존 신호를 한 번이라도 받았는지
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<130*1000; }   // v6.69: 백그라운드 탭 타이머 지연(최대 1분) 감안
 const STALE_MS=IS_RUNNER ? 150*1000 : 180*1000;  // v6.69: 처리 중엔 20초마다 잠금이 갱신됨 → 이 시간 동안 갱신이 없을 때만 '멈춤'
-const APP_VER='6.87';
+const APP_VER='6.88';
 const APP_BUILD=682;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 const RESCUE_T={};
@@ -4947,15 +4950,26 @@ function renderConf(conf){
           const lb=document.createElement('span');
           lb.style.cssText='font-size:11.5px;color:#8a1c1c;font-weight:700;white-space:nowrap;flex:1 1 100%';
           lb.textContent='ERP 거래처 코드:';
+          // v6.88: 학습 상태 표시 — 학습이 있는데도 '못 찾음'이면 봇 쪽 문제
+          { const em=ERPMAP[cliNorm(o.client)];
+            const st=document.createElement('span'); st.style.cssText='font-size:11px;flex:1 1 100%;line-height:1.4';
+            if(em && em.code){
+              const when=em.at?new Date(em.at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';
+              st.innerHTML='<span style="color:#1f6b3a;font-weight:800">코드 학습됨 ✓ '+esc(em.code)+(em.db?' ('+esc(em.db)+')':' (회사 자동)')+'</span>'+(when?' <span style="color:#888">'+esc(when)+(em.by?' '+esc(em.by):'')+'</span>':'')
+                +(/코드 못 찾음/.test(o.recon.reason||'')?'<br><span style="color:#8a1c1c">⚠ 학습이 있는데 봇이 "코드 못 찾음"이라고 했습니다 — 봇 PC 전산대조가 학습 뒤에 아직 안 돌았거나(대조 대기로 되돌려 다음 실행을 기다리세요), 옛 버전입니다. 봇 로그의 "학습된 코드(erpmap): N건" 줄을 확인하세요.</span>':'');
+            }else{
+              st.innerHTML='<span style="color:#8a1c1c">이 거래처('+esc(o.client)+')에 학습된 코드가 없습니다 — 전에 매칭했다면 거래처명이 그때와 다르게 적힌 것입니다 (학습은 거래처명 기준).</span>';
+            }
+            fix.appendChild(st); }
           const inp=document.createElement('input');
           inp.type='text'; inp.placeholder='예) 10234';
           inp.style.cssText='flex:1;min-width:70px;padding:6px 8px;border:1px solid var(--line);border-radius:5px;font-family:var(--mono);font-weight:700;font-size:14px';
-          if(o.recon.code) inp.value=o.recon.code;
+          inp.value=o.recon.code||((ERPMAP[cliNorm(o.client)]||{}).code)||'';
           const btn=document.createElement('button');
-          btn.textContent='매칭';
+          btn.textContent='매칭 (회사·대조일 지정)';
           btn.style.cssText='border:none;background:var(--accent);color:#fff;border-radius:5px;padding:6px 14px;font-weight:800;font-size:12px;cursor:pointer';
-          btn.onclick=()=>mapErpCode(o.id, inp.value.trim(), btn);
-          inp.onkeydown=ev=>{ if(ev.key==='Enter') mapErpCode(o.id, inp.value.trim(), btn); };
+          btn.onclick=()=>editErpCode(o.id, inp.value.trim());
+          inp.onkeydown=ev=>{ if(ev.key==='Enter') editErpCode(o.id, inp.value.trim()); };
           const pass=document.createElement('button');
           pass.textContent='✔ 이대로 통과';
           pass.title='전산 입력이 맞다면 대조 없이 통과 처리합니다';
@@ -5062,10 +5076,10 @@ async function mapErpCode(id, code, btn){
 }
 
 /* v6.77: 학습된 ERP 거래처 코드 변경·해제 */
-async function editErpCode(id){
+async function editErpCode(id, preset){
   const o=ORDERS[id]; if(!o) return;
   const k=cliNorm(o.client); const em=ERPMAP[k]||{};
-  const cur=em.code||(o.recon&&o.recon.code)||'';
+  const cur=(preset||'').trim()||em.code||(o.recon&&o.recon.code)||'';
   const curDb=em.db||'';
   const curDate=(o.reconDate||o.date||'');
   // v6.86: 코드 + 회사(미트/푸드/자동) + 대조일을 한 창에서
@@ -5074,14 +5088,22 @@ async function editErpCode(id){
   const rad=['','미트','푸드'].map(v=>'<label style="margin-right:12px;cursor:pointer"><input type="radio" name="ecDb" value="'+v+'"'+(curDb===v?' checked':'')+'> '+(v||'자동 (양쪽에서 찾음)')+'</label>').join('');
   bx.innerHTML='<div style="font-weight:800;font-size:14px;margin-bottom:8px">🏢 '+esc(o.client)+' — ERP 거래처 코드</div>'
     +'<div style="color:#6b665a;font-size:11.5px;line-height:1.45;margin-bottom:10px">코드가 날짜 모양이면 미트·푸드 양쪽에 같은 코드가 있을 수 있습니다. <b>회사를 고정</b>하면 봇이 그 회사의 그 코드만 봅니다. 저장하면 이 거래처에 학습되고, 이 주문은 확인 대기로 돌아가 다시 대조됩니다.</div>'
-    +'<div style="margin-bottom:8px"><div style="font-size:11.5px;color:#5b564a;margin-bottom:3px">거래처 코드 <span style="color:#999">(비우면 학습 해제 → 이름으로 다시 찾음)</span></div><input id="ecCode" value="'+esc(cur)+'" style="width:100%;padding:7px;border:1px solid #ccc;border-radius:6px;font-size:14px"></div>'
+    +'<div style="margin-bottom:8px"><div style="font-size:11.5px;color:#5b564a;margin-bottom:3px">거래처 코드'+(em.code?' <span style="color:#1f6b3a">(학습됨 ✓ '+esc(em.code)+(em.db?' '+esc(em.db):'')+')</span>':'')+'</div><input id="ecCode" value="'+esc(cur)+'" style="width:100%;padding:7px;border:1px solid #ccc;border-radius:6px;font-size:14px"></div>'
     +'<div style="margin-bottom:8px"><div style="font-size:11.5px;color:#5b564a;margin-bottom:3px">회사</div>'+rad+'</div>'
     +'<div style="margin-bottom:12px"><div style="font-size:11.5px;color:#5b564a;margin-bottom:3px">📅 대조일 <span style="color:#999">(ERP에 매출을 친 날짜 · 배송일 '+esc(mmdd(o.date||''))+')</span></div><input id="ecDate" value="'+esc(curDate)+'" placeholder="2026-10-21 또는 1021" style="width:100%;padding:7px;border:1px solid #ccc;border-radius:6px;font-size:14px"></div>'
-    +'<div style="display:flex;gap:8px;justify-content:flex-end"><button id="ecCancel" style="border:1px solid #ccc;background:#f4f2ec;border-radius:6px;padding:7px 14px;cursor:pointer">취소</button><button id="ecOk" style="border:none;background:#1f6b3a;color:#fff;border-radius:6px;padding:7px 16px;font-weight:800;cursor:pointer">저장하고 다시 대조</button></div>';
+    +'<div style="display:flex;gap:8px;justify-content:space-between;align-items:center"><button id="ecRel" style="border:1px solid #e8a9a4;background:#fdecec;color:#8a1c1c;border-radius:6px;padding:7px 10px;font-size:11.5px;cursor:pointer'+(em.code?'':';visibility:hidden')+'">학습 해제</button><span><button id="ecCancel" style="border:1px solid #ccc;background:#f4f2ec;border-radius:6px;padding:7px 14px;cursor:pointer;margin-right:8px">취소</button><button id="ecOk" style="border:none;background:#1f6b3a;color:#fff;border-radius:6px;padding:7px 16px;font-weight:800;cursor:pointer">저장하고 다시 대조</button></span></div>';
   ov.appendChild(bx); document.body.appendChild(ov);
   const close=()=>{ try{ document.body.removeChild(ov); }catch(e){} };
   ov.onclick=e=>{ if(e.target===ov) close(); };
   bx.querySelector('#ecCancel').onclick=close;
+  bx.querySelector('#ecRel').onclick=async()=>{
+    if(!confirm('이 거래처의 코드 학습을 해제할까요? (다음 대조 때 이름으로 다시 찾음)')) return;
+    try{ await db.ref('erpmap/'+k).remove(); delete ERPMAP[k];
+      o.recon=null; o.confirm='wait'; o.erpSale=null; delete o.noRetro;
+      await db.ref('orders/'+id).update({recon:null, confirm:'wait', erpSale:null, reconReq:Date.now(), noRetro:null});
+      close(); renderSide(); toast('코드 학습 해제 — 다음 대조 때 이름으로 다시 찾음');
+    }catch(e){ alert('실패: '+e.message); }
+  };
   bx.querySelector('#ecOk').onclick=async()=>{
     const nv=bx.querySelector('#ecCode').value.trim();
     const ndb=(bx.querySelector('input[name=ecDb]:checked')||{}).value||'';
@@ -5094,17 +5116,17 @@ async function editErpCode(id){
     else { alert('대조일 형식을 인식하지 못했습니다 (예: 1021 또는 2026-10-21)'); return; }
     if(nd===(o.date||'')) nd=null;   // 배송일과 같으면 따로 저장 안 함
     try{
-      if(!nv){
-        if(!confirm('코드 학습을 해제할까요? 이 주문만 다시 대조 대기로 돌립니다.')) return;
-        await db.ref('erpmap/'+k).remove(); delete ERPMAP[k];
-      }else{
+      if(nv){   // v6.88: 코드를 비워도 학습은 지우지 않음(회사·대조일만 바꾸는 경우) — 해제는 [학습 해제]로
         const rec={code:nv, client:o.client, by:MYNAME, at:Date.now()}; if(ndb) rec.db=ndb;
+        await db.ref('erpmap/'+k).set(rec); ERPMAP[k]=rec;
+      }else if(em.code && ndb!==(em.db||'')){
+        const rec=Object.assign({}, em, {by:MYNAME, at:Date.now()}); if(ndb) rec.db=ndb; else delete rec.db;
         await db.ref('erpmap/'+k).set(rec); ERPMAP[k]=rec;
       }
       o.recon=null; o.confirm='wait'; o.erpSale=null; o.reconDate=nd; delete PAIR_SEL[id]; delete o.noRetro;
       await db.ref('orders/'+id).update({recon:null, confirm:'wait', erpSale:null, reconDate:nd, reconReq:Date.now(), noRetro:null});
       close(); renderSide();
-      toast(nv?('코드 '+nv+(ndb?' ('+ndb+')':'')+(nd?' · 대조일 '+mmdd(nd):'')+' — 확인 대기로 돌려 다음 대조 때 다시 맞춥니다'):'코드 학습 해제 — 다음 대조 때 이름으로 다시 찾음');
+      toast((nv?'코드 '+nv+(ndb?' ('+ndb+')':''):'코드 유지'+(ndb?' · 회사 '+ndb:''))+(nd?' · 대조일 '+mmdd(nd):'')+' — 확인 대기로 돌려 다음 대조 때 다시 맞춥니다');
     }catch(e){ alert('실패: '+e.message); }
   };
   setTimeout(()=>{ try{ bx.querySelector('#ecCode').focus(); }catch(e){} },50);
