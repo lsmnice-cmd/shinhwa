@@ -11,7 +11,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.88 — 2026-10-28
+  신화미트 주문방 (chat.html) v6.89 — 2026-10-29
+  · v6.89: 대조 대기 카드에 봇의 보류 사유 표시 — 전산대조 v4.6이 ERP DB 한쪽 접속 실패로 판정을 보류한 건은
+           "⚠ 푸드 DB 접속 실패 — 다음 실행에 다시 대조"가 카드에 그대로 보임 (코드 입력을 요구하지 않음).
   · v6.88: 코드 매칭 실패 카드 — 이 거래처에 학습된 코드가 있는지(있으면 코드·회사·언제·누가) 바로 표시하고 입력칸에 미리 채움.
            학습이 있는데도 "코드 못 찾음"이면 봇 PC가 옛 버전이거나 아직 안 돈 것이라고 안내.
            [매칭] 버튼도 회사·대조일을 함께 묻는 창으로 통일. 창에서 코드를 비워도 학습을 지우지 않음 — 해제는 [학습 해제] 버튼으로만.
@@ -3658,7 +3660,7 @@ let RUNNER_ALIVE=0;                                   // 자동처리 화면의 
 let RUNNER_SEEN=false;                                 // v6.69: 생존 신호를 한 번이라도 받았는지
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<130*1000; }   // v6.69: 백그라운드 탭 타이머 지연(최대 1분) 감안
 const STALE_MS=IS_RUNNER ? 150*1000 : 180*1000;  // v6.69: 처리 중엔 20초마다 잠금이 갱신됨 → 이 시간 동안 갱신이 없을 때만 '멈춤'
-const APP_VER='6.88';
+const APP_VER='6.89';
 const APP_BUILD=682;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 const RESCUE_T={};
@@ -4919,6 +4921,7 @@ function renderConf(conf){
       if(o.recon){
         if(o.recon.status==='ok') st='<span class="st ok">✅ ERP 일치'+(o.recon.weight?' · '+esc(o.recon.weight):'')+'</span>';
         else if(o.recon.status==='ng') st='<span class="st ng">⚠ 매칭 실패'+(o.recon.reason?' · '+esc(o.recon.reason):'')+'</span>';
+        else if(o.recon.reason) st='<span class="st wait">🔎 대조 대기 · '+esc(o.recon.reason)+'</span>';   // v6.89: 보류 사유(DB 접속 실패 등)
       }
       const head=document.createElement('div');
       head.style.cssText='display:flex;align-items:center;gap:8px;margin-bottom:4px';
