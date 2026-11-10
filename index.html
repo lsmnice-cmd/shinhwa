@@ -86,6 +86,8 @@
   .work-note .spec{font-size:11px;margin-left:5px;padding:1px 5px}
   .work-note .wwait,.work-note .wraw{font-size:9.5px;margin-left:4px;padding:1px 5px}
   .price{color:var(--accent);font-weight:700}
+  .prod-chg{font-size:11.5px;font-weight:800;color:#7a4a00;background:#fff3cd;border:1px solid #e0b84a;border-radius:4px;padding:0 5px}
+  .prod-old{font-size:10.5px;color:#9a9385;text-decoration:line-through}
   .spec{display:inline-block;margin-left:8px;padding:1px 7px;border-radius:3px;background:#e6eef7;color:#204d7a;font-size:11.5px;font-weight:700;font-family:var(--sans)}
     .dgrp{border:1px solid var(--line);border-radius:6px;margin-bottom:10px;overflow:hidden}
   .dgrp-h{display:flex;align-items:center;gap:8px;padding:8px 10px;background:#f5f2ea;border-bottom:1px solid var(--line)}
@@ -289,7 +291,7 @@
 </div>
 <header class="top">
   <h1>신화<b>미트</b> · 주문노트</h1>
-  <div class="status"><span id="fbdot" class="dot"></span><span id="fbstat">연결 준비</span></div>
+  <div class="status"><button id="ordAllBtn" onclick="loadAllOrders()" title="기본은 최근 45일 주문만 불러옵니다(데이터 사용량 절감). 더 옛 주문을 보려면 누르세요 — 이 창을 닫을 때까지 전체를 불러옵니다" style="margin-right:10px;border:1px solid #6b665a;background:transparent;color:#ddd;border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer">📜 이전 주문 전체</button><span id="fbdot" class="dot"></span><span id="fbstat">연결 준비</span></div>
 </header>
 <nav class="tabs">
   <button data-tab="input" class="active">① 카톡 입력</button>
@@ -809,6 +811,16 @@ function todayStr(){const d=new Date();return d.toISOString().slice(0,10);}
 
 /* ---------- Firebase + 인증 ---------- */
 function setStat(on,txt){fbdot.classList.toggle('on',on);fbstat.textContent=txt;}
+/* [v4.27] 45일보다 옛 주문까지 전부 불러오기 (이 창에서만) */
+function loadAllOrders(){
+  try{
+    if(window.ORD_ALL || !window.ORD_REF || !window.ORD_CB) return;
+    if(!confirm('45일보다 옛 주문까지 전부 불러올까요?\n(데이터를 많이 쓰니 필요할 때만 — 이 창을 닫으면 다시 최근 45일만 불러옵니다)')) return;
+    const cb=window.ORD_CB; window.ORD_REF.off('value', cb);
+    window.ORD_ALL=true; window.ORD_REF=db.ref('orders'); window.ORD_REF.on('value', cb);
+    const b=document.getElementById('ordAllBtn'); if(b){ b.textContent='📜 전체 불러옴'; b.disabled=true; b.style.opacity='.6'; }
+  }catch(e){ alert('불러오기 실패: '+e.message); }
+}
 let auth=null, ME=null;
 
 function initFirebase(){
@@ -862,9 +874,17 @@ async function onSignedIn(u){
   }catch(e){ /* 미승인 계정은 못 읽음 — 승인 대기 흐름으로 진행 */ }
 
   // 데이터 접근 시도 → 규칙이 막으면 권한 오류를 보여주고 UID 안내
-  db.ref('orders').on('value',s=>{
+  // [v4.27] 최근 45일치만 구독 (전체 구독 = 열 때마다 전체 다운로드 → Firebase 한도 초과 원인).
+  //         더 옛 주문이 필요하면 상단 [📜 이전 주문 전체] 버튼.
+  const _ordLo=(()=>{ const d=new Date(Date.now()-45*86400000); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })();
+  window.ORD_REF=db.ref('orders').orderByChild('date').startAt(_ordLo);
+  db.ref('orders').orderByChild('date').equalTo(null).on('value', s=>{
+    window.ORD_NODATE=s.val()||{};
+    if(fbReady && !window.ORD_ALL){ let ch=false; for(const id in window.ORD_NODATE){ const o=window.ORD_NODATE[id]; if(o && typeof o==='object' && !ORDERS[id]){ if(!Array.isArray(o.items)) o.items=[]; if(!o.id) o.id=id; ORDERS[id]=o; ch=true; } } if(ch) renderAll(); }
+  }, ()=>{});
+  window.ORD_CB=window.ORD_REF.on('value',s=>{
     fbReady=true; hideGate(); setStat(true,'실시간 연결됨');
-    ORDERS=s.val()||{};
+    ORDERS=Object.assign({}, window.ORD_ALL?{}:(window.ORD_NODATE||{}), s.val()||{});
     // 손상 주문 정규화 — 분석 중 창을 닫는 등으로 items가 없이 저장된 주문이
     // 있으면 화면 그리기가 통째로 죽습니다('length' 오류). 빈 배열로 채워 살립니다.
     let broken=0;
@@ -1151,7 +1171,7 @@ async function loadMasterFromSheet(){
     const j=await gsCall('getMaster');
     step='데이터 반영';
     MASTER=j.master||{};
-    LEARNED=j.learned||{perCustomer:{},global:{}};
+    LEARNED=normLearned(j.learned||{perCustomer:{},global:{}});   // [v4.26]
     ALIASES=j.aliases||{};
     _clientIndex=null;
     step='화면 그리기';
@@ -1389,6 +1409,14 @@ async function analyze(autoText){
 function learnKey(s){
   return String(s||'').replace(/[\s\d\.\,]+/g,'').replace(/(키로|킬로|kg|KG|Kg|박스|팩|봉지|개|장|줄|판|리|두|마리|덩이|짝)+$/,'').toLowerCase();
 }
+/* [v4.26] 학습사전에 정규화 키 추가 — "우삼겹 16팩"으로 배운 것이 "우삼겹 12팩"에도 적용 (주문방 v6.83과 동일) */
+function normLearned(L){
+  const addN=dic=>{ const n={}; for(const k in dic){ const nk=learnKey(k); if(nk && nk.length>=2 && dic[nk]===undefined) n[nk]=dic[k]; } Object.assign(dic,n); return dic; };
+  L=L||{}; L.perCustomer=L.perCustomer||{}; L.global=L.global||{};
+  for(const c in L.perCustomer) addN(L.perCustomer[c]);
+  addN(L.global);
+  return L;
+}
 function correctProduct(client, product, text){
   const key=learnKey(product);
   if(!key) return null;
@@ -1567,6 +1595,7 @@ async function processChunk(ck, tot, GAPS){
             tot.pending.push({client:sk, katok:kw, text:(it.text||'').slice(0,60)});
           }
         }
+        if(c && c.item==='매칭없음'){ if(c.via==='거래처'||c.via==='공통') it.noMatch=1; return true; }   // [v4.25]
         if(c && c.item!==it.product){
           it.wasProduct=it.product||'';
           it.product=c.item;
@@ -1657,6 +1686,65 @@ function collectGaps(o, sk, GAPS){
   }
 }
 function itemText(it){ return it.text||it.product||''; }
+/* [v4.25] 품목 매칭 변경 기록 (주문방 v6.70과 같은 규칙) */
+function prodNorm(s){ return String(s||'').replace(/[\s\d\.\,\(\)\[\]×\*\/\-]+/g,'').toLowerCase(); }
+const CHG_VIA=['짝짓기','대조학습','수동수정','편집기','소급'];
+function prodChange(it){
+  if(!it) return null;
+  const p=String(it.product||'').trim(); if(!p) return null;
+  const g=it.chg;
+  if(g && g.to===p) return g;
+  const w=String(it.wasProduct||'').trim();
+  if(w && w!==p && CHG_VIA.indexOf(it.via)>=0) return {to:p, from:w, via:it.via};
+  return null;
+}
+function prodChgHtml(it, rawTxt){
+  const g=prodChange(it); if(!g) return '';
+  const p=String(it.product||'').trim();
+  const tn=prodNorm(rawTxt), pn=prodNorm(p), fn=prodNorm(g.from||'');
+  const ico=(g.via==='수동수정'||g.via==='편집기')?'✏':(g.via==='대조학습'?'🤖':'🔗');
+  const when=g.at?new Date(g.at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';
+  const tip='품목 매칭이 바뀜'+(g.via?' ('+g.via+')':'')+(g.from?' — 이전: '+g.from:'')+(g.by?' · '+g.by:'')+(when?' · '+when:'');
+  const showOld=!!(g.from && g.from!==p && fn && fn!==pn && tn.indexOf(fn)<0);
+  return ' <span class="prod-chg" title="'+esc(tip)+'">'+ico+' '+((rawTxt===p)?'바뀜':esc(p))+'</span>'
+    +(showOld?' <span class="prod-old no-print" title="이전 품목">'+esc(g.from)+'</span>':'');
+}
+/* 잠깐 떴다 사라지는 안내 */
+function toast(msg, ms){
+  let el=document.getElementById('toastBox');
+  if(!el){ el=document.createElement('div'); el.id='toastBox'; el.className='no-print';
+    el.style.cssText='position:fixed;left:50%;bottom:40px;transform:translateX(-50%);z-index:9998;background:#1a1a1a;color:#fff;padding:9px 14px;border-radius:10px;font-size:13px;font-weight:700;box-shadow:0 4px 16px rgba(0,0,0,.3);max-width:88vw;text-align:center;pointer-events:none;transition:opacity .3s';
+    document.body.appendChild(el); }
+  el.textContent=msg; el.style.display='block'; el.style.opacity='1';
+  clearTimeout(el._t); el._t=setTimeout(()=>{ el.style.opacity='0'; setTimeout(()=>{ el.style.display='none'; }, 320); }, ms||3500);
+}
+/* 새로 매칭한 상품명을 같은 거래처의 아직 처리 안 된 주문(오늘 이후)에도 반영 */
+async function spreadLearn(client, srcs, newProd, exceptIds, via, by){
+  try{
+    const keys=new Set((srcs||[]).map(x=>learnKey(x)).filter(k=>k && k.length>=2));
+    if(!keys.size || !newProd || !client) return 0;
+    const t=todayStr(), now=Date.now(), upd={}; let n=0;
+    for(const oid in ORDERS){
+      const o=ORDERS[oid]; if(!o || (exceptIds||[]).indexOf(oid)>=0 || !o.items || !o.items.length) continue;
+      if(o.needClient || cliNorm(o.client)!==cliNorm(client)) continue;
+      if((o.date||'')<t || o.confirm==='done') continue;
+      let ch=false;
+      const items=o.items.map(it=>{
+        if(!it || it.noMatch || it.erpKg || it.erpTail) return it;
+        const oldP=String(it.product||'').trim();
+        if(oldP===newProd) return it;
+        const ks=[it.wasProduct, it.product, it.text].map(x=>learnKey(x||'')).filter(Boolean);
+        if(!ks.some(k=>keys.has(k))) return it;
+        ch=true; n++;
+        return Object.assign({}, it, {wasProduct:it.wasProduct||oldP||'', product:newProd, fixed:1, via:via||'편집기',
+          chg:{from:oldP, to:newProd, by:by||'노트', at:now, via:via||'편집기', spread:1}});
+      });
+      if(ch){ upd['orders/'+oid+'/items']=items; o.items=items; }
+    }
+    if(n && fbReady) await db.ref().update(upd);
+    return n;
+  }catch(e){ console.warn('spreadLearn',e); return 0; }
+}
 
 /* ---------- 📚 학습 대기 ---------- */
 let PENDING=[];
@@ -2454,9 +2542,12 @@ async function reapplyLearned(){
         changed=true; n++;
         return false;
       }
+      if(c && c.item==='매칭없음'){ if((c.via==='거래처' || c.via==='공통') && !it.noMatch){ it.noMatch=1; changed=true; } return true; }   // [v4.25]
       if(c && c.item && c.item!==it.product && (c.via==='거래처' || c.via==='공통')){
-        if(!it.wasProduct) it.wasProduct=it.product||'';
+        const oldP=it.product||'';
+        if(!it.wasProduct) it.wasProduct=oldP;
         it.product=c.item; it.fixed=1; it.via=c.via;
+        it.chg={from:oldP, to:c.item, by:'학습 소급', at:Date.now(), via:'소급'};
         delete it.cands;
         changed=true; n++;
       }
@@ -2496,6 +2587,9 @@ function firstDate(){
 function setNoteDate(d){ noteDate=d; renderNote(); }
 function setWorkDate(d){ workDate=d; renderWork(); }
 
+/* [v4.25] 🔗 품목 매칭 변경 표시 — 편집기·짝짓기로 상품명이 바뀐 품목은 노란 표시 '🔗 새 상품명'(인쇄에도 굵게) + 이전 상품명(화면만, 취소선).
+   편집기에서 상품명을 바꾸면 변경 기록(chg)을 남기고, 같은 거래처의 아직 처리 안 된 주문(오늘 이후)에도 반영.
+   '매칭없음'으로 학습된 품목은 상품명을 바꾸지 않고 대조 제외(noMatch)만. (주문방 v6.70과 동일) */
 /* [v4.24] 거래처 옆 [✂ 분리] — 합쳐진 주문에서 품목을 골라 새 주문(다른 차량·거래처명)으로 떼어냄 (주문방 v6.64와 동일) */
 /* [v4.23] 이월 미처리 판정을 '거래처 매출 확인'(erpSale)으로 — 품목 매칭 불요 (주문방 v6.63·전산대조 v3.5) */
 /* [v4.22] 편집기에서 날짜를 바꿀 때도 이력 기록 (빠져 있던 경로) */
@@ -2680,9 +2774,11 @@ function buildNoteTable(wrap, date, workMode){
             // [v3.7] 학습된 품목: 정식 상품명 크게 + (채팅 원문) 작게
             const rawTxt=itemText(it);
             let t='<b>'+esc(rawTxt)+'</b>';
-            if(it.product && it.product!==rawTxt){
-              t+=' <span style="font-size:11px;color:#1a4f9c">('+esc(it.product)+')</span>';
-            }
+            { const chgH=prodChgHtml(it, rawTxt);      // [v4.25] 매칭이 바뀐 품목은 노란 표시
+              if(chgH) t+=chgH;
+              else if(it.product && it.product!==rawTxt){
+                t+=' <span style="font-size:11px;color:#1a4f9c">('+esc(it.product)+')</span>';
+              } }
             if(it.price) t+=' <span class="price">'+esc(it.price)+'</span>';
             if(workMode){
               const sk=matchClient(c);
@@ -3197,6 +3293,12 @@ async function saveOrderEdit(){
       // v3.10: 기존 품목 정보(전산값·출처·실측 등)를 지우지 않고 병합
       const it0b=(ORDERS[oid]&&ORDERS[oid].items||[])[tr.dataset.idx]||{};
       const merged=Object.assign({}, it0b, {product:prod, text, price});
+      { const oldP=String(it0b.product||'').trim();      // [v4.25] 상품명이 바뀌면 기록 (주문방·노트에 🔗 표시)
+        if(prod && it0b.text!==undefined && prod!==oldP){
+          merged.chg={from:oldP, to:prod, by:(auth&&auth.currentUser&&auth.currentUser.displayName)||'노트', at:Date.now(), via:'편집기'};
+          merged.via='편집기'; merged.fixed=1;
+          if(!merged.wasProduct) merged.wasProduct=oldP||'';
+        } }
       const bx=collectBoxes(oid, tr.dataset.idx);
       const brN=[...document.querySelectorAll('#edItems tr.box-row')].find(r=>r.dataset.oid===String(oid)&&r.dataset.idx===String(tr.dataset.idx));
       const nIn=brN&&brN.querySelector('.bx-n'); if(nIn){ const nv=parseInt(nIn.value,10); merged.boxN=nv>0?nv:null; }
@@ -3239,6 +3341,7 @@ async function saveOrderEdit(){
       if(fbReady) await db.ref('orders/'+id).update({items:o.items, date:o.date, client:o.client, needClient:!!o.needClient, vehicle:o.vehicle, hash:o.hash, dateHist:o.dateHist||null, printed:o.printed===false?false:(o.printed||null)});
     }
     // 학습 큐 처리
+    let nSpread=0;
     for(const q of LEARN_QUEUE.splice(0)){
       try{
         await gsCall('addLearned',{client:q.client, katok:q.katok, item:q.item});
@@ -3246,7 +3349,10 @@ async function saveOrderEdit(){
         LEARNED.perCustomer[q.client][learnKey(q.katok)]=q.item;
         LEARNED.perCustomer[q.client][q.katok]=q.item;
       }catch(e){ console.warn('addLearned',e); }
+      // [v4.25] 같은 거래처의 아직 처리 안 된 주문에도 새 상품명 반영
+      if(q.item!=='삭제' && q.item!=='매칭없음') nSpread+=await spreadLearn(q.client, [q.katok], q.item, EDIT_IDS.slice(), '편집기', (auth&&auth.currentUser&&auth.currentUser.displayName)||'노트');
     }
+    if(nSpread) toast('🔗 같은 거래처의 다른 주문 '+nSpread+'품목에도 새 상품명을 반영했습니다');
     // v3.8: 학습 실시간 전파 — 주문방 등 다른 화면이 마스터를 다시 읽음
     try{ if(fbReady) db.ref('meta/masterVer').set(Date.now()); }catch(e){}
     closeOrderEditor();
