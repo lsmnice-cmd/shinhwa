@@ -11,7 +11,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.90 — 2026-10-29
+  신화미트 주문방 (chat.html) v6.91 — 2026-11-10
+  · v6.91: Firebase 다운로드 절감 — 화면을 열 때마다(그리고 휴대폰이 백그라운드에서 돌아와 재연결할 때마다) 지금까지의 주문 전체를
+           내려받던 것을 최근 35일치만 구독하도록 변경 (하루 약 1GB 다운로드의 주원인). 날짜 없는 주문은 별도 구독으로 유지.
+           휴지통 구독도 최근 400건 → 100건.
   · v6.90: ★ 거래처 코드 학습 전체 삭제 버그 수정 — 거래처명이 "택배"처럼 정규화하면 빈 문자열이 되는 주문에서 [매칭]을 누르면
            erpmap/ (루트)에 한 건을 덮어써 학습 전체(최대 168건)가 지워지던 치명적 버그 (10/22·10/27·10/29 세 번 발생, 봇 로그로 확인).
            → 키가 비면 저장·삭제를 거부하고 안내. 빈 키 대신 원문 기반 보조 키 사용. erpmap 루트의 잘못된 값은 봇 v4.7이 정리.
@@ -1467,9 +1470,15 @@ async function onSignedIn(u){
   }, 8000);
 
   // 데이터 구독 (규칙이 막으면 접속 신청 안내)
-  db.ref('orders').on('value',s=>{
+  // v6.91: 최근 35일치만 구독 (전체 구독 = 열 때마다 전체 다운로드). 날짜 없는 주문은 아래 별도 구독.
+  const _ordLo=(()=>{ const d=new Date(Date.now()-35*86400000); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })();
+  db.ref('orders').orderByChild('date').equalTo(null).on('value', s=>{
+    ORD_NODATE=s.val()||{};
+    if(fbReady){ for(const id in ORD_NODATE){ const o=ORD_NODATE[id]; if(o && typeof o==='object' && !ORDERS[id]){ if(!Array.isArray(o.items)) o.items=[]; if(!o.id) o.id=id; ORDERS[id]=o; } } renderSideSafe(); }
+  }, ()=>{});
+  db.ref('orders').orderByChild('date').startAt(_ordLo).on('value',s=>{
     fbReady=true; hideGate(); setStat(true,'실시간 연결됨');
-    ORDERS=s.val()||{};
+    ORDERS=Object.assign({}, ORD_NODATE, s.val()||{});
     for(const id in ORDERS){
       const o=ORDERS[id];
       if(!o || typeof o!=='object'){ delete ORDERS[id]; continue; }
@@ -3663,7 +3672,7 @@ let RUNNER_ALIVE=0;                                   // 자동처리 화면의 
 let RUNNER_SEEN=false;                                 // v6.69: 생존 신호를 한 번이라도 받았는지
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<130*1000; }   // v6.69: 백그라운드 탭 타이머 지연(최대 1분) 감안
 const STALE_MS=IS_RUNNER ? 150*1000 : 180*1000;  // v6.69: 처리 중엔 20초마다 잠금이 갱신됨 → 이 시간 동안 갱신이 없을 때만 '멈춤'
-const APP_VER='6.90';
+const APP_VER='6.91';
 const APP_BUILD=682;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 const RESCUE_T={};
@@ -3778,6 +3787,7 @@ function toggleShowAll(){ SHOW_ALL=!SHOW_ALL; renderSide(); }
    👥 직원 목록 · ✅ 할일 (v5.0)
    ============================================================ */
 let USERS={}, TASKS={}, DEFERRED={}, TRASH={};
+var ORD_NODATE={};   // v6.91: 날짜 없는 주문(별도 구독분)
 function watchUsersTasks(){
   if(!db) return;
   db.ref('users').on('value', s=>{ USERS=s.val()||{};
@@ -3786,7 +3796,7 @@ function watchUsersTasks(){
     if(document.getElementById('peopleBg').classList.contains('on')) renderPeople(); }, ()=>{});
   db.ref('tasks').on('value', s=>{ TASKS=s.val()||{}; renderSide(); checkTaskPopup(); }, ()=>{});
   db.ref('meta/deferred').on('value', s=>{ DEFERRED=s.val()||{}; renderSideSafe(); }, ()=>{});
-  db.ref('trash').limitToLast(400).on('value', s=>{ TRASH=s.val()||{}; renderSideSafe(); }, ()=>{});
+  db.ref('trash').limitToLast(100).on('value', s=>{ TRASH=s.val()||{}; renderSideSafe(); }, ()=>{});
 }
 function userName(uid){ const u=USERS[uid]||{}; return u.nick||u.name||(u.email||'').split('@')[0]||uid.slice(0,6); }
 function openPeople(){ renderPeople(); document.getElementById('peopleBg').classList.add('on'); }
