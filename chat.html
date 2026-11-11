@@ -11,7 +11,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.91 — 2026-11-10
+  신화미트 주문방 (chat.html) v6.92 — 2026-11-11
+  · v6.92: [📜 전체 기간] 한도 수정 — 6개월·총 8,000건에서 멈추던 것을, 한 번 누를 때마다 8,000건씩 더 불러오고
+           (기간 제한 없음) 다시 누르면 이어서 더 옛 대화를 불러옴. 멈춘 이유를 버튼에 표시:
+           "처음까지 다 불러옴"(더 옛 대화 없음) / "…부터 로드됨 · 더 불러오기"(한도에서 멈춤).
   · v6.91: Firebase 다운로드 절감 — 화면을 열 때마다(그리고 휴대폰이 백그라운드에서 돌아와 재연결할 때마다) 지금까지의 주문 전체를
            내려받던 것을 최근 35일치만 구독하도록 변경 (하루 약 1GB 다운로드의 주원인). 날짜 없는 주문은 별도 구독으로 유지.
            휴지통 구독도 최근 400건 → 100건.
@@ -1739,15 +1742,16 @@ async function loadAllOlder(){
   if(LOADALL_RUN){ LOADALL_RUN=false; if(btn) btn.textContent='중단 중…'; return; }
   if(!db) return;
   LOADALL_RUN=true;
-  const limitTs=Date.now()-180*86400000; const maxN=8000; let got=0;
+  const maxN=Object.keys(CHAT).length+8000; let got=0; let atStart=false;   // v6.92: 누를 때마다 8,000건씩 더, 기간 제한 없음
   if(btn){ btn.disabled=false; btn.textContent='불러오는 중… (누르면 중단)'; }
   try{
     while(LOADALL_RUN){
       const oldest=Math.min(...Object.values(CHAT).map(m=>m&&m.ts||Infinity));
-      if(!isFinite(oldest) || oldest<=limitTs || Object.keys(CHAT).length>=maxN) break;
+      if(!isFinite(oldest)){ atStart=true; break; }
+      if(Object.keys(CHAT).length>=maxN) break;
       const ss=await roomRef().orderByChild('ts').endAt(oldest-1).limitToLast(500).once('value');
       const arr=[]; ss.forEach(c=>{ if(!CHAT[c.key]) arr.push([c.key,c.val()]); });
-      if(!arr.length) break;
+      if(!arr.length){ atStart=true; break; }
       const box=document.getElementById('chatScroll'); const keepH=box.scrollHeight, keepTop=box.scrollTop;
       const frag=document.createDocumentFragment();
       arr.sort((a,b)=>(a[1].ts||0)-(b[1].ts||0)).forEach(([id,m])=>{
@@ -1767,7 +1771,11 @@ async function loadAllOlder(){
   }catch(e){ alert('불러오기 실패: '+e.message); }
   LOADALL_RUN=false;
   const oldest=Math.min(...Object.values(CHAT).map(m=>m&&m.ts||Infinity));
-  if(btn) btn.textContent='📜 '+(isFinite(oldest)?fmtDT(oldest).slice(0,8)+'부터 로드됨':'전체 기간');
+  if(btn){
+    const from=isFinite(oldest)?fmtDT(oldest).slice(0,8):'';
+    btn.textContent = atStart ? ('📜 '+from+' 처음까지 다 불러옴') : ('📜 '+from+'부터 로드됨 · 더 불러오기');
+    btn.title = atStart ? '이 방의 첫 메시지까지 모두 불러왔습니다 — 더 옛 대화는 없습니다' : '한 번에 8,000건씩 불러옵니다. 다시 누르면 더 옛 대화를 이어서 불러옵니다';
+  }
   runSearch();
 }
 /* 최근 200건 이전의 옛 대화를 300건씩 추가 로드 */
@@ -3672,7 +3680,7 @@ let RUNNER_ALIVE=0;                                   // 자동처리 화면의 
 let RUNNER_SEEN=false;                                 // v6.69: 생존 신호를 한 번이라도 받았는지
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<130*1000; }   // v6.69: 백그라운드 탭 타이머 지연(최대 1분) 감안
 const STALE_MS=IS_RUNNER ? 150*1000 : 180*1000;  // v6.69: 처리 중엔 20초마다 잠금이 갱신됨 → 이 시간 동안 갱신이 없을 때만 '멈춤'
-const APP_VER='6.91';
+const APP_VER='6.92';
 const APP_BUILD=682;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 const RESCUE_T={};
