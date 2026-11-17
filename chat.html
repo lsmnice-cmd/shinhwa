@@ -11,7 +11,15 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.92 — 2026-11-11
+  신화미트 주문방 (chat.html) v6.93 — 2026-11-17
+  · v6.93: 분석이 멈춘 채 방치되는 주문 방지 —
+           원인: 자동처리 화면은 최근 200건 안의 메시지만 변화를 감지. 그보다 옛 메시지를 수정(또는 다시 분석)했는데
+                 그 기기(휴대폰)가 중간에 꺼지면 '분석 멈춤' 상태로 아무도 모른 채 남았음. 수정 직후 멈춘 것도 구조가 안 걸렸음.
+           ① 분석 대기열(meta/pq) — 분석을 시작하면 대기열에 올리고 끝나면 내림. 자동처리 화면이 30초마다 대기열을 보고
+              멈춘 것은 메시지가 얼마나 오래됐든 직접 읽어 와 다시 분석. 실패가 확정되면 텔레그램.
+           ② 15분 넘게 끝나지 않으면 텔레그램으로 알림(메시지당 1회).
+           ③ 메시지가 수정돼 다시 분석에 들어간 경우도 멈춤 구조 대상에 포함.
+           ④ 관리자: 미처리 상단 [🔎 멈춘 분석 전체 찾기] — 이미 멈춰 있는 옛 메시지를 전체 기간에서 찾아 대기열에 올림.
   · v6.92: [📜 전체 기간] 한도 수정 — 6개월·총 8,000건에서 멈추던 것을, 한 번 누를 때마다 8,000건씩 더 불러오고
            (기간 제한 없음) 다시 누르면 이어서 더 옛 대화를 불러옴. 멈춘 이유를 버튼에 표시:
            "처음까지 다 불러옴"(더 옛 대화 없음) / "…부터 로드됨 · 더 불러오기"(한도에서 멈춤).
@@ -2016,7 +2024,7 @@ function subscribeRoom(){
     notifyNew(m);
     markRead(rid);
   });
-  ref.on('child_changed', s=>{ const m=s.val(); if(!m) return; m._room=rid; CHAT[s.key]=m; updateMsg(s.key, m); if(CUR_ROOM.parse) scheduleAutoRetry(s.key, m); });
+  ref.on('child_changed', s=>{ const m=s.val(); if(!m) return; m._room=rid; CHAT[s.key]=m; updateMsg(s.key, m); if(CUR_ROOM.parse){ rescueIfStale(s.key, m); scheduleAutoRetry(s.key, m); } });
   ROOM_LISTENERS.push(ref);
   document.title=(IS_RUNNER?'🤖 자동처리 중 — ':'')+'신화미트 '+CUR_ROOM.name;
 }
@@ -2540,6 +2548,7 @@ async function forceRetry(id){
   try{
     if(m.status==='done' || (m.orders&&m.orders.length)) await rollbackMsg(id);
     const tok=newTok();
+    pqSet(id);
     await msgRef(id).update({status:'parsing', lock:tok, lockAt:Date.now(), orders:null, retries:0, rescues:null, doneAt:null, errKind:null, errMsg:null});
     await processMessage(id, Object.assign({}, m, {status:'parsing'}), tok);
   }catch(e){ alert('재분석 실패: '+e.message); }
@@ -3013,6 +3022,7 @@ async function saveEditMsg(id){
   try{
     await rollbackMsg(id);
     const tok=newTok();
+    if(roomOf(id).parse) pqSet(id);
     await msgRef(id).update({text:nv, edited:1, status:(roomOf(id).parse?'parsing':null), orders:null, lock:tok, lockAt:Date.now()});
     if(roomOf(id).parse) await processMessage(id, Object.assign({}, m, {text:nv}), tok);
   }catch(e){ alert('수정 실패: '+e.message); }
@@ -3270,6 +3280,7 @@ async function processMessage(msgId, m, tok){
     if(!tr.committed){ console.log('🔒 완료됐거나 다른 화면이 처리 중 — 건너뜀', msgId); return; }
   }catch(e){ console.warn('lock',e); return; }   // v6.69: 잠금을 못 잡으면 처리하지 않음 (중복 분석 방지)
   // v6.69: 처리 중 20초마다 잠금 시각 갱신 — 오래 걸려도 다른 화면(자기 자신 포함)이 '멈춤'으로 오인해 또 분석하지 않게
+  pqSet(msgId);   // v6.93: 분석 대기열 등록 — 이 기기가 중간에 꺼져도 자동처리 화면이 이어받음
   const hb=setInterval(async()=>{ try{ const s0=await mref.child('lock').once('value'); if(s0.val()===tok) await mref.child('lockAt').set(Date.now()); }catch(e){} }, 20000);
   const guard=async()=>{ try{ return (await mref.child('lock').once('value')).val()===tok; }catch(e){ return true; } };
   try{
@@ -3331,7 +3342,7 @@ async function processMessage(msgId, m, tok){
     await mref.update({status:'error', errKind:kind, errMsg:em.slice(0,200), errAt:Date.now(), errBy:(IS_RUNNER?'🤖 자동처리':MYNAME)}).catch(()=>{});
     // 중간 실패는 답글 없이 말풍선 상태(⏳ 재시도 n/N)로만 — 자동 재시도를 다 쓰면 그때 한 번만 답글+텔레그램
     if(r>=plan.length) await notifyGiveUp(msgId, em, kind, r);
-  }finally{ clearInterval(hb); }
+  }finally{ clearInterval(hb); pqSettle(msgId); }
 }
 
 async function createOrders(text, forced, msgId, senderName, isEdit, guard){
@@ -3680,9 +3691,78 @@ let RUNNER_ALIVE=0;                                   // 자동처리 화면의 
 let RUNNER_SEEN=false;                                 // v6.69: 생존 신호를 한 번이라도 받았는지
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<130*1000; }   // v6.69: 백그라운드 탭 타이머 지연(최대 1분) 감안
 const STALE_MS=IS_RUNNER ? 150*1000 : 180*1000;  // v6.69: 처리 중엔 20초마다 잠금이 갱신됨 → 이 시간 동안 갱신이 없을 때만 '멈춤'
-const APP_VER='6.92';
-const APP_BUILD=682;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.93';
+const APP_BUILD=693;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
+/* ===== v6.93: 분석 대기열 (meta/pq/{msgId} = {at, room, tg}) =====
+   분석을 시작한 메시지를 올려 두고, 끝나면(완료·삭제) 내린다. 자동처리 화면이 주기적으로 훑어
+   멈춘 것을 이어받는다 — 최근 200건 밖의 옛 메시지라도 직접 읽어 온다. */
+let PQ={}, PQ_BUSY=false;
+function pqSet(id){ try{ const r=roomOf(id); if(!r.parse) return; db.ref('meta/pq/'+id).update({at:Date.now(), room:r.id}).catch(()=>{}); }catch(e){} }
+function pqDel(id){ try{ db.ref('meta/pq/'+id).remove().catch(()=>{}); }catch(e){} }
+async function pqSettle(id){
+  try{ const v=(await msgRef(id).once('value')).val(); if(!v || v.deleted || !v.status || v.status==='done') pqDel(id); }catch(e){}
+}
+function startPq(){
+  try{ db.ref('meta/pq').on('value', s=>{ PQ=s.val()||{}; }, ()=>{}); }catch(e){}
+  setInterval(()=>{ if(IS_RUNNER || !runnerAlive()) pqCheck().catch(()=>{}); }, (IS_RUNNER?30:60)*1000);
+}
+async function pqCheck(){
+  if(PQ_BUSY || !db || !fbReady) return; PQ_BUSY=true;
+  try{
+    const now=Date.now();
+    for(const id of Object.keys(PQ)){
+      const e=PQ[id]||{};
+      if(now-(e.at||0) < STALE_MS) continue;                        // 방금 시작한 건 기다림
+      const room=ROOMS.find(r=>r.id===(e.room||'order'))||ORDER_ROOM;
+      if(!room.parse){ pqDel(id); continue; }
+      if(room.id!==CUR_ROOM.id) continue;                           // 이 화면이 보고 있는 방의 것만
+      let m=null;
+      try{ m=(await db.ref(room.path+'/'+id).once('value')).val(); }catch(e2){ continue; }
+      if(!m || m.deleted || !m.text || !m.status || m.status==='done'){ pqDel(id); continue; }
+      m._room=room.id; CHAT[id]=m;                                  // 최근 200건 밖이어도 처리할 수 있게 올려 둠
+      try{ if(document.getElementById('m_'+id)) updateMsg(id, m); }catch(e3){}
+      // ② 15분 넘게 안 끝나면 텔레그램 (메시지당 1회)
+      if(now-(e.at||0) > 15*60*1000 && !e.tg){
+        try{ await db.ref('meta/pq/'+id+'/tg').set(now); }catch(e4){}
+        gsCall('tgNotify',{text:'⏳ 주문 분석이 15분 넘게 끝나지 않았습니다\n보낸 사람: '+(m.name||'')+' · '+fmtDT(m.ts||now)+(m.edited?' (수정됨)':'')
+          +'\n상태: '+(m.status==='error'?('실패 — '+String(m.errMsg||'').slice(0,100)):'분석 멈춤')
+          +'\n\n'+String(m.text||'').slice(0,300)+'\n\n자동으로 다시 시도 중입니다. 계속 안 되면 주문방에서 말풍선의 [분석 멈춤 · 다시]를 누르거나 주문노트에 직접 입력하세요.\n'+SITE_URL+'?room=order'}).catch(()=>{});
+      }
+      if(m.status==='error'){
+        const plan=RETRY_PLAN[m.errKind]||RETRY_PLAN.parse;
+        if((m.retries||0)<plan.length && now-((m.errAt||m.lockAt||m.ts)||0) < 12*3600*1000){
+          // 옛 메시지(작성 12시간 초과)는 scheduleAutoRetry가 안 돌리므로 여기서 직접 한 번 돌림
+          if(now-(m.ts||0) > 12*3600*1000){ if(now-((m.errAt||0)) > 2*60*1000) await retryMsg(id); }
+          else scheduleAutoRetry(id, m);
+        }else{
+          await notifyGiveUp(id, m.errMsg||'분석 실패', m.errKind||'parse', m.retries||0);
+          pqDel(id);
+        }
+        continue;
+      }
+      if(m.lockAt && now-m.lockAt < STALE_MS) continue;             // 누가 지금 처리 중
+      await rescueIfStale(id, m);
+    }
+  }finally{ PQ_BUSY=false; }
+}
+/* ④ 관리자: 전체 기간에서 '분석중'으로 멈춰 있는 메시지를 찾아 대기열에 올림 (대화 전체를 한 번 읽으므로 필요할 때만) */
+async function scanStuckAll(btn){
+  if(!confirm('전체 기간의 주문방 대화에서 분석이 멈춘 메시지를 찾습니다.\n대화 전체를 한 번 읽으므로 잠시 걸립니다. 계속할까요?')) return;
+  const old=btn?btn.textContent:''; if(btn){ btn.disabled=true; btn.textContent='찾는 중…'; }
+  try{
+    const found=[];
+    for(const st of ['parsing','retrying']){
+      const ss=await db.ref(ORDER_ROOM.path).orderByChild('status').equalTo(st).once('value');
+      ss.forEach(c=>{ const v=c.val(); if(v && !v.deleted && v.text && !v.sys && Date.now()-((v.lockAt||v.ts)||0) > 5*60*1000) found.push([c.key, v]); });
+    }
+    for(const [id] of found){ await db.ref('meta/pq/'+id).update({at:Date.now()-STALE_MS-1000, room:ORDER_ROOM.id}); }
+    alert(found.length ? ('멈춘 분석 '+found.length+'건을 찾아 대기열에 올렸습니다.\n자동처리 화면이 1분 안에 다시 분석합니다.\n\n'+found.slice(0,8).map(([id,v])=>'· '+fmtDT(v.ts||0)+' '+String(v.name||'')+' — '+String(v.text||'').replace(/\s+/g,' ').slice(0,30)).join('\n')) : '멈춰 있는 분석이 없습니다.');
+    if(found.length) pqCheck().catch(()=>{});
+  }catch(e){ alert('찾기 실패: '+e.message); }
+  if(btn){ btn.disabled=false; btn.textContent=old; }
+}
+
 const RESCUE_T={};
 async function rescueIfStale(id, m){
   if(!m || m.sys || !m.text) return;
@@ -3804,6 +3884,7 @@ function watchUsersTasks(){
     if(document.getElementById('peopleBg').classList.contains('on')) renderPeople(); }, ()=>{});
   db.ref('tasks').on('value', s=>{ TASKS=s.val()||{}; renderSide(); checkTaskPopup(); }, ()=>{});
   db.ref('meta/deferred').on('value', s=>{ DEFERRED=s.val()||{}; renderSideSafe(); }, ()=>{});
+  startPq();   // v6.93: 분석 대기열
   db.ref('trash').limitToLast(100).on('value', s=>{ TRASH=s.val()||{}; renderSideSafe(); }, ()=>{});
 }
 function userName(uid){ const u=USERS[uid]||{}; return u.nick||u.name||(u.email||'').split('@')[0]||uid.slice(0,6); }
@@ -4209,6 +4290,7 @@ function renderPend(){
   // ⚠ 이월 미처리 (오늘 보기일 때만 맨 위)
   if(PANEL_DATE===todayStr()){
     try{ const un=unparsedList(true).length; if(un){ const b=document.createElement('button'); b.textContent='🔁 분석 안 된 주문 메시지 '+un+'건 다시 분석'; b.style.cssText='width:100%;margin:2px 0 6px;border:1px solid #7a5a00;background:#fff6e6;color:#7a5a00;border-radius:6px;padding:7px;font-size:12px;font-weight:800;cursor:pointer'; b.onclick=()=>sweepUnparsed(true); box.appendChild(b); } }catch(e){}
+    if(IS_ADMIN){ const nq=Object.keys(PQ).length; const b=document.createElement('button'); b.textContent='🔎 멈춘 분석 전체 찾기'+(nq?' (대기열 '+nq+'건)':''); b.title='전체 기간에서 분석중으로 멈춰 있는 주문 메시지를 찾아 다시 분석하게 합니다'; b.style.cssText='width:100%;margin:2px 0 6px;border:1px dashed #7a5a00;background:#fff;color:#7a5a00;border-radius:6px;padding:5px;font-size:11.5px;font-weight:700;cursor:pointer'; b.onclick=()=>scanStuckAll(b); box.appendChild(b); }
     if(IS_ADMIN){ const bad=Object.values(ORDERS).filter(o=>o&&(o.items||[]).some(it=>it&&String(it.product||'').trim()==='매칭없음')).length; if(bad){ const b=document.createElement('button'); b.textContent='🧹 \'매칭없음\'으로 바뀐 품목명 복구 '+bad+'건'; b.style.cssText='width:100%;margin:2px 0 8px;border:1px dashed #7a5a00;background:#fff;color:#7a5a00;border-radius:6px;padding:7px;font-size:12px;font-weight:800;cursor:pointer'; b.onclick=fixNoMatchNames; box.appendChild(b); } }
     if(IS_ADMIN){ const dn=Object.values(ORDERS).filter(o=>o&&clientLooksDirty(o.client)).length; if(dn){ const b=document.createElement('button'); b.textContent='🧹 인사말 붙은 거래처명 '+dn+'건 정리'; b.style.cssText='width:100%;margin:2px 0 8px;border:1px dashed #8a1c1c;background:#fff;color:#8a1c1c;border-radius:6px;padding:7px;font-size:12px;font-weight:800;cursor:pointer'; b.onclick=fixDirtyClients; box.appendChild(b); } }
     if(IS_ADMIN){ const lg=legacyOpen().length; if(lg){ const b=document.createElement('button'); b.textContent='🧹 '+CARRY_FROM+' 이전 미처리 '+lg+'건 일괄 종결 (종이 처리분)'; b.style.cssText='width:100%;margin:2px 0 8px;border:1px dashed #b23b32;background:#fff;color:#8a1c1c;border-radius:6px;padding:7px;font-size:12px;font-weight:800;cursor:pointer'; b.onclick=closeLegacy; box.appendChild(b); } }
