@@ -11,7 +11,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.95 — 2026-11-23
+  신화미트 주문방 (chat.html) v6.96 — 2026-11-23
+  · v6.96: [📤 내보내기]와 [📝 양식검사 ON/OFF]는 대표(소유자) 계정만 — 위임받은 관리자에게는 버튼이 보이지 않고 실행도 안 됨.
   · v6.95: ① 📤 대화 내보내기(txt) — 검색 막대의 [📤 내보내기] (관리자). 기간을 정해 현재 방 대화를 카톡 내보내기처럼 txt로 저장.
               분석 결과(완료/실패·수정됨)와 봇 답글도 함께 들어가 자주 하는 실수를 분석하는 자료로 쓸 수 있음.
            ② 📝 주문 양식 검사 — 방 탭 줄의 [📝 양식검사 ON/OFF] (관리자). 켠 시점 이후 올라온 주문 메시지만 검사.
@@ -902,7 +903,7 @@
       <button onclick="searchNav(1)" title="다음">▼</button>
       <button onclick="loadOlder()" title="최근 200건 이전의 옛 대화를 300건씩 불러옵니다">옛 대화 더</button>
       <button id="loadAllBtn" onclick="loadAllOlder()" title="이 방의 옛 대화를 끝까지 불러온 뒤 검색 (최대 6개월)">📜 전체 기간</button>
-      <button id="exportBtn" onclick="exportChatTxt(this)" title="이 방의 대화를 txt 파일로 저장 (관리자)">📤 내보내기</button>
+      <button id="exportBtn" onclick="exportChatTxt(this)" title="이 방의 대화를 txt 파일로 저장 (대표 계정만)" style="display:none">📤 내보내기</button>
       <button onclick="toggleSearch(false)">✕</button>
     </div>
     <div id="chatScroll"></div>
@@ -1687,6 +1688,7 @@ function toggleSearch(on){
   const bar=document.getElementById('searchBar');
   const want=(on===undefined)?!bar.classList.contains('on'):on;
   bar.classList.toggle('on', want);
+  try{ const eb=document.getElementById('exportBtn'); if(eb) eb.style.display=IS_OWNER?'':'none'; }catch(e){}   // v6.96: 내보내기는 대표 계정만
   if(want){ document.getElementById('searchIn').focus(); runSearch(); ensureTwoWeeks(); }
   else{ clearSearchMarks(); document.getElementById('searchIn').value=''; }
 }
@@ -2057,7 +2059,7 @@ function renderRoomTabs(){
     return '<button class="'+(r===CUR_ROOM?'cur':'')+'" onclick="switchRoom(\''+r.id+'\')" style="'+(off?'opacity:.5':'')+'">'+r.icon+' '+r.name+(off?' (꺼짐)':'')
       +(n&&r!==CUR_ROOM?'<span class="badge">'+(n>99?'99+':n)+'</span>':'')+'</button>';
   }).join('')
-  +(IS_ADMIN?'<button onclick="toggleFmtCheck()" title="주문 양식 검사 — 켠 시점 이후 올라온 주문 메시지만 검사해 올린 사람에게 쪽지를 보냅니다" style="background:'+(fmtOn()?'#e7f2ea':'#f3e4e2')+';color:'+(fmtOn()?'#1f6b3a':'#8a1c1c')+'">📝 양식검사 '+(fmtOn()?'ON':'OFF')+'</button>':'')
+  +(IS_OWNER?'<button onclick="toggleFmtCheck()" title="주문 양식 검사 — 켠 시점 이후 올라온 주문 메시지만 검사해 올린 사람에게 쪽지를 보냅니다" style="background:'+(fmtOn()?'#e7f2ea':'#f3e4e2')+';color:'+(fmtOn()?'#1f6b3a':'#8a1c1c')+'">📝 양식검사 '+(fmtOn()?'ON':'OFF')+'</button>':'')
   +(IS_ADMIN?ROOMS.filter(r=>r.toggle).map(r=>'<button onclick="toggleRoom(\''+r.id+'\')" title="'+r.name+' 방 켜기/끄기 (직원에게 보임/숨김)" style="margin-left:auto;background:'+(ROOMS_ON[r.id]===true?'#e7f2ea':'#f3e4e2')+';color:'+(ROOMS_ON[r.id]===true?'#1f6b3a':'#8a1c1c')+'">'+(ROOMS_ON[r.id]===true?'🟢':'⚪')+' '+r.name+' '+(ROOMS_ON[r.id]===true?'ON':'OFF')+'</button>').join(''):'');
 }
 async function toggleRoom(id){
@@ -3755,8 +3757,8 @@ let RUNNER_ALIVE=0;                                   // 자동처리 화면의 
 let RUNNER_SEEN=false;                                 // v6.69: 생존 신호를 한 번이라도 받았는지
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<130*1000; }   // v6.69: 백그라운드 탭 타이머 지연(최대 1분) 감안
 const STALE_MS=IS_RUNNER ? 150*1000 : 180*1000;  // v6.69: 처리 중엔 20초마다 잠금이 갱신됨 → 이 시간 동안 갱신이 없을 때만 '멈춤'
-const APP_VER='6.95';
-const APP_BUILD=695;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.96';
+const APP_BUILD=696;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 /* ===== v6.93: 분석 대기열 (meta/pq/{msgId} = {at, room, tg}) =====
    분석을 시작한 메시지를 올려 두고, 끝나면(완료·삭제) 내린다. 자동처리 화면이 주기적으로 훑어
@@ -4211,7 +4213,7 @@ function renderTaskMap(){
 var FMT={on:false, since:0};
 function fmtOn(){ try{ return !!(FMT && FMT.on); }catch(e){ return false; } }
 async function toggleFmtCheck(){
-  if(!IS_ADMIN) return;
+  if(!IS_OWNER){ alert('대표 계정만 켜고 끌 수 있습니다.'); return; }
   const on=!FMT.on;
   if(!confirm(on?'주문 양식 검사를 켤까요?\n지금부터 올라오는 주문 메시지만 검사해서, 양식에 어긋나면 올린 사람에게 쪽지를 보냅니다.':'주문 양식 검사를 끌까요? (이미 보낸 쪽지는 남습니다)')) return;
   try{ await db.ref('meta/fmtCheck').set({on:on, since:on?Date.now():(FMT.since||0), by:MYNAME, at:Date.now()}); }catch(e){ alert('실패: '+e.message); }
@@ -4282,7 +4284,7 @@ async function fmtFix(tid){
 
 /* ===== v6.95: 📤 대화 내보내기 (txt) ===== */
 async function exportChatTxt(btn){
-  if(!IS_ADMIN){ alert('관리자만 내보낼 수 있습니다.'); return; }
+  if(!IS_OWNER){ alert('대표 계정만 내보낼 수 있습니다.'); return; }
   const ans=prompt('최근 며칠치를 내보낼까요? (숫자만 · 0 = 전체 기간)', '30');
   if(ans===null) return;
   const days=Math.max(0, parseInt(ans,10)||0);
