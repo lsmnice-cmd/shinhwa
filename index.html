@@ -1506,7 +1506,7 @@ function matchVehicle(client){
 
 /* ---------- 중복 방지 ---------- */
 function hashOrder(o){
-  const key=(o.date||'')+'|'+(o.client||'')+'|'+(o.items||[]).map(i=>i.text).join('~');
+  const key=(o.date||'')+'|'+(o.client||'')+((o.shipSeq>1)?('#'+o.shipSeq):'')+'|'+(o.items||[]).map(i=>i.text).join('~');   // [v4.28] 택배 n번째 건은 별개
   let h=0;for(let i=0;i<key.length;i++){h=(h*31+key.charCodeAt(i))|0;}
   return 'h'+(h>>>0).toString(36);
 }
@@ -2725,7 +2725,9 @@ function buildNoteTable(wrap, date, workMode){
   orders0.forEach(o=>{
     const v=normVeh(o.vehicle||'미지정');
     (g[v]=g[v]||{});
-    (g[v][o.client||'']=g[v][o.client||'']||[]).push(o);
+    // [v4.28] 택배: 같은 거래처라도 받는 사람이 다른 건(shipSeq)은 줄을 따로
+    const gk=(o.client||'')+((o.shipSeq>1)?('\u0001'+o.shipSeq):'');
+    (g[v][gk]=g[v][gk]||[]).push(o);
   });
   const vehicles=VORDER.filter(v=>g[v]).concat(Object.keys(g).filter(v=>!VORDER.includes(v)));
   const uniqVeh=[...new Set(vehicles)];
@@ -2762,6 +2764,12 @@ function buildNoteTable(wrap, date, workMode){
       html+='<thead><tr><th>거래처</th><th>품목 / 원산지 / 중량</th><th class="work">작업</th></tr></thead><tbody>';
       clients.forEach(c=>{
         const orders=g[vv][c];
+        const seqN=(orders[0]&&orders[0].shipSeq>1)?orders[0].shipSeq:0;   // [v4.28]
+        c=String(c).split('\u0001')[0];
+        // [v4.29] 같은 거래처의 택배가 여러 건이면 건마다 "택배 n/전체 → 받는 사람"을 크게 표시 (1번째 건 포함)
+        const sibN=clients.filter(k=>String(k).split('\u0001')[0]===c).length;
+        const recvNm=(function(){ const so=orders.find(o=>(o.ships&&o.ships.length)||(o.ship&&(o.ship.name||o.ship.phone||o.ship.addr))); if(!so) return ''; const sh=(so.ships&&so.ships[0])||so.ship||{}; return String(sh.name||'').trim() || String(sh.addr||'').trim().split(/\s+/).slice(0,2).join(' '); })();
+        const seqBadge=(sibN>1)?('<div style="margin-top:3px;display:inline-block;font-size:12px;font-weight:800;color:#fff;background:#8a5a00;border-radius:5px;padding:2px 8px" title="전산 거래처는 '+esc(c)+' 하나, 택배는 '+sibN+'건 — 받는 사람이 달라 따로 정리">📦 택배 '+(seqN||1)+'/'+sibN+(recvNm?' → '+esc(recvNm):'')+'</div>'):'';
         const allItems=[];orders.forEach(o=>(o.items||[]).forEach(it=>allItems.push({...it,oid:o.id,
           _erp:!!(o.erpAt && (!it.at || it.at<=o.erpAt))})));   // [v3.5] 전산처리 시각 이전 품목 = 처리됨
         const oid0=orders[0].id;
@@ -2817,7 +2825,8 @@ function buildNoteTable(wrap, date, workMode){
         const wasPrinted=o=>o.printed===true || (o.printed!==false && pAtN && ((o.sts||o.ts)||0)<pAtN);   // 옛 주문은 시각 비교
         const prAt=pAtN&&orders.some(wasPrinted)?new Date(pAtN).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'';
         const noteTxt=orders.map(o=>o.note).filter(Boolean).join(' / ');
-        html+='<td class="cli"><span class="cli-edit" onclick="openOrderEditor(\''+esc(ids)+'\')">'+esc(c||'(미지정)')
+        html+='<td class="cli"><span class="cli-edit" onclick="openOrderEditor(\''+esc(ids)+'\')">'+esc(c||'(미지정)')+((seqN&&sibN<=1)?' <span title="같은 거래처의 택배 '+seqN+'번째 건 — 받는 사람이 달라 따로 정리 (전산 거래처는 같음)" style="font-size:11px;font-weight:800;color:#8a5a00;background:#fff3d6;border:1px solid #e6c98a;border-radius:9px;padding:0 6px">택배 '+seqN+'</span>':'')
+          +(seqBadge?'<br>'+seqBadge:'')
           +(allErp?' <span style="font-size:10px;font-weight:800;color:#1f6b3a" title="전산처리 완료">✔전산</span>':'')
           +(prAt?' <span style="font-size:10px;color:#7a5a00;font-weight:400" title="이 시각에 인쇄된 분량">(🖨'+prAt+')</span>':'')
           +(function(){ const o1=orders.find(o=>o.chk&&o.chk.erp); if(!o1) return ''; const c=o1.chk.erp; return '<div style="font-size:9.5px;color:#1f6b3a;font-weight:400">'+esc(c.by||'')+' '+new Date(c.at).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+'</div>'; })()
@@ -2996,7 +3005,7 @@ async function cleanDups(date){
     if(!o.items || !o.items.length) continue;
     const before=o.items.length;
     o.items=o.items.filter(it=>{
-      const k=dedupKey(date,o.client,it.text);
+      const k=dedupKey(date,o.client+((o.shipSeq>1)?('#'+o.shipSeq):''),it.text);   // [v4.28] 택배 n번째 건끼리는 중복으로 보지 않음
       if(seen.has(k)) return false;
       seen.add(k); return true;
     });
@@ -3557,7 +3566,7 @@ function runAudit(){
     const orders=g[d];
     // ① 같은 거래처가 두 주문으로 분리 (수동 추가 등으로) → 중복 의심
     const byCli={};
-    orders.forEach(o=>{ const k=cliNorm(o.client||''); (byCli[k]=byCli[k]||[]).push(o); });
+    orders.forEach(o=>{ const k=cliNorm(o.client||'')+((o.shipSeq>1)?('#'+o.shipSeq):''); (byCli[k]=byCli[k]||[]).push(o); });   // [v4.28] 택배 n번째 건은 중복 경고 제외
     for(const k in byCli){
       if(k && byCli[k].length>1){
         issues.push({type:'dup', date:d,
