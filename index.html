@@ -706,6 +706,7 @@ let seenHashes=new Set();
 //   스크립트 맨 위에서 선언해야 합니다(아래쪽에 두면 TDZ 경합으로 로드 실패가 납니다).
 let LEARNED={perCustomer:{},global:{}};   // 카톡 은어 → ERP 정식 상품명 (학습사전 시트)
 let ALIASES={};     // 카톡 표현 → 정식 거래처명 (거래처별칭 시트 — 거래처명 고치면 학습)
+var ERPMAP={};      // [v4.30] 거래처 코드 학습 (회사 고정 db 포함) — 미트/푸드 표시용
 let RECENT={};      // 거래처 → [{item,cnt,last}]  ERP 최근 구매이력 (드라이브 스냅샷)
 let PRODBYCODE={};  // 상품코드 → 상품명 (ERP 코드로 바로 고칠 수 있게)
 const STATUSES=['','작업','원물/박스','원물/팩','원물','작업/네이버','원물/네이버'];
@@ -810,6 +811,44 @@ function saveConfig(){
 function todayStr(){const d=new Date();return d.toISOString().slice(0,10);}
 
 /* ---------- Firebase + 인증 ---------- */
+
+/* ===== 거래처 회사 구분 (미트/푸드) =====
+   ① 거래처 코드 학습에 회사가 고정돼 있으면 그 회사 (erpmap.db)
+   ② 없으면 그 거래처의 최근 주문에서 전산대조가 매출을 찾은 회사 (erpSale.db / recon.db)
+   둘 다 없으면 '' (표시 없음) */
+var CO_CACHE=null, CO_CACHE_N=-1, CO_CACHE_T=0;
+function coMap(){
+  const n=Object.keys(ORDERS||{}).length;
+  if(CO_CACHE && CO_CACHE_N===n && Date.now()-CO_CACHE_T<20000) return CO_CACHE;   // 20초마다 다시 계산
+  CO_CACHE_T=Date.now();
+  const mp={};
+  for(const id in ORDERS){
+    const o=ORDERS[id]; if(!o||!o.client) continue;
+    const d=(o.erpSale&&o.erpSale.db)||(o.recon&&o.recon.db)||''; if(d!=='미트'&&d!=='푸드') continue;
+    const k=cliNorm(o.client); const dt=String(o.reconDate||o.date||'');
+    if(!mp[k] || dt>=mp[k].dt) mp[k]={db:d, dt:dt};
+  }
+  CO_CACHE=mp; CO_CACHE_N=n; return mp;
+}
+function coOf(client){
+  try{
+    const k=cliNorm(client||''); if(!k) return '';
+    const em=(typeof ERPMAP!=='undefined' && ERPMAP)?ERPMAP[k]:null;
+    if(em && (em.db==='미트'||em.db==='푸드')) return em.db;
+    const m=coMap()[k]; return m?m.db:'';
+  }catch(e){ return ''; }
+}
+function coBadge(client){
+  const c=coOf(client); if(!c) return '';
+  return c==='푸드'
+    ? ' <span title="신화푸드 거래처" style="display:inline-block;font-size:10px;font-weight:800;color:#fff;background:#c2410c;border-radius:4px;padding:0 5px;line-height:15px;vertical-align:1px">푸드</span>'
+    : ' <span title="신화미트 거래처" style="display:inline-block;font-size:10px;font-weight:700;color:#6b665a;background:#eceae3;border-radius:4px;padding:0 5px;line-height:15px;vertical-align:1px">미트</span>';
+}
+/* 정렬: 미트·미확인 먼저(가나다), 푸드는 맨 아래(가나다) */
+function coCmp(a,b){
+  const fa=coOf(a)==='푸드'?1:0, fb=coOf(b)==='푸드'?1:0;
+  return (fa-fb) || String(a||'').localeCompare(String(b||''),'ko');
+}
 function setStat(on,txt){fbdot.classList.toggle('on',on);fbstat.textContent=txt;}
 /* [v4.27] 45일보다 옛 주문까지 전부 불러오기 (이 창에서만) */
 function loadAllOrders(){
@@ -877,6 +916,7 @@ async function onSignedIn(u){
   // [v4.27] 최근 45일치만 구독 (전체 구독 = 열 때마다 전체 다운로드 → Firebase 한도 초과 원인).
   //         더 옛 주문이 필요하면 상단 [📜 이전 주문 전체] 버튼.
   const _ordLo=(()=>{ const d=new Date(Date.now()-45*86400000); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })();
+  try{ db.ref('erpmap').on('value', s=>{ ERPMAP=s.val()||{}; try{ if(fbReady) renderAll(); }catch(e){} }, ()=>{}); }catch(e){}   // [v4.30]
   window.ORD_REF=db.ref('orders').orderByChild('date').startAt(_ordLo);
   db.ref('orders').orderByChild('date').equalTo(null).on('value', s=>{
     window.ORD_NODATE=s.val()||{};
@@ -2753,7 +2793,7 @@ function buildNoteTable(wrap, date, workMode){
     done.add(v);
     html+='<div class="veh-page">';
     group.forEach(vv=>{
-      const clients=Object.keys(g[vv]).sort((a,b)=>a.localeCompare(b,'ko'));
+      const clients=Object.keys(g[vv]).sort((a,b)=>coCmp(String(a).split('\u0001')[0],String(b).split('\u0001')[0]) || String(a).localeCompare(String(b),'ko'));   // [v4.30] 푸드는 차량별 맨 아래
       let itemCount=0;
       clients.forEach(c=>g[vv][c].forEach(o=>itemCount+=(o.items||[]).length));
       html+='<div class="veh-sec" data-veh="'+esc(vv)+'">';
@@ -2825,7 +2865,7 @@ function buildNoteTable(wrap, date, workMode){
         const wasPrinted=o=>o.printed===true || (o.printed!==false && pAtN && ((o.sts||o.ts)||0)<pAtN);   // 옛 주문은 시각 비교
         const prAt=pAtN&&orders.some(wasPrinted)?new Date(pAtN).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'';
         const noteTxt=orders.map(o=>o.note).filter(Boolean).join(' / ');
-        html+='<td class="cli"><span class="cli-edit" onclick="openOrderEditor(\''+esc(ids)+'\')">'+esc(c||'(미지정)')+((seqN&&sibN<=1)?' <span title="같은 거래처의 택배 '+seqN+'번째 건 — 받는 사람이 달라 따로 정리 (전산 거래처는 같음)" style="font-size:11px;font-weight:800;color:#8a5a00;background:#fff3d6;border:1px solid #e6c98a;border-radius:9px;padding:0 6px">택배 '+seqN+'</span>':'')
+        html+='<td class="cli"><span class="cli-edit" onclick="openOrderEditor(\''+esc(ids)+'\')">'+esc(c||'(미지정)')+coBadge(c)+((seqN&&sibN<=1)?' <span title="같은 거래처의 택배 '+seqN+'번째 건 — 받는 사람이 달라 따로 정리 (전산 거래처는 같음)" style="font-size:11px;font-weight:800;color:#8a5a00;background:#fff3d6;border:1px solid #e6c98a;border-radius:9px;padding:0 6px">택배 '+seqN+'</span>':'')
           +(seqBadge?'<br>'+seqBadge:'')
           +(allErp?' <span style="font-size:10px;font-weight:800;color:#1f6b3a" title="전산처리 완료">✔전산</span>':'')
           +(prAt?' <span style="font-size:10px;color:#7a5a00;font-weight:400" title="이 시각에 인쇄된 분량">(🖨'+prAt+')</span>':'')
