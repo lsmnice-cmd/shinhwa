@@ -11,7 +11,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="주문방">
 <!--
-  신화미트 주문방 (chat.html) v6.97 — 2026-11-23
+  신화미트 주문방 (chat.html) v6.98 — 2026-11-24
+  · v6.98: 거래처 옆에 [미트]/[푸드] 작은 표시 — 미처리 주문 카드, 배송방 차량별 패널.
+           회사는 거래처 코드 학습에 고정한 회사, 없으면 최근 전산대조가 매출을 찾은 회사로 판단 (모르면 표시 없음).
+           미처리·차량 패널에서 푸드 거래처는 차량별 맨 아래로 정렬.
   · v6.97: 검사 기준을 "양식"에서 "인식 결과가 원문과 맞는가"로 변경 (대화 3,802건 분석 반영 — 목적은 누락 방지).
            쪽지를 보내는 경우: ① 날짜 없음 ② 적은 날짜·차량과 다르게 등록됨 ③ 차량·거래처를 못 정함
            ④ 등록된 거래처 이름이 원문에 없음 ⑤ 새 거래처가 기존 거래처와 비슷하거나(오타 의심) 문장·품목처럼 생김
@@ -2100,7 +2103,7 @@ function renderVehPanel(){
   const panel=document.getElementById('vehPanel'); if(!panel) return;
   const t=todayKST();
   const list=Object.values(ORDERS).filter(o=>o&&o.date===t&&normVeh(o.vehicle||'미지정')===VEH_CUR)
-    .sort((a,b)=>String(a.client||'').localeCompare(String(b.client||''),'ko'));
+    .sort((a,b)=>coCmp(a.client,b.client));   // v6.98: 푸드는 맨 아래
   if(!list.length){ panel.innerHTML='<div style="color:var(--muted);font-size:13px;padding:6px">'+VEH_CUR+' — 오늘 주문 없음</div>'; return; }
   let h='<div style="font-size:12px;color:var(--muted);margin-bottom:4px">'+VEH_CUR+' · 거래처 '+list.length+'곳 <span style="float:right;cursor:pointer" onclick="vehPick(\''+VEH_CUR+'\')">✕ 닫기</span></div>';
   list.forEach(o=>{
@@ -2111,7 +2114,7 @@ function renderVehPanel(){
       if(it.prodKg||it.prodTail||it.boxN) x+=' <span style="color:#1a4f9c;font-weight:800;font-size:11px">⚖'+esc(measText(it))+'</span>';
       return x;
     }).join('<br>');
-    h+='<div class="vp-row"><div class="c">'+esc(o.client||'(미지정)')+'</div><div class="i">'+items+'</div><div class="s" style="color:'+(c.prod?'#1f6b3a':'var(--muted)')+'">'+(st||'대기')+'</div></div>';
+    h+='<div class="vp-row"><div class="c">'+esc(o.client||'(미지정)')+coBadge(o.client)+'</div><div class="i">'+items+'</div><div class="s" style="color:'+(c.prod?'#1f6b3a':'var(--muted)')+'">'+(st||'대기')+'</div></div>';
   });
   panel.innerHTML=h;
 }
@@ -3627,6 +3630,44 @@ async function createOrders(text, forced, msgId, senderName, isEdit, guard){
   return tot;
 }
 
+
+/* ===== 거래처 회사 구분 (미트/푸드) =====
+   ① 거래처 코드 학습에 회사가 고정돼 있으면 그 회사 (erpmap.db)
+   ② 없으면 그 거래처의 최근 주문에서 전산대조가 매출을 찾은 회사 (erpSale.db / recon.db)
+   둘 다 없으면 '' (표시 없음) */
+var CO_CACHE=null, CO_CACHE_N=-1, CO_CACHE_T=0;
+function coMap(){
+  const n=Object.keys(ORDERS||{}).length;
+  if(CO_CACHE && CO_CACHE_N===n && Date.now()-CO_CACHE_T<20000) return CO_CACHE;   // 20초마다 다시 계산
+  CO_CACHE_T=Date.now();
+  const mp={};
+  for(const id in ORDERS){
+    const o=ORDERS[id]; if(!o||!o.client) continue;
+    const d=(o.erpSale&&o.erpSale.db)||(o.recon&&o.recon.db)||''; if(d!=='미트'&&d!=='푸드') continue;
+    const k=cliNorm(o.client); const dt=String(o.reconDate||o.date||'');
+    if(!mp[k] || dt>=mp[k].dt) mp[k]={db:d, dt:dt};
+  }
+  CO_CACHE=mp; CO_CACHE_N=n; return mp;
+}
+function coOf(client){
+  try{
+    const k=cliNorm(client||''); if(!k) return '';
+    const em=(typeof ERPMAP!=='undefined' && ERPMAP)?ERPMAP[k]:null;
+    if(em && (em.db==='미트'||em.db==='푸드')) return em.db;
+    const m=coMap()[k]; return m?m.db:'';
+  }catch(e){ return ''; }
+}
+function coBadge(client){
+  const c=coOf(client); if(!c) return '';
+  return c==='푸드'
+    ? ' <span title="신화푸드 거래처" style="display:inline-block;font-size:10px;font-weight:800;color:#fff;background:#c2410c;border-radius:4px;padding:0 5px;line-height:15px;vertical-align:1px">푸드</span>'
+    : ' <span title="신화미트 거래처" style="display:inline-block;font-size:10px;font-weight:700;color:#6b665a;background:#eceae3;border-radius:4px;padding:0 5px;line-height:15px;vertical-align:1px">미트</span>';
+}
+/* 정렬: 미트·미확인 먼저(가나다), 푸드는 맨 아래(가나다) */
+function coCmp(a,b){
+  const fa=coOf(a)==='푸드'?1:0, fb=coOf(b)==='푸드'?1:0;
+  return (fa-fb) || String(a||'').localeCompare(String(b||''),'ko');
+}
 /* v6.94: 택배 수취인 식별 키 — 첫 수취인의 전화번호(숫자만), 없으면 주소 */
 function shipKeyOf(x){
   try{ const s=(x&&x.ships&&x.ships[0])||(x&&x.ship)||{}; const p=String(s.phone||'').replace(/\D/g,''); return p || String(s.addr||'').replace(/\s+/g,''); }catch(e){ return ''; }
@@ -3762,8 +3803,8 @@ let RUNNER_ALIVE=0;                                   // 자동처리 화면의 
 let RUNNER_SEEN=false;                                 // v6.69: 생존 신호를 한 번이라도 받았는지
 function runnerAlive(){ return !IS_RUNNER && (Date.now()-RUNNER_ALIVE)<130*1000; }   // v6.69: 백그라운드 탭 타이머 지연(최대 1분) 감안
 const STALE_MS=IS_RUNNER ? 150*1000 : 180*1000;  // v6.69: 처리 중엔 20초마다 잠금이 갱신됨 → 이 시간 동안 갱신이 없을 때만 '멈춤'
-const APP_VER='6.97';
-const APP_BUILD=697;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
+const APP_VER='6.98';
+const APP_BUILD=698;   // 🔄 정수 빌드번호 — 배포마다 +1 (버전 비교용)   // 🔄 배포 버전 — 새 파일이 올라가면 열린 화면들이 자동 새로고침
 function newTok(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36); }
 /* ===== v6.93: 분석 대기열 (meta/pq/{msgId} = {at, room, tg}) =====
    분석을 시작한 메시지를 올려 두고, 끝나면(완료·삭제) 내린다. 자동처리 화면이 주기적으로 훑어
@@ -4568,7 +4609,7 @@ function renderPend(){
     const h=document.createElement('div'); h.className='veh-h';
     h.innerHTML='<span class="v">'+esc(v)+'</span><span class="n">'+g[v].length+'곳</span>';
     box.appendChild(h);
-    g[v].sort((a,b)=>String(a.client).localeCompare(String(b.client),'ko'))
+    g[v].sort((a,b)=>coCmp(a.client,b.client))
         .forEach(o=>box.appendChild(buildOrderCard(o)));
   });
   renderFolded(box, folded);
@@ -4593,7 +4634,7 @@ function buildOrderCard(o){
   const pAt=printedAt(o.date);
   const isLate=pAt && (o.ts||0)>pAt;
   head.innerHTML='<span class="oc-cli'+(o.needClient?' warn':'')+'" style="cursor:pointer;text-decoration:underline dotted" '
-    +'onclick="openCliEdit(\''+esc(o.id)+'\')" title="누르면 거래처 수정 (잘못 잡힌 이름은 학습됩니다)">'+esc(o.client||'(거래처 미확인)')+'</span>'
+    +'onclick="openCliEdit(\''+esc(o.id)+'\')" title="누르면 거래처 수정 (잘못 잡힌 이름은 학습됩니다)">'+esc(o.client||'(거래처 미확인)')+'</span>'+coBadge(o.client)
     +(clientLooksDirty(o.client)?'<span title="인사말이 붙은 거래처명 — 눌러서 정리" onclick="fixDirtyClients()" style="cursor:pointer;font-size:10.5px;font-weight:800;color:#8a1c1c;background:#fdecec;border-radius:8px;padding:1px 6px">⚠ 이름 정리</span>':'')
     +'<span title="접수 시각" style="font-size:10px;color:var(--muted)">'+(o.sts||o.ts?new Date(o.sts||o.ts).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})+' 접수':'')+'</span>'
     +'<span onclick="editDate(\''+esc(o.id)+'\')" title="누르면 배송 날짜 수정" '
@@ -5406,7 +5447,7 @@ function erpKey(client){
   return raw?('raw_'+raw):'';
 }
 function ERPMAP_HAS(client){ try{ const k=erpKey(client); return !!(k && ERPMAP[k] && ERPMAP[k].code); }catch(e){ return false; } }
-try{ setTimeout(()=>{ if(db) db.ref('erpmap').on('value', s=>{ ERPMAP=s.val()||{}; }, ()=>{}); }, 4000); }catch(e){}
+try{ setTimeout(()=>{ if(db) db.ref('erpmap').on('value', s=>{ ERPMAP=s.val()||{}; try{ renderSideSafe(); }catch(e){} }, ()=>{}); }, 4000); }catch(e){}
 async function editReconDate(id){
   const o=ORDERS[id]; if(!o) return;
   const v=prompt('ERP에 매출을 입력한 날짜 (예: 0917 또는 2026-09-17)\n비우면 배송일('+mmdd(o.date||'')+')로 되돌림', (o.reconDate||o.date||'').replace(/-/g,'').slice(4));
